@@ -20,5 +20,6 @@ export const ogOptions: OgImagePluginOptions = {
       hero: ({ doc }: { doc: { heroImage?: never } }) => doc.heroImage,
     },
   },
-  store: { memory: true },
+  // Production: an absolute path on a volume only the app writes. Without one, cards stay in memory.
+  store: process.env.OG_STORE_DIR ? { dir: process.env.OG_STORE_DIR } : { memory: true },
 }
