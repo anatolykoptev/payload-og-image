@@ -1,19 +1,26 @@
 /** Mutation table (production line -> the test that goes RED). Silent-failure surface: a hero read escaping its folder, a fetch the operator never allowed, an invalid PNG cached immutable.
- * - hero.ts:39  open following symlinks -> "a symlink at the file name is not followed" RED; without O_NONBLOCK -> "a FIFO at the file name is a null, not a hang" RED
- * - hero.ts:59  use the stored filename as is -> "(d) a filename with traversal reads only the base name" RED
- * - hero.ts:77  drop the exact host match -> "is never fetched for another host / a subdomain / a trailing-dot host" RED
- * - hero.ts:77  allow plain http -> "is never fetched for plain http" RED; allow userinfo -> "credentials on the allowed host" RED
- * - hero.ts:79  follow redirects -> "(f) an allowlisted host is fetched ... redirect: error" RED
- * - hero.ts:86  ignore a declared content-length over the cap -> "a body over maxBytes is null whether it is declared or only streamed" RED
- * - hero.ts:97  no running cap on the stream -> same test RED
- * - hero.ts:122  accept an SVG -> "an SVG, a non-image and an empty file are null" RED
- * - hero.ts:119  no pixel limit -> "an image above maxPixels is not decoded" RED
- * - hero.ts:45  read a file above maxBytes -> "a file above maxBytes is not read" RED
+ * - hero.ts:50  open following symlinks -> "a symlink at the file name is not followed" RED; without O_NONBLOCK -> "a FIFO at the file name is a null, not a hang" RED
+ * - hero.ts:70  use the stored filename as is -> "(d) a filename with traversal reads only the base name" RED
+ * - hero.ts:95  drop the exact host match -> "is never fetched for another host / a subdomain / a trailing-dot host" RED
+ * - hero.ts:95  allow plain http -> "is never fetched for plain http" RED; allow userinfo -> "credentials on the allowed host" RED
+ * - hero.ts:101  follow redirects -> "(f) an allowlisted host is fetched ... redirect: error" RED
+ * - hero.ts:108  ignore a declared content-length over the cap -> "a body over maxBytes is null whether it is declared or only streamed" RED
+ * - hero.ts:119  no running cap on the stream -> same test RED
+ * - hero.ts:144  accept an SVG -> "an SVG, a non-image and an empty file are null" RED
+ * - hero.ts:141  no pixel limit -> "an image above maxPixels is not decoded" RED
+ * - hero.ts:56  read a file above maxBytes -> "a file above maxBytes is not read" RED
  * - encode.ts:25  always the palette encoding -> "(b) encodePng keeps the smaller encoding" RED
  * - nextOg.ts:16  accept any card size -> "refuses a bad palette and an out-of-range card size" RED
  * - template.ts:66  accept a size above the cap -> "a template size above the pixel cap is refused when it is defined" RED
  * - (none):0  nextOg.ts `isCompletePng(out)` guard: next/og never yields an invalid PNG here, so no test can reach it; it is the last line before a card may be cached immutable
- * - hero.ts:82  leave an error response body open -> "an error response has its body cancelled, not left open" RED */
+ * - hero.ts:104  leave an error response body open -> "an error response has its body cancelled, not left open" RED
+ * - guardedFetch.ts:13  leave 10/8 out of the blocked ranges -> "isPublicAddress(\"10.1.2.3\") is false", "pinnedLookup refuses a name that resolves only to 10.0.0.9" RED
+ * - guardedFetch.ts:55  accept IPv4-mapped IPv6 -> "isPublicAddress(\"::ffff:8.8.8.8\") is false" RED
+ * - guardedFetch.ts:78  pin to any resolved address, not a vetted one -> "pinnedLookup ..." (5 tests) RED
+ * - hero.ts:97  allow a non-default port -> "an IP literal is refused unless allowlisted exactly ... only the default port is used" RED
+ * - hero.ts:99  allow a private IP literal -> same test RED
+ * - hero.ts:184  default to the unguarded global fetch -> "the default fetch is refused for an allowlisted name that resolves to 127.0.0.1 / 10.20.30.40 / ::1" RED
+ * - hero.ts:190  search every upload collection -> "a hero is read only inside its own upload collection" RED */
 import { execFileSync } from 'node:child_process'
 import { chmod, mkdir, mkdtemp, symlink, writeFile } from 'node:fs/promises'
 import os from 'node:os'
@@ -24,6 +31,7 @@ import { postCard } from '../../dev/src/og/exampleTemplate.js'
 import { isCompletePng } from '../../src/internal/store/png.js'
 import { encodePng } from '../../src/render/encode.js'
 import { createFallbackTemplate, fallbackTemplate } from '../../src/render/fallback.js'
+import { isPublicAddress, pinnedLookup } from '../../src/render/guardedFetch.js'
 import { payloadHeroLoader } from '../../src/render/hero.js'
 import { nextOgRenderer } from '../../src/render/nextOg.js'
 import { defineTemplate } from '../../src/template.js'
@@ -283,5 +291,119 @@ describe('payloadHeroLoader (remote)', () => {
     ).toBeNull()
     // control: within the limit, the same image is accepted
     expect(await run(async () => new Response(stream(), { status: 200 }), bytes.length)).not.toBeNull()
+  })
+})
+
+describe('SSRF guard for remote heroes', () => {
+  it.each([
+    ['93.184.216.34', true],
+    ['2606:4700:4700::1111', true],
+    ['127.0.0.1', false],
+    ['127.255.255.254', false],
+    ['10.1.2.3', false],
+    ['172.16.0.1', false],
+    ['172.31.255.255', false],
+    ['192.168.1.1', false],
+    ['169.254.169.254', false],
+    ['100.64.0.1', false],
+    ['0.0.0.0', false],
+    ['224.0.0.1', false],
+    ['::1', false],
+    ['::', false],
+    ['fc00::1', false],
+    ['fd12:3456::1', false],
+    ['fe80::1', false],
+    ['::ffff:127.0.0.1', false],
+    ['::ffff:7f00:1', false],
+    ['::ffff:8.8.8.8', false],
+    ['64:ff9b::7f00:1', false],
+    ['2002:7f00:1::', false],
+    ['[::1]', false],
+    ['not-an-ip', false],
+    ['', false],
+  ])('isPublicAddress(%j) is %s', (addr, ok) => expect(isPublicAddress(addr)).toBe(ok))
+
+  const lookup = (resolveTo: Array<{ address: string; family: number }> | Error, calls: string[] = []) =>
+    new Promise<{ err: Error | null; address?: unknown; family?: number }>((done) =>
+      pinnedLookup(async (h) => {
+        calls.push(h)
+        if (resolveTo instanceof Error) throw resolveTo
+        return resolveTo
+      })('cdn.test', { all: false }, (err, address, family) => done({ err, address, family })),
+    )
+  it('pinnedLookup hands back only a vetted address, after resolving once', async () => {
+    const calls: string[] = []
+    const r = await lookup(
+      [
+        { address: '10.0.0.5', family: 4 },
+        { address: '93.184.216.34', family: 4 },
+      ],
+      calls,
+    )
+    expect([r.err, r.address, r.family]).toEqual([null, '93.184.216.34', 4])
+    expect(calls).toEqual(['cdn.test'])
+  })
+  it('pinnedLookup in `all` mode returns the vetted subset only', async () => {
+    const got = await new Promise<unknown>((done) =>
+      pinnedLookup(async () => [
+        { address: '127.0.0.1', family: 4 },
+        { address: '2606:4700:4700::1111', family: 6 },
+      ])('cdn.test', { all: true }, (_e, a) => done(a)),
+    )
+    expect(got).toEqual([{ address: '2606:4700:4700::1111', family: 6 }])
+  })
+  it.each([
+    ['127.0.0.1', 4],
+    ['10.0.0.9', 4],
+    ['::1', 6],
+    ['169.254.169.254', 4],
+    ['fd00::1', 6],
+  ])('pinnedLookup refuses a name that resolves only to %s', async (address, family) => {
+    expect((await lookup([{ address, family }])).err?.message).toMatch(/resolves to no public address/)
+  })
+  it('pinnedLookup passes a resolver failure on', async () => expect((await lookup(new Error('ENOTFOUND'))).err?.message).toBe('ENOTFOUND'))
+
+  const loaderFor = (o: Record<string, unknown>) => payloadHeroLoader({ staticDirs: async () => [], allowedHosts: ['cdn.test'], ...o })
+  it.each([
+    ['127.0.0.1', 4],
+    ['10.20.30.40', 4],
+    ['::1', 6],
+  ])(
+    'the default fetch is refused for an allowlisted name that resolves to %s (the resolver is asked, nothing connects)',
+    async (address, family) => {
+      const resolveHost = vi.fn(async () => [{ address, family }])
+      expect(await loaderFor({ resolveHost })({ id: 1, url: 'https://cdn.test/a.jpg' }, BOX)).toBeNull()
+      expect(resolveHost).toHaveBeenCalledWith('cdn.test')
+    },
+  )
+  it('an IP literal is refused unless allowlisted exactly, and a private one even then; only the default port is used', async () => {
+    const fetchImpl = vi.fn(async () => new Response(new Uint8Array(await jpeg()), { status: 200 }))
+    const run = (allowedHosts: string[], url: string) =>
+      payloadHeroLoader({ staticDirs: async () => [], allowedHosts, fetchImpl })({ id: 1, url }, BOX)
+    expect(await run(['cdn.test'], 'https://93.184.216.34/a.jpg')).toBeNull() // not allowlisted
+    expect(await run(['127.0.0.1'], 'https://127.0.0.1/a.jpg')).toBeNull() // allowlisted but private
+    expect(await run(['[::1]'], 'https://[::1]/a.jpg')).toBeNull()
+    expect(await run(['cdn.test'], 'https://cdn.test:8443/a.jpg')).toBeNull()
+    expect(fetchImpl).not.toHaveBeenCalled()
+    expect(await run(['93.184.216.34'], 'https://93.184.216.34/a.jpg')).not.toBeNull() // allowlisted and public
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('a hero is read only inside its own upload collection', () => {
+  it("the same basename in two collections: the hero's collection wins, a miss there is a null, and no collection reads nothing", async () => {
+    const [media, secret] = [await tmp(), await tmp()]
+    await writeFile(path.join(media, 'h.jpg'), await jpeg(800, 600))
+    await writeFile(path.join(secret, 'h.jpg'), await jpeg(300, 300)) // a private collection's file of the same name
+    await writeFile(path.join(secret, 'only-private.jpg'), await jpeg())
+    const dirs = vi.fn(async (c?: string) => (c === 'media' ? [media] : c === 'secret' ? [secret] : []))
+    const load = payloadHeroLoader({ staticDirs: dirs })
+    const own = await load(hero(), BOX, { collection: 'media' })
+    expect(own).not.toBeNull()
+    expect((await meta(own as string)).width).toBe(BOX.width)
+    // a file that exists only in the other collection is not found through this one
+    expect(await load(hero({ filename: 'only-private.jpg' }), BOX, { collection: 'media' })).toBeNull()
+    expect(await load(hero(), BOX)).toBeNull() // no collection named: nothing is read
+    expect(dirs).toHaveBeenCalledWith('media')
   })
 })
