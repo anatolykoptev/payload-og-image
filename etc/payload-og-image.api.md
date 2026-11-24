@@ -4,6 +4,200 @@
 
 ```ts
 
+import type { Config } from 'payload';
+import type { Payload } from 'payload';
+import type { ReactElement } from 'react';
+
+// @public (undocumented)
+export type Box = {
+    width: number;
+    height: number;
+    maxSize: number;
+    minSize: number;
+    leading: number;
+    maxLines?: number;
+};
+
+// @public (undocumented)
+export function defineTarget<D, P>(t: Target<D, P>): Target<D, P>;
+
+// @public (undocumented)
+export function defineTemplate<P extends PropsModel>(t: Omit<Template<P>, 'size'> & {
+    size?: Size;
+}): Template<P>;
+
+// @public (undocumented)
+export type FontSpec = {
+    family: string;
+    weight?: number;
+    style?: 'normal' | 'italic';
+    data: () => Promise<ArrayBuffer | Uint8Array>;
+};
+
+// @public
+export type Normalized<T> = T extends Date ? string : T extends string | number | boolean | null | undefined ? T : T extends readonly (infer U)[] ? Normalized<U>[] : T extends ((...args: never[]) => unknown) | bigint | symbol | ReadonlyMap<unknown, unknown> | ReadonlySet<unknown> ? never : T extends object ? {
+    [K in keyof T]: Normalized<T[K]>;
+} : never;
+
+// @public (undocumented)
+export type OgEvent = {
+    name: OgEventName;
+    kind?: string;
+    slug?: string;
+    v?: string;
+    ms?: number;
+    bytes?: number;
+    detail?: Record<string, unknown>;
+};
+
+// @public (undocumented)
+export type OgEventName = 'hit_memo' | 'hit_store' | 'render' | 'shed' | 'store_disabled' | 'store_write_skipped' | 'store_corrupt' | 'downgraded' | 'render_error' | 'glyph_missing' | 'over_budget' | 'draft' | 'not_found' | 'crawler';
+
+// @public
+export function ogImagePlugin(o: OgImagePluginOptions): (config: Config) => Config;
+
+// @public (undocumented)
+export type OgImagePluginOptions = {
+    site(a: {
+        payload: Payload;
+        draft?: boolean;
+    }): Promise<SiteInfo> | SiteInfo;
+    siteGlobals?: string[];
+    fonts: FontSpec[];
+    stacks: Stacks;
+    templates: Template<any>[];
+    targets: Record<string, Target>;
+    static?: Record<string, StaticCard>;
+    store: {
+        dir: string;
+        maxFiles?: number;
+        maxBytes?: number;
+    } | {
+        memory: true;
+        maxBytes?: number;
+    };
+    gate?: {
+        concurrency?: number;
+        queue?: number;
+    };
+    memo?: {
+        maxBytes?: number;
+    };
+    seoImage?: {
+        path: string;
+        isDeliberate?: (image: unknown) => boolean;
+    };
+    allowedImageHosts?: string[];
+    requiredSample?: string;
+    onEvent?: OnEvent;
+    crawlerEvents?: {
+        sample: number;
+    };
+    brand?: {
+        ink?: string;
+        paper?: string;
+    };
+    disabled?: boolean;
+};
+
+// @public (undocumented)
+export type OnEvent = (e: OgEvent) => void;
+
+// @public
+export type PropsModel = {
+    [key: string]: PropValue;
+};
+
+// @public
+export type PropValue = string | number | boolean | null | undefined | readonly PropValue[] | {
+    [key: string]: PropValue;
+};
+
+// @public (undocumented)
+export type ResolverArgs<D> = {
+    doc: D;
+    site: SiteInfo;
+};
+
+// @public (undocumented)
+export type SiteInfo = {
+    name: string;
+} & Record<string, unknown>;
+
+// @public (undocumented)
+export type Size = {
+    width: number;
+    height: number;
+};
+
+// @public (undocumented)
+export type Stacks = Record<string, string[]>;
+
+// @public
+export type StaticCard<P = any> = {
+    path: string;
+    kind: string;
+    slug: string;
+    template: string;
+    props: (a: {
+        payload: unknown;
+        site: SiteInfo;
+    }) => P | Promise<P>;
+};
+
+// @public (undocumented)
+export type Target<D = any, P = any> = {
+    path: string;
+    kind?: string;
+    collection?: string;
+    slugField?: string;
+    template: string | ((a: ResolverArgs<D>) => string);
+    props: (a: ResolverArgs<D>) => P | Promise<P>;
+    hero?: (a: ResolverArgs<D>) => Upload | null | undefined;
+    share?: (a: ResolverArgs<D>) => unknown[];
+    select?: Record<string, true>;
+    depth?: number;
+};
+
+// @public (undocumented)
+export type Template<P extends PropsModel> = {
+    id: string;
+    revision: string;
+    size: Size;
+    required?: (p: P) => boolean;
+    textFields?: (keyof P & string)[];
+    stacks?: Record<string, string>;
+    heroBox?: Size;
+    render(p: P, ctx: TemplateContext): ReactElement;
+};
+
+// @public
+export type TemplateContext = {
+    host: string;
+    hero: string | null;
+    fit(text: string, box: Box, stack: string): {
+        size: number;
+        lines: number;
+        text: string;
+    };
+    font(stack: string, text: string): string;
+};
+
+// @public (undocumented)
+export type Upload = {
+    id: string | number;
+    url?: string | null;
+    width?: number | null;
+    height?: number | null;
+    mimeType?: string | null;
+    alt?: string | null;
+    updatedAt?: string | null;
+    filename?: string | null;
+    focalX?: number | null;
+    focalY?: number | null;
+    sizes?: Record<string, Partial<Upload> | undefined> | null;
+};
+
 // (No @packageDocumentation comment for this package)
 
 ```

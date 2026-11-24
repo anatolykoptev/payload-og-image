@@ -28,7 +28,14 @@
         "src/internal/resolve.ts",
         "test/internal/resolve.spec.ts",
         "src/internal/handler.ts",
-        "test/internal/handler.spec.ts"
+        "test/internal/handler.spec.ts",
+        "src/plugin/index.ts",
+        "src/plugin/payloadSource.ts",
+        "src/internal/runtime.ts",
+        "src/internal/state.ts",
+        "src/next/*.ts",
+        "test/plugin/*.ts",
+        "test/next/*.ts"
       ],
       "linter": {
         "rules": {
