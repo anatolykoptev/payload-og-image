@@ -78,7 +78,10 @@ async function fetchRemote(hero: Upload, o: { hosts: Set<string>; fetchImpl: typ
   try {
     // `redirect: 'error'`: a redirect would leave the allowlist.
     const res = await o.fetchImpl(url.href, { redirect: 'error', signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) })
-    if (!res.ok || !res.body) return null
+    if (!res.ok || !res.body) {
+      await res.body?.cancel().catch(() => undefined) // an error body left open holds the connection until the timeout
+      return null
+    }
     const declared = Number(res.headers.get('content-length'))
     if (Number.isFinite(declared) && declared > o.maxBytes) {
       await res.body.cancel().catch(() => undefined)

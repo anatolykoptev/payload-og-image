@@ -20,6 +20,8 @@ export type TestRuntime = {
   readonly options: OgImagePluginOptions
   readonly docs: KitDocs
   readonly serverUrl: string
+  /** `real` draws with next/og; `stub` draws a tiny PNG of the element's JSON (fast, but its size says nothing about a real card). */
+  readonly rendererKind: 'real' | 'stub'
   setGlobal(slug: string, data: Record<string, any>): void
   setDoc(target: string, doc: Record<string, any>): void
   /** Draft mode on or off, and whether the request carries an authenticated editor. */
@@ -76,7 +78,12 @@ export function installTestRuntime(options: OgImagePluginOptions, docs: KitDocs,
       const found = key.slug !== undefined ? pool.find((d) => d.slug === key.slug) : pool.find((d) => String(d.id) === String(key.id))
       return structuredClone(found ?? null)
     },
-    site: async (request) => options.site({ payload: fakePayload, draft: Boolean(request) && draft.editor }),
+    // Like production: draft site data only for an editor, otherwise the runtime's CACHED site(), so a site global
+    // missing from `siteGlobals` stays stale here exactly as it would in the app.
+    site: async (request) =>
+      request && draft.editor
+        ? options.site({ payload: fakePayload, draft: true })
+        : (state.siteCache as NonNullable<OgState['siteCache']>).get(),
   }
 
   const inner: Renderer =
@@ -132,6 +139,7 @@ export function installTestRuntime(options: OgImagePluginOptions, docs: KitDocs,
     options,
     docs,
     serverUrl,
+    rendererKind: o.renderer === 'real' ? 'real' : 'stub',
     get runtime() {
       return runtime
     },

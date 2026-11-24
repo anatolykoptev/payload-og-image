@@ -276,6 +276,7 @@ export type TestRuntime = {
     readonly options: OgImagePluginOptions;
     readonly docs: KitDocs;
     readonly serverUrl: string;
+    readonly rendererKind: 'real' | 'stub';
     setGlobal(slug: string, data: Record<string, any>): void;
     setDoc(target: string, doc: Record<string, any>): void;
     draftMode(on: boolean, editor?: boolean): void;
