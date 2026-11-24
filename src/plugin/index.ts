@@ -9,8 +9,8 @@ import type { OnEvent, SiteInfo } from '../internal/types.js'
 import type { StaticCard, Target, Template } from '../template.js'
 
 export type OgImagePluginOptions = {
-  /** The site data cards draw (its name, say). Published values unless `draft` is true (an authenticated editor in draft mode). */
-  site(a: { payload: Payload; draft?: boolean }): Promise<SiteInfo> | SiteInfo
+  /** The site data cards draw (its name, say). Published values unless `draft` is true: then `user` is the authenticated editor. */
+  site(a: { payload: Payload; draft?: boolean; user?: unknown }): Promise<SiteInfo> | SiteInfo
   /** Globals `site()` reads: saving one drops the cached `site()` result. */
   siteGlobals?: string[]
   /** TTF, OTF or WOFF faces (WOFF2 is refused). */
@@ -23,6 +23,13 @@ export type OgImagePluginOptions = {
   /** Where finished cards are kept. `dir` must be an absolute path to a volume only the app writes. */
   store: { dir: string; maxFiles?: number; maxBytes?: number } | { memory: true; maxBytes?: number }
   gate?: { concurrency?: number; queue?: number }
+  /** Bounds the work done before a card is found in the memo or store (database reads). Default 16 concurrent, 128 queued. */
+  admission?: { concurrency?: number; queue?: number }
+  /**
+   * Auth collections whose users count as editors: they may see draft text in draft mode. Default: the admin user collection
+   * (`admin.user`, normally `users`). A user from any other auth collection (customers, say) never gets a draft.
+   */
+  editors?: string[]
   memo?: { maxBytes?: number }
   seoImage?: { path: string; isDeliberate?: (image: unknown) => boolean }
   /** Hosts a hero image may be fetched from (exact hostnames, https). Default none: nothing is fetched at render time. */
@@ -99,6 +106,11 @@ function validate(o: OgImagePluginOptions, config: Config): string {
   if (store?.dir !== undefined && (typeof store.dir !== 'string' || !path.isAbsolute(store.dir)))
     fail('options.store.dir must be an absolute path (there is no working-directory default)')
   createGate(o.gate) // validates concurrency and queue
+  createGate(o.admission ?? { concurrency: 16, queue: 128 })
+  for (const e of o.editors ?? []) {
+    const c = (config.collections ?? []).find((x) => x.slug === e)
+    if (!c?.auth) fail(`editors names "${e}", which is not an auth collection`)
+  }
   if (o.crawlerEvents) {
     const sample = o.crawlerEvents.sample
     if (typeof sample !== 'number' || !(sample > 0 && sample <= 1))

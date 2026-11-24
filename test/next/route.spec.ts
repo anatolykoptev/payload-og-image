@@ -4,7 +4,9 @@
  * - runtime.ts:59  ignore `disabled` -> "disabled: every card route answers 404 no-store" RED
  * - withHead.ts:13  leave the body un-cancelled -> "keeps a non-200 status ... cancels the body unread" RED
  * - withHead.ts:12  run the wrapped GET with the request's own method -> "answers HEAD from GET ... the GET copy is a GET" RED
- * - runtime.ts:40  emit a crawler event for every request (ignore the sample fraction) -> "a `sample` fraction of requests becomes a crawler event" RED */
+ * - runtime.ts:40  emit a crawler event for every request (ignore the sample fraction) -> "a `sample` fraction of requests becomes a crawler event" RED
+ * - runtime.ts:103  do not hand the plugin's admission gate to the handler -> "the plugin's `admission` option bounds the lookups before the memo" RED
+ * - route.ts:24  let a runtime/pinned-target failure escape the route -> "a pinned target that is not configured is a 503 no-store" and "without the plugin in the config" RED */
 import { getPayload, type Payload } from 'payload'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { buildRuntime, getRuntime, setTestRuntime } from '../../src/internal/runtime.js'
@@ -29,7 +31,8 @@ const target = defineTarget<any, any>({
   template: 'post',
   props: ({ doc }: any) => ({ title: doc.title }),
 })
-const docs: Record<string, any> = { a: { id: 1, slug: 'a', title: 'A' } }
+const docs: Record<string, any> = { a: { id: 1, slug: 'a', title: 'A' }, b: { id: 2, slug: 'b', title: 'B' } }
+let lookupHold: Promise<void> | undefined // makes the document lookup wait, to occupy the admission gate
 
 function runtime(over: Partial<OgImagePluginOptions> = {}) {
   const options: OgImagePluginOptions = {
@@ -45,7 +48,10 @@ function runtime(over: Partial<OgImagePluginOptions> = {}) {
   state.fonts = loadTestFonts
   const rt = buildRuntime(state, {} as Payload, {
     source: {
-      published: async (_t, slug) => docs[slug] ?? null,
+      published: async (_t, slug) => {
+        await lookupHold
+        return docs[slug] ?? null
+      },
       publishedById: async () => null,
       draft: async () => null,
       site: async () => ({ name: 'Site' }),
@@ -74,13 +80,39 @@ describe('createOgRoute', () => {
     const { req, ctx } = get('https://x.test/blog/a/og.png', 'a')
     expect((await createOgRoute({ config: {} as never, target: 'posts' }).GET(req, ctx)).status).toBe(200)
   })
-  it('a pinned target that is not configured fails, rather than answering for something else', async () => {
-    runtime()
+  it("the plugin's `admission` option bounds the lookups before the memo: one slot, no queue, the second request is shed", async () => {
+    let release!: () => void
+    lookupHold = new Promise<void>((r) => {
+      release = r
+    })
+    try {
+      runtime({ admission: { concurrency: 1, queue: 0 } })
+      const route = createOgRoute({ config: {} as never })
+      const first = route.GET(...(Object.values(get('https://x.test/og/posts/a/card.png', 'a', 'posts')) as [Request, never]))
+      await new Promise((r) => setImmediate(r))
+      const { req, ctx } = get('https://x.test/og/posts/b/card.png', 'b', 'posts')
+      const shed = await Promise.race([route.GET(req, ctx), new Promise<'hung'>((r) => setTimeout(() => r('hung'), 500))])
+      expect(shed).not.toBe('hung') // an unbounded lookup would wait on the held first one
+      const answer = shed as Response
+      expect([answer.status, answer.headers.get('cache-control')]).toEqual([503, 'no-store'])
+      release()
+      expect((await first).status).toBe(200)
+    } finally {
+      release()
+      lookupHold = undefined
+    }
+  })
+  it('a pinned target that is not configured is a 503 no-store with an event, never an uncaught error', async () => {
+    const { state } = runtime({ onEvent: undefined })
+    const seen: string[] = []
+    state.events.counters() // the sink counts every event by name
     const { req, ctx } = get('https://x.test/x', 'a')
-    await expect(createOgRoute({ config: {} as never, target: 'nope' }).GET(req, ctx)).rejects.toThrow(
-      /target "nope" is not a configured target/,
-    )
-    await expect(createOgRoute({ config: {} as never, target: 'constructor' }).GET(req, ctx)).rejects.toThrow(/is not a configured target/)
+    for (const target of ['nope', 'constructor']) {
+      const r = await createOgRoute({ config: {} as never, target }).GET(req, ctx)
+      expect([r.status, r.headers.get('cache-control'), r.headers.get('retry-after')]).toEqual([503, 'no-store', '5'])
+    }
+    expect(state.events.counters().render_error).toBe(2)
+    expect(seen).toEqual([])
   })
   it('HEAD = GET: a GET handler answers a HEAD request with the same status and headers (Next drops the body)', async () => {
     runtime()
@@ -142,6 +174,13 @@ describe('createOgRoute', () => {
     setTestRuntime(null)
     vi.mocked(getPayload).mockResolvedValue({ config: { custom: {} } } as never)
     await expect(getRuntime({} as never)).rejects.toThrow(/add ogImagePlugin/)
+    // ...and the route answers 503 no-store instead of throwing
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const { req, ctx } = get('https://x.test/x', 'a')
+    const r = await createOgRoute({ config: {} as never }).GET(req, ctx)
+    expect([r.status, r.headers.get('cache-control')]).toEqual([503, 'no-store'])
+    expect(warn.mock.calls[0]?.[0]).toMatch(/event=render_error.*add ogImagePlugin/)
+    warn.mockRestore()
   })
 })
 

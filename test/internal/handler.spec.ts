@@ -1,24 +1,27 @@
 /** Mutation table (production line -> the test that goes RED). Silent-failure surface: a draft cached, a stale or request-chosen version stored, a degraded card pinned.
- * - handler.ts:204  delete the draft branch -> "6", "7", "7b", "16", "20" RED
- * - handler.ts:224  store keyed by the request ?v -> "3: a stale ?v is served short, stored under the CURRENT v" RED
- * - handler.ts:211  immutable without the `current` check -> "3" RED
- * - handler.ts:222  decide the downgrade inside the memo closure (store and memoise it) -> "17" RED
- * - handler.ts:216  call heroLoader before store.get -> "4: a store hit renders nothing and loads no hero" RED
- * - handler.ts:258  fail open when the draft check throws -> "20" RED
- * - handler.ts:152  memoise the fallback in draft mode -> "21" RED
- * - handler.ts:67  match If-None-Match only as one whole tag -> "13" RED
- * - handler.ts:163  no slug length cap -> "24: an over-long or missing slug is a 404 before any lookup" RED
- * - handler.ts:267  let a pre-card error escape GET (rethrow) -> "19", "19b" RED
- * - handler.ts:107  ctx stack lookup without the `default` rule -> "22" RED
- * - handler.ts:177  always pass the request to site() -> "18" RED
- * - handler.ts:181  ask for a draft on a normal request -> "2" (draft not called) RED
- * - handler.ts:245  drop the shed branch -> "8" (shed event) RED
- * - handler.ts:169  (equivalent mutant) `urlKind in kindIndex`: the later `Object.hasOwn(d.targets, ...)` guard still answers 404 -> "15b"
- * - handler.ts:146  fallback keeps unsupported glyphs in the site name -> "10b: the fallback drops site-name characters no font draws" RED
- * - handler.ts:237  give a downgraded card the real etag -> "26: a downgraded (hero-less) card carries no etag" RED
- * - handler.ts:161  ignore `params.id` -> "27: an :id route (params.id, no slug) is served" RED
- * - handler.ts:240  emit a hit/render event for a fresh render too -> "28: a fresh render is counted once" RED
- * - handler.ts:166  let a static card answer on a pinned route -> "29: a route pinned to a target never answers for a static card" RED */
+ * - handler.ts:213  delete the draft branch -> "6", "7", "7b", "16", "20" RED
+ * - handler.ts:232  store keyed by the request ?v -> "3: a stale ?v is served short, stored under the CURRENT v" RED
+ * - handler.ts:220  immutable without the `current` check -> "3" RED
+ * - handler.ts:230  decide the downgrade inside the memo closure (store and memoise it) -> "17" RED
+ * - handler.ts:224  call heroLoader before store.get -> "4: a store hit renders nothing and loads no hero" RED
+ * - handler.ts:271  fail open when the draft check throws -> "20" RED
+ * - handler.ts:154  memoise the fallback in draft mode -> "21" RED
+ * - handler.ts:68  match If-None-Match only as one whole tag -> "13" RED
+ * - handler.ts:165  no slug length cap -> "24: an over-long or missing slug is a 404 before any lookup" RED
+ * - handler.ts:280  let a pre-card error escape GET (rethrow) -> "19", "19b" RED
+ * - handler.ts:109  ctx stack lookup without the `default` rule -> "22" RED
+ * - handler.ts:182  always pass the request to site() -> "18" RED
+ * - handler.ts:186  ask for a draft on a normal request -> "2" (draft not called) RED
+ * - handler.ts:258  drop the shed branch -> "8" (shed event) RED
+ * - handler.ts:171  (equivalent mutant) `urlKind in kindIndex`: the later `Object.hasOwn(d.targets, ...)` guard still answers 404 -> "15b"
+ * - handler.ts:148  fallback keeps unsupported glyphs in the site name -> "10b: the fallback drops site-name characters no font draws" RED
+ * - handler.ts:245  give a downgraded card the real etag -> "26: a downgraded (hero-less) card carries no etag" RED
+ * - handler.ts:163  ignore `params.id` -> "27: an :id route (params.id, no slug) is served" RED
+ * - handler.ts:248  emit a hit/render event for a fresh render too -> "28: a fresh render is counted once" RED
+ * - handler.ts:168  let a static card answer on a pinned route -> "29: a route pinned to a target never answers for a static card" RED
+ * - handler.ts:181  run the document lookup outside the admission gate -> "31: lookups before admission are bounded" RED
+ * - handler.ts:251  answer 304 before the bytes exist (early return) -> "30: a revalidation is answered 304 only when the current bytes are available" RED
+ * - handler.ts:138  do not tell the hero loader which upload collection to read -> "32: the hero loader is told which upload collection the hero belongs to" RED */
 import { describe, expect, it, vi } from 'vitest'
 import { createGate } from '../../src/internal/gate.js'
 import { CACHE, createCardHandler } from '../../src/internal/handler.js'
@@ -440,6 +443,67 @@ describe('card handler', () => {
     const { h, renderer } = setup({ targets, statics: { s: staticCard }, fixedTarget: 'posts' })
     await h.GET(req('/x/a/og.png'), { params: Promise.resolve({ slug: 'a' }) })
     expect((renderer.render.mock.calls[0] as any)[0].props.children).toBe('Published A')
+  })
+  it('30: a revalidation is answered 304 only when the current bytes are available; a downgrade, a fallback or a shed is answered as itself', async () => {
+    const inm = (v: string) => ({ 'if-none-match': `"${v}"` })
+    const v = vOf(await setup().h.GET(req('/og/posts/h/card.png'), ctx('h')))
+    const down = await setup({ heroLoader: async () => null }).h.GET(req(`/og/posts/h/card.png?v=${v}`, inm(v)), ctx('h'))
+    expect([down.status, down.headers.get('x-og-cache'), down.headers.get('cache-control')]).toEqual([200, 'downgraded', CACHE.degraded])
+    const failing = await setup({}, { renderFails: true }).h.GET(req(`/og/posts/a/card.png?v=${v}`, inm(v)), ctx('a'))
+    expect([failing.status, failing.headers.get('x-og-cache')]).toEqual([200, 'fallback'])
+    const ok = setup()
+    await ok.h.GET(req('/og/posts/a/card.png'), ctx('a'))
+    const va = vOf(await ok.h.GET(req('/og/posts/a/card.png'), ctx('a')))
+    const hit = await ok.h.GET(req(`/og/posts/a/card.png?v=${va}`, inm(va)), ctx('a'))
+    expect([hit.status, hit.headers.get('cache-control'), hit.headers.get('etag'), hit.headers.get('content-type')]).toEqual([
+      304,
+      CACHE.immutable,
+      `"${va}"`,
+      'image/png',
+    ])
+  })
+  it('31: lookups before admission are bounded: a burst of distinct slugs reaches the database at most `concurrency` at a time, and the overflow is shed', async () => {
+    let inFlight = 0
+    let peak = 0
+    let release!: () => void
+    const held = new Promise<void>((r) => {
+      release = r
+    })
+    const published = vi.fn(async (_t: string, slug: string) => {
+      inFlight += 1
+      peak = Math.max(peak, inFlight)
+      await held
+      inFlight -= 1
+      return { id: 1, slug, title: slug }
+    })
+    const source = { published, publishedById: async () => null, draft: async () => null, site: async () => ({ name: 'S' }) }
+    const { h, events } = setup({ source, admission: createGate({ concurrency: 2, queue: 3 }) })
+    const burst = Array.from({ length: 10 }, (_, i) => h.GET(req(`/og/posts/s${i}/card.png`), ctx(`s${i}`)))
+    await tick()
+    await tick()
+    release()
+    const res = await Promise.all(burst)
+    expect(peak).toBe(2)
+    expect(published).toHaveBeenCalledTimes(5) // 2 admitted + 3 queued; the other 5 never reached the database
+    expect(res.filter((r) => r.status === 503).map((r) => [r.headers.get('retry-after'), r.headers.get('cache-control')])).toEqual(
+      Array(5).fill(['5', 'no-store']),
+    )
+    expect(res.filter((r) => r.status === 200)).toHaveLength(5)
+    expect(names(events)).toContain('shed')
+  })
+  it('32: the hero loader is told which upload collection the hero belongs to', async () => {
+    const targets = {
+      posts: defineTarget<any, any>({
+        path: '/og/:kind/:slug/card.png',
+        template: 'post',
+        heroCollection: 'media',
+        props: ({ doc }: any) => ({ title: doc.title, label: '' }),
+        hero: ({ doc }: any) => doc.heroImage,
+      }),
+    }
+    const { h, heroLoader } = setup({ targets })
+    await h.GET(req('/og/posts/h/card.png'), ctx('h'))
+    expect((heroLoader.mock.calls[0] as unknown[])[2]).toEqual({ collection: 'media' })
   })
   it('25: a hostile slug never reaches an event field', async () => {
     const { h, events } = setup()

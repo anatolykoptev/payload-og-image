@@ -20,6 +20,7 @@ export type OgState = {
   readonly serverUrl: string
   readonly events: ReturnType<typeof createEventSink>
   readonly gate: Gate
+  readonly admission: Gate
   readonly memo: Memo
   /** Loads the registered faces once (a rejection is not remembered, so a fixed file is picked up). */
   fonts(): Promise<{ fonts: LoadedFont[]; digest: string }>
@@ -39,6 +40,7 @@ export function createState(options: OgImagePluginOptions, serverUrl: string): O
     serverUrl,
     events,
     gate: createGate(options.gate),
+    admission: createGate(options.admission ?? { concurrency: 16, queue: 128 }),
     memo: createMemo(options.memo),
     fonts() {
       fontsPromise ??= loadFonts(options.fonts as FontSpec[])

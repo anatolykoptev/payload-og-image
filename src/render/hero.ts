@@ -1,17 +1,28 @@
 import { constants } from 'node:fs'
 import { open } from 'node:fs/promises'
+import net from 'node:net'
 import path from 'node:path'
 import sharp from 'sharp'
 import type { HeroLoader } from '../internal/handler.js'
 import { MAX_SIDE } from '../internal/limits.js'
 import type { Upload } from '../internal/types.js'
+import { guardedFetch, isPublicAddress, type ResolveHost, systemResolve } from './guardedFetch.js'
 
 export type HeroLoaderOptions = {
-  /** The folders Payload writes uploads to (each upload collection's `staticDir`). */
-  staticDirs: () => Promise<string[]>
+  /**
+   * The folders to read a hero file from, for the hero's own upload collection (`undefined` when the target names none).
+   * A file is only ever read inside that collection's folder.
+   */
+  staticDirs: (collection?: string) => Promise<string[]>
   /** Hosts a hero may be fetched from, matched exactly against the parsed hostname. Default none: no fetch at render time. */
   allowedHosts?: string[]
+  /**
+   * Replaces the guarded fetch (a test seam). The default resolves the host itself, refuses any non-public address, pins the
+   * connection to the vetted address and uses https on the default port only: an injected one gets none of that.
+   */
   fetchImpl?: typeof fetch
+  /** DNS resolution for the guarded fetch (a test seam; default the system resolver). */
+  resolveHost?: ResolveHost
   /** Largest source file or download (default 15 MiB). */
   maxBytes?: number
   /** Largest source image in pixels (default 40 million); a bigger header is refused before any decode. */
@@ -66,7 +77,14 @@ async function readLocal(hero: Upload, dirs: string[], maxBytes: number): Promis
 }
 const readLocalIn = (dir: string, name: string, maxBytes: number) => readRegular(path.join(dir, name), maxBytes)
 
-async function fetchRemote(hero: Upload, o: { hosts: Set<string>; fetchImpl: typeof fetch; maxBytes: number }): Promise<Buffer | null> {
+async function fetchRemote(
+  hero: Upload,
+  o: {
+    hosts: Set<string>
+    fetchImpl: typeof fetch | ((url: string, init: { signal?: AbortSignal; redirect?: string }) => Promise<Response>)
+    maxBytes: number
+  },
+): Promise<Buffer | null> {
   if (o.hosts.size === 0 || typeof hero.url !== 'string') return null
   let url: URL
   try {
@@ -75,6 +93,10 @@ async function fetchRemote(hero: Upload, o: { hosts: Set<string>; fetchImpl: typ
     return null
   }
   if (url.protocol !== 'https:' || url.username !== '' || url.password !== '' || !o.hosts.has(url.hostname)) return null
+  // The default port only, and an IP literal only when the operator allowlisted that exact address AND it is public.
+  if (url.port !== '') return null
+  const literal = url.hostname.replace(/^\[|\]$/g, '')
+  if (net.isIP(literal) !== 0 && !isPublicAddress(literal)) return null
   try {
     // `redirect: 'error'`: a redirect would leave the allowlist.
     const res = await o.fetchImpl(url.href, { redirect: 'error', signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) })
@@ -158,12 +180,15 @@ export function payloadHeroLoader(o: HeroLoaderOptions): HeroLoader {
   const maxBytes = posInt(o.maxBytes ?? 15 * 1024 * 1024, 'hero maxBytes')
   const maxPixels = posInt(o.maxPixels ?? 40_000_000, 'hero maxPixels')
   const hosts = new Set((o.allowedHosts ?? []).map((h) => h.toLowerCase()))
-  const fetchImpl = o.fetchImpl ?? fetch
+  const resolveHost = o.resolveHost ?? systemResolve
+  const fetchImpl = o.fetchImpl ?? ((url: string, init: { signal?: AbortSignal }) => guardedFetch(url, init, resolveHost))
   const background = o.background ?? '#ffffff'
-  return async (hero, box) => {
+  return async (hero, box, where) => {
     try {
       if (![box.width, box.height].every((n) => Number.isInteger(n) && n >= 1 && n <= MAX_SIDE)) return null
-      const bytes = (await readLocal(hero, await o.staticDirs(), maxBytes)) ?? (await fetchRemote(hero, { hosts, fetchImpl, maxBytes }))
+      const bytes =
+        (await readLocal(hero, await o.staticDirs(where?.collection), maxBytes)) ??
+        (await fetchRemote(hero, { hosts, fetchImpl, maxBytes }))
       return bytes ? await prepare(bytes, hero, box, { maxPixels, background }) : null
     } catch {
       return null

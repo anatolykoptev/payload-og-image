@@ -1,11 +1,16 @@
 /** Mutation table (production line -> the test that goes RED), against a REAL Payload instance (SQLite).
  * - payloadSource.ts:32  drop the published-status filter -> "a drafts-enabled collection with public read still never returns a draft-only doc" RED
  * - payloadSource.ts:68  published read with overrideAccess: true -> "published() respects collection access" RED
- * - payloadSource.ts:73  hand out a draft without an editor -> "draft() never hands a draft to an anonymous request, even where the collection is publicly readable" RED
- * - payloadSource.ts:80  draft read with overrideAccess: true -> "draft() runs with the editor's own access" RED
- * - payloadSource.ts:84  draft site data without an editor check -> "site(request): published/cached site data unless the request carries an editor" RED
+ * - payloadSource.ts:101  hand out a draft without an editor -> "draft() never hands a draft to an anonymous request, even where the collection is publicly readable" RED
+ * - payloadSource.ts:109  draft read with overrideAccess: true -> "draft() runs with the editor's own access" RED
+ * - payloadSource.ts:113  draft site data without an editor check -> "site(request): published/cached site data unless the request carries an editor" RED
  * - payloadSource.ts:35  always pass a select (a half-empty document) -> "a target with no `select` gets every field" RED
- * - payloadSource.ts:36  leave the editor's share-image field out of `select` -> "a target `select` also keeps the root of the editor's share-image field" RED */
+ * - payloadSource.ts:36  leave the editor's share-image field out of `select` -> "a target `select` also keeps the root of the editor's share-image field" RED
+ * - payloadSource.ts:74  return published docs with populated relations as they come -> "a published read never surfaces a draft-only related document" RED
+ * - payloadSource.ts:81  count any authenticated user as an editor -> "editors are users of the admin collection only" and "the `editors` option names the collections whose users are editors" RED
+ * - payloadSource.ts:77  hard-code the editor collections -> the same two tests RED
+ * - payloadSource.ts:114  do not tell site() who the editor is -> "editors are users of the admin collection only ... site() is told who the editor is" RED
+ * - payloadSource.ts:107  leave the share-image root out of a DRAFT read's select -> "a draft read keeps the root of the editor's share-image field" RED */
 import { mkdtemp, readFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
@@ -30,6 +35,7 @@ const post = defineTemplate<{ title: string; label: string }>({
 let payload: Payload
 let state: OgState
 let editorHeaders: Headers
+let customerHeaders: Headers
 let siteName = 'Site One'
 
 beforeAll(async () => {
@@ -41,6 +47,8 @@ beforeAll(async () => {
     editor: lexicalEditor(),
     collections: [
       { slug: 'users', auth: true, fields: [] },
+      // A second auth collection: its users are customers, never editors.
+      { slug: 'customers', auth: true, fields: [] },
       // Public read of everything: only the published-status filter keeps a draft-only note out.
       {
         slug: 'notes',
@@ -79,6 +87,7 @@ beforeAll(async () => {
           { name: 'title', type: 'text' },
           { name: 'slug', type: 'text' },
           { name: 'extra', type: 'text' },
+          { name: 'related', type: 'relationship', relationTo: 'notes' },
         ],
       },
     ],
@@ -105,13 +114,25 @@ beforeAll(async () => {
   await payload.create({ collection: 'users', data: { email: 'ed@x.test', password: 'pw-pw-pw-pw' } })
   const login = await payload.login({ collection: 'users', data: { email: 'ed@x.test', password: 'pw-pw-pw-pw' } })
   editorHeaders = new Headers({ authorization: `JWT ${login.token}` })
-  await payload.create({ collection: 'notes', data: { title: 'Draft-only note', slug: 'n', _status: 'draft' } })
+  await payload.create({ collection: 'customers', data: { email: 'cu@x.test', password: 'pw-pw-pw-pw' } })
+  const cl = await payload.login({ collection: 'customers', data: { email: 'cu@x.test', password: 'pw-pw-pw-pw' } })
+  customerHeaders = new Headers({ authorization: `JWT ${cl.token}` })
   await payload.create({ collection: 'locked', data: { title: 'Locked draft', slug: 'l', _status: 'draft' }, overrideAccess: true })
   await payload.create({ collection: 'secrets', data: { title: 'Hidden', slug: 's' } })
   await payload.create({ collection: 'posts', data: { title: 'Published A', slug: 'a', extra: 'x', _status: 'published' } })
   await payload.create({ collection: 'posts', data: { title: 'Only draft B', slug: 'b', _status: 'draft' } })
   const a = (await payload.find({ collection: 'posts', where: { slug: { equals: 'a' } }, limit: 1 })).docs[0]
   await payload.update({ collection: 'posts', id: a?.id as number, data: { title: 'Draft A2', _status: 'draft' }, draft: true })
+  const draftNote = await payload.create({ collection: 'notes', data: { title: 'Draft-only note', slug: 'n', _status: 'draft' } })
+  const pubNote = await payload.create({ collection: 'notes', data: { title: 'Published note', slug: 'pn', _status: 'published' } })
+  await payload.create({
+    collection: 'posts',
+    data: { title: 'Points at a draft', slug: 'rel-draft', related: draftNote?.id as number, _status: 'published' },
+  })
+  await payload.create({
+    collection: 'posts',
+    data: { title: 'Points at a published note', slug: 'rel-pub', related: pubNote.id, _status: 'published' },
+  })
 }, 60_000)
 afterAll(async () => {
   await payload?.db?.destroy?.()
@@ -189,6 +210,64 @@ describe('payloadSource against a real Payload', () => {
     const doc = await restricted.published('posts', 'a')
     expect(doc).toHaveProperty('extra') // selected because `extra.deep` is the SEO image path
     expect(doc).toHaveProperty('title')
+  })
+  it('a published read never surfaces a draft-only related document (populated relations are de-populated to their id)', async () => {
+    const draftRel = await src().published('posts', 'rel-draft')
+    // the relation exists: read raw with full access
+    const raw = (
+      await payload.find({ collection: 'posts', where: { slug: { equals: 'rel-draft' } }, depth: 1, limit: 1, overrideAccess: true })
+    ).docs[0]
+    expect(typeof raw?.related).toBe('object')
+    console.log('RAWREL', JSON.stringify(raw), 'DRAFT', JSON.stringify(draftRel?.related))
+    expect(typeof draftRel?.related).not.toBe('object') // the draft-only note is a bare id, its text is not on the doc
+    expect(JSON.stringify(draftRel)).not.toContain('Draft-only note')
+    const pubRel = await src().published('posts', 'rel-pub')
+    expect(pubRel?.related).toMatchObject({ title: 'Published note' }) // a published relation stays populated
+    const id = (draftRel as { id: number }).id
+    expect(JSON.stringify(await src().publishedById('posts', id))).not.toContain('Draft-only note')
+  })
+  it('editors are users of the admin collection only: a customer from another auth collection never gets a draft or draft site data', async () => {
+    const asCustomer = new Request('https://x.test/x', { headers: customerHeaders })
+    expect(await src().draft('posts', { slug: 'a' }, asCustomer)).toBeNull()
+    expect(await src().draft('notes' in state.options.targets ? 'notes' : 'posts', { slug: 'a' }, asCustomer)).toBeNull()
+    const seen: unknown[] = []
+    const probe = payloadSource(
+      payload,
+      {
+        ...state,
+        options: {
+          ...state.options,
+          site: async (a: { draft?: boolean; user?: unknown }) => {
+            seen.push(a)
+            return { name: a.draft ? 'DRAFT' : 'Pub' }
+          },
+        },
+      } as OgState,
+      async () => ({ name: 'Pub' }),
+    )
+    expect((await probe.site(asCustomer)).name).toBe('Pub')
+    const asEditor = await probe.site(editor())
+    expect(asEditor.name).toBe('DRAFT')
+    expect((seen.at(-1) as { user?: { collection?: string } }).user?.collection).toBe('users') // site() is told who the editor is
+  })
+  it('the `editors` option names the collections whose users are editors', async () => {
+    const asCustomer = new Request('https://x.test/x', { headers: customerHeaders })
+    const customersEdit = payloadSource(
+      payload,
+      { ...state, options: { ...state.options, editors: ['customers'] } } as OgState,
+      async () => ({ name: 'S' }),
+    )
+    expect((await customersEdit.draft('posts', { slug: 'a' }, asCustomer))?.title).toBe('Draft A2')
+    expect(await customersEdit.draft('posts', { slug: 'a' }, editor())).toBeNull() // now the admin user is not one
+  })
+  it("a draft read keeps the root of the editor's share-image field even with a restrictive select", async () => {
+    const t = defineTarget<any, any>({ path: '/og/:kind/:slug/card.png', template: 'post', props: () => ({}), select: { title: true } })
+    const restricted = payloadSource(
+      payload,
+      { ...state, options: { ...state.options, targets: { posts: t }, seoImage: { path: 'extra.deep' } } } as OgState,
+      async () => ({ name: 'S' }),
+    )
+    expect(await restricted.draft('posts', { slug: 'a' }, editor())).toHaveProperty('extra')
   })
   it('draft(): null for an anonymous request, the latest draft for an authenticated editor', async () => {
     expect(await src().draft('posts', { slug: 'a' }, anon)).toBeNull()
