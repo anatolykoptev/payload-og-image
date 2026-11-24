@@ -18,6 +18,8 @@ const WOFF2 = [0x77, 0x4f, 0x46, 0x32] // "wOF2"
 /** Kerning is not applied, so a line is allowed 98% of its width, as the sites' own fitters did. */
 const WIDTH_MARGIN = 0.98
 const STEP = 2
+/** No card has a glyph taller than this; the cap also keeps `size - STEP` from rounding back to `size` (Number.MAX_VALUE). */
+const MAX_FONT_SIZE = 2048
 
 const sha = (b: Uint8Array | string) => createHash('sha256').update(b).digest('hex')
 const asBytes = (d: ArrayBuffer | Uint8Array) => (d instanceof Uint8Array ? d : new Uint8Array(d))
@@ -133,6 +135,8 @@ function assertBox(box: Box): void {
     if (!Number.isFinite(box[k]) || box[k] <= 0)
       throw new Error(`payload-og-image: fitText: box.${k} must be a finite number above 0, got ${box[k]}`)
   }
+  if (box.maxSize > MAX_FONT_SIZE)
+    throw new Error(`payload-og-image: fitText: box.maxSize must be at most ${MAX_FONT_SIZE}, got ${box.maxSize}`)
   if (box.minSize > box.maxSize) throw new Error('payload-og-image: fitText: minSize is larger than maxSize')
   if (box.maxLines !== undefined && (!Number.isInteger(box.maxLines) || box.maxLines < 1)) {
     throw new Error(`payload-og-image: fitText: box.maxLines must be an integer of at least 1, got ${box.maxLines}`)
@@ -153,10 +157,12 @@ export function fitText(fonts: LoadedFont[], family: string, text: string, box: 
   const clean = text.replace(/\s+/g, ' ').trim()
   if (clean === '') return { size: box.maxSize, lines: 0, text: '' }
   const words = clean.split(' ')
-  for (let size = box.maxSize; ; size = Math.max(box.minSize, size - STEP)) {
+  for (let size = box.maxSize; ; ) {
     const l = layout(face, words, size, box.width)
     if (fits(l, size, box)) return { size, lines: l.lines, text: clean }
-    if (size === box.minSize) break
+    const next = Math.max(box.minSize, size - STEP)
+    if (next >= size) break // the step must change the size, or the loop would never end
+    size = next
   }
   return ellipsize(face, clean, box)
 }
