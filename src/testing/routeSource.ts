@@ -22,46 +22,40 @@ type Ts = typeof TS
 /** In order of preference. TypeScript 7 ships no in-process compiler API (its main entry exports a version only), so it is skipped. */
 const COMPILERS = ['typescript', '@typescript/typescript6'] as const
 
+type Load = (id: string) => unknown
+
 /**
- * `require` as the project the tests run in sees it (`cwd`), then as this package sees it. The consumer's own compiler wins:
- * a plugin that is linked or symlinked into a workspace resolves from its real location, which may not hold the project's `typescript`.
+ * The places a compiler is looked for, in order: the project the tests run in (`cwd`), then this package. The consumer's own
+ * compiler wins: a plugin that is linked or symlinked into a workspace resolves from its real location, which may not hold the
+ * project's `typescript`.
  */
-export function projectThenPluginRequire(cwd: string = process.cwd()): (id: string) => unknown {
-  const requires = [createRequire(path.join(cwd, 'noop.js')), createRequire(import.meta.url)]
-  return (id) => {
-    let last: unknown
-    for (const req of requires) {
-      try {
-        return req(id)
-      } catch (error) {
-        last = error
-      }
-    }
-    throw last
-  }
+export function compilerLocations(cwd: string = process.cwd()): Load[] {
+  return [createRequire(path.join(cwd, 'noop.js')), createRequire(import.meta.url)]
 }
 
 /**
- * The TypeScript compiler API, from the first of `typescript` (5 or 6) or `@typescript/typescript6` that has it. `load` is
- * `require` from the working directory, then from this package, unless a test substitutes it. Throws an Error that says what to
- * install when neither does.
+ * The TypeScript compiler API, from the first of `typescript` (5 or 6) or `@typescript/typescript6` that has it, looked up in each
+ * location in turn (default: the working directory, then this package; a test substitutes its own). A package without the API
+ * (TypeScript 7) in one location does not hide a usable one in the next. Throws an Error that says what to install when none has it.
  */
-export function loadTypescript(load: (id: string) => unknown = projectThenPluginRequire()): Ts {
+export function loadTypescript(...locations: Load[]): Ts {
   const notes: string[] = []
-  for (const id of COMPILERS) {
-    let found: unknown
-    try {
-      found = load(id)
-    } catch {
-      continue
+  for (const load of locations.length > 0 ? locations : compilerLocations()) {
+    for (const id of COMPILERS) {
+      let found: unknown
+      try {
+        found = load(id)
+      } catch {
+        continue
+      }
+      if (typeof (found as Partial<Ts> | undefined)?.createSourceFile === 'function') return found as Ts
+      notes.push(
+        `${id} ${String((found as { version?: unknown } | undefined)?.version ?? '')}`.trim() + ' has no compiler API (TypeScript 7)',
+      )
     }
-    if (typeof (found as Partial<Ts> | undefined)?.createSourceFile === 'function') return found as Ts
-    notes.push(
-      `${id} ${String((found as { version?: unknown } | undefined)?.version ?? '')}`.trim() + ' has no compiler API (TypeScript 7)',
-    )
   }
   throw new Error(
-    `payload-og-image/testing reads route files with the TypeScript compiler API, and none is installed${notes.length > 0 ? ` (${notes.join('; ')})` : ''}. ` +
+    `payload-og-image/testing reads route files with the TypeScript compiler API, and none is installed${notes.length > 0 ? ` (${[...new Set(notes)].join('; ')})` : ''}. ` +
       'Add `typescript` (5 or 6) as a dev dependency or, on TypeScript 7, `@typescript/typescript6`.',
   )
 }

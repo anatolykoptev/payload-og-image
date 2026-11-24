@@ -1,13 +1,14 @@
 /** Mutation table (production line -> the test that goes RED). A route file is a card route only if it exports the GET of a createOgRoute() call from payload-og-image/next; the file is parsed with the TypeScript compiler API.
- * - routeSource.ts:144 accept createOgRoute imported from any module -> "createOgRoute imported from another module" RED
- * - routeSource.ts:216 check only the first binding of an export statement -> "every binding of one export statement is checked, not the first" RED
- * - routeSource.ts:170 credit a conditional expression as its first branch -> "a compound expression that mentions a card alias" RED
- * - routeSource.ts:227 accept `export { GET } from './x'` as a route export -> "a GET re-exported from another module" RED
- * - routeSource.ts:174 the first of two declarations of a name wins -> "a name declared twice is not guessed at" RED
- * - routeSource.ts:174 the LAST of two declarations of a name wins -> "a name declared twice, the card GET last" RED
- * - routeSource.ts:151 ignore a namespace import (`og.createOgRoute`) -> "a namespace import" and "... called in place" RED
- * - routeSource.ts:30  look in the plugin before the project's working directory -> "takes the typescript of the working directory over the plugin own" RED
- * - routeSource.ts:58  accept a module without createSourceFile (TypeScript 7) -> every card-route test and the loader tests RED
+ * - routeSource.ts:138 accept createOgRoute imported from any module -> "createOgRoute imported from another module" RED
+ * - routeSource.ts:210 check only the first binding of an export statement -> "every binding of one export statement is checked, not the first" RED
+ * - routeSource.ts:164 credit a conditional expression as its first branch -> "a compound expression that mentions a card alias" RED
+ * - routeSource.ts:221 accept `export { GET } from './x'` as a route export -> "a GET re-exported from another module" RED
+ * - routeSource.ts:168 the first of two declarations of a name wins -> "a name declared twice is not guessed at" RED
+ * - routeSource.ts:168 the LAST of two declarations of a name wins -> "a name declared twice, the card GET last" RED
+ * - routeSource.ts:145 ignore a namespace import (`og.createOgRoute`) -> "a namespace import" and "... called in place" RED
+ * - routeSource.ts:43  try only the first location (the project's) -> "falls back to the plugin own typescript when the project has none" and "a compiler-less typescript (7) in the project does not hide a usable one in the plugin" RED
+ * - routeSource.ts:33  look in the plugin before the project's working directory -> "takes the typescript of the working directory over the plugin own" RED
+ * - routeSource.ts:51  accept a module without createSourceFile (TypeScript 7) -> every card-route test and the loader tests RED
  * - routeSource.ts:23  never try @typescript/typescript6 -> the same tests RED
  * - exports.spec.ts: a static `import ... from 'typescript'` in routeSource.ts -> "no entry imports the TypeScript compiler" RED
  * - The old hand-rolled scanner (origin/main) fails "a helper and the module both declare `handler`", "an uninitialised typed `let GET`", "a logical expression over the card alias" and "every binding of one export statement".  */
@@ -15,7 +16,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { analyzeRouteSource, loadTypescript, projectThenPluginRequire } from '../../src/testing/routeSource.js'
+import { analyzeRouteSource, compilerLocations, loadTypescript } from '../../src/testing/routeSource.js'
 
 const IMPORT = "import { createOgRoute } from 'payload-og-image/next'\n"
 const yes = (src: string) => expect(analyzeRouteSource(src).exportsGetFromCreateOgRoute).toBe(true)
@@ -247,6 +248,10 @@ describe('loadTypescript', () => {
 })
 
 describe('loadTypescript: the project the tests run in comes before the plugin', () => {
+  const real = { createSourceFile: () => ({}), version: '6.0.2' }
+  const missingFrom = (id: string): never => {
+    throw Object.assign(new Error(`Cannot find module '${id}'`), { code: 'MODULE_NOT_FOUND' })
+  }
   const dirs: string[] = []
   /** A project with its own fake `typescript` (a CommonJS module that carries a marker), or none. */
   const project = (withTypescript: boolean) => {
@@ -275,7 +280,13 @@ describe('loadTypescript: the project the tests run in comes before the plugin',
     expect(ts.marker).toBeUndefined()
     expect(typeof ts.createSourceFile).toBe('function')
   })
-  it('projectThenPluginRequire rethrows when neither side has the module', () => {
-    expect(() => projectThenPluginRequire(project(false))('og-no-such-module-anywhere')).toThrow(/og-no-such-module-anywhere/)
+  it('a compiler-less typescript (7) in the project does not hide a usable one in the plugin', () => {
+    const project7 = (id: string) => (id === 'typescript' ? { version: '7.0.2' } : missingFrom(id))
+    const plugin6 = (id: string) => (id === 'typescript' ? real : missingFrom(id))
+    expect(loadTypescript(project7, plugin6)).toBe(real)
+    expect(() => loadTypescript(project7, project7)).toThrow(/typescript 7\.0\.2 has no compiler API/)
+  })
+  it('compilerLocations lists the project directory before the plugin', () => {
+    expect(compilerLocations(project(false))).toHaveLength(2)
   })
 })
