@@ -1,7 +1,18 @@
 {
   "$schema": "https://biomejs.dev/schemas/2.6.8/schema.json",
   "files": {
-    "includes": ["**", "!dist", "!etc", "!dev/app", "!dev/payload-types.ts", "!**/*.tsbuildinfo", "!temp", "!**/.next", "!dev/media"]
+    "includes": [
+      "**",
+      "!dist",
+      "!etc",
+      "!dev/app",
+      "!dev/payload-types.ts",
+      "!**/*.tsbuildinfo",
+      "!temp",
+      "!**/.next",
+      "!dev/media",
+      "!CHANGELOG.md"
+    ]
   },
   "formatter": {
     "indentStyle": "space",
