@@ -160,8 +160,9 @@ function validate(o: OgImagePluginOptions, config: Config): string {
 }
 
 /**
- * The Payload plugin. Schema-neutral unless `fields.enabled`: it then adds the `og` group and nothing else (no collections, endpoints or jobs). It stores its state in
- * `config.custom`, hooks `afterChange` on the site globals, and checks fonts and the store when Payload starts.
+ * The Payload plugin. Schema-neutral unless `fields.enabled`: it then adds the `og` group and nothing else (no collections or jobs).
+ * It adds up to two endpoints (none when `disabled`): the admin-only `GET /payload-og-image/stats` always, and
+ * `POST /payload-og-image/preview` when a target collection carries the `og` group. It stores its state in `config.custom`, hooks `afterChange` on the site globals, and checks fonts and the store when Payload starts.
  */
 export function ogImagePlugin(o: OgImagePluginOptions): (config: Config) => Config {
   return (config) => {
