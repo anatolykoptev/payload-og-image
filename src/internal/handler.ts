@@ -1,6 +1,6 @@
 import type { ReactElement } from 'react'
 import type { StaticCard, Target, Template, TemplateContext } from '../template.js'
-import { coveringFamily, fitText, type LoadedFont, type Stacks } from './fonts.js'
+import { coveringFamily, fitText, type LoadedFont, type Stacks, stripMissing } from './fonts.js'
 import type { Gate } from './gate.js'
 import { ShedError } from './gate.js'
 import type { Memo } from './memo.js'
@@ -144,10 +144,15 @@ export function createCardHandler(d: HandlerDeps): { GET(r: Request, c: RouteCon
 
   /** The brand fallback card. A draft-mode request never memoises it (its site name may be draft text). */
   async function fallbackCard(site: SiteInfo, fonts: LoadedFont[], digest: string, previewing: boolean): Promise<Uint8Array | null> {
+    // The fallback draws with the `default` stack: characters it has no glyph for are dropped, as for any card.
+    const stack = d.stacks.default
+    const stripped = stack && stack.length > 0 ? stripMissing(fonts, stack, site.name) : { text: site.name, missing: [] }
+    // Stripping leaves holes ("a 🚀 b" -> "a  b"): close them. A name that lost nothing is left exactly as given.
+    const name = stripped.missing.length > 0 ? stripped.text.replace(/\s+/g, ' ').trim() : stripped.text
     const make = () =>
-      d.gate.run(() => d.renderer.render(d.fallback.render({ site: site.name }, ctxFor(fonts, null)), { ...d.fallback.size, fonts }))
+      d.gate.run(() => d.renderer.render(d.fallback.render({ site: name }, ctxFor(fonts, null)), { ...d.fallback.size, fonts }))
     try {
-      return previewing ? await make() : await d.memo.get(`fallback|${digest}|${d.fallback.revision}|${site.name}`, make)
+      return previewing ? await make() : await d.memo.get(`fallback|${digest}|${d.fallback.revision}|${name}`, make)
     } catch {
       return null
     }
