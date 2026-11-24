@@ -124,6 +124,14 @@ It is part of the card's version, so a new value is a new card URL: LinkedIn, Fa
 A nonce of 0 (or none) is exactly the 0.1 version, so no existing URL changes. The field is a column: run
 `payload migrate:create` after upgrading, as for the rest of the group.
 
+The button is disabled where a new nonce cannot change the page's card URL, with a one-line reason: mode Off (no card at
+all), and a page that shares an image (the editor's, or one the target offers) instead of a generated card. The nonce is
+saved with the document, so the new address reaches the public page only when the document is published.
+
+A new card URL is seen only when a platform reads the page again. Anything already shared keeps the old card until the
+platform re-fetches it: paste the page URL into the LinkedIn Post Inspector or the Facebook Sharing Debugger to make it
+scrape again (see [crawlers](crawlers.md)).
+
 ## Endpoints
 
 The plugin adds up to two endpoints to your Payload config, after your own, and none when `disabled` is true:
@@ -203,8 +211,13 @@ immutable, a client-chosen version stored, a HEAD that is not GET's twin, a card
 declares, a template that draws something the URL does not cover. The test runtime runs the production draft logic over an in-memory drafts collection, so give `draftNeverCached` a
 document that exists only as a draft (`draftOnly`): the public and a draft-mode visitor without an editor must get a 404,
 and an editor's credential (a user of the first editor collection) the draft. `routesMatchPaths` reads your route files
-and counts one only when the `GET` it exports is the one `createOgRoute()` returned; a mention in a comment or a string
-does not count. `everyRouteHasOwnCard` requires an `https` image URL, as the crawlers document it; pass `allowHttpImages: true` for a site that is only ever served on plain HTTP, such as a local dev server. See [`dev/tests/og.spec.ts`](https://github.com/anatolykoptev/payload-og-image/blob/main/dev/tests/og.spec.ts).
+and counts one only when the `GET` it exports is the one `createOgRoute()` returned, resolved through the file's own
+declarations; a mention in a comment or a string, a name shadowed in a helper, a `GET` re-exported from another module or
+built from a compound expression does not count. It parses with the TypeScript compiler API (syntax only, no type
+checking), so `payload-og-image/testing` has an optional peer: `typescript` 5 or 6, or `@typescript/typescript6` on
+TypeScript 7, whose own package has no in-process API. Without one it throws and says what to install; the other entries
+never load the compiler. `everyRouteHasOwnCard` requires an `https` image URL for every image in the `og:image` and
+`twitter:image` lists, as the crawlers document it; pass `allowHttpImages: true` for a site that is only ever served on plain HTTP, such as a local dev server. See [`dev/tests/og.spec.ts`](https://github.com/anatolykoptev/payload-og-image/blob/main/dev/tests/og.spec.ts).
 
 `og-parity --old <dir> --new <dir>` compares two directories of rendered cards (`<card>.png` plus
 `<card>.layout.json`) pixel for pixel, for a migration that must not change a card.

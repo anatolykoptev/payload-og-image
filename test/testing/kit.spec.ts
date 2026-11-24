@@ -1,5 +1,6 @@
 /** Mutation table (production line -> the test that goes RED). Each check must pass on a correct setup and fail on a site module the test breaks by hand.
  * - kit.ts:110  accept an http:// image URL -> "everyRouteHasOwnCard: https > rejects an http image URL unless allowHttpImages" RED
+ * - kit.ts:120  apply the https rule to the first og image only, or skip the twitter list -> "everyRouteHasOwnCard: https > applies to every image of both lists, not only the first" RED
  * - kit.ts:103  accept a page with no og:image -> "everyRouteHasOwnCard > rejects a metadata function that returns no image" RED
  * - kit.ts:134  do not require the advertised card to be immutable -> "rejects a card URL carrying ?v=wrong: it answers 1h, not immutable" RED
  * - kit.ts:116  allow two routes to share one card -> "rejects two routes sharing one card unless allowShared" RED
@@ -200,6 +201,29 @@ describe('everyRouteHasOwnCard: https', () => {
       kit.everyRouteHasOwnCard({ routes: [{ path: '/p', metadata: upload as never }], cardRoute: cardRoute(module) }),
       /is not https/,
     )
+  })
+  it('applies to every image of both lists, not only the first', async () => {
+    const rt = installTestRuntime(options(), docs())
+    const { module, kit, meta } = site(rt)
+    const withExtra = (extra: { og?: unknown[]; twitter?: unknown[] }) => async () => {
+      const m = await meta(1)()
+      const og = (m.openGraph as any).images
+      const tw = (m.twitter as any).images
+      return {
+        openGraph: { images: [...og, ...(extra.og ?? [])] },
+        twitter: { ...(m.twitter as object), images: [...tw, ...(extra.twitter ?? [])] },
+      }
+    }
+    const second = { url: 'http://example.test/media/second.jpg', width: 1200, height: 630, type: 'image/jpeg', alt: 'x' }
+    const run = (extra: { og?: unknown[]; twitter?: unknown[] }) =>
+      kit.everyRouteHasOwnCard({ routes: [{ path: '/p', metadata: withExtra(extra) as never }], cardRoute: cardRoute(module) })
+    await run({ og: [{ ...second, url: 'https://example.test/media/second.jpg' }], twitter: ['https://example.test/media/second.jpg'] })
+    await reject(run({ og: [second] }), /image url "http:\/\/example.test\/media\/second.jpg" is not https/)
+    await reject(
+      run({ twitter: ['http://example.test/media/second.jpg'] }),
+      /twitter image url "http:\/\/example.test\/media\/second.jpg" is not https/,
+    )
+    await reject(run({ og: [{ ...second, url: '/media/second.jpg' }] }), /image url "\/media\/second.jpg" is not absolute/)
   })
 })
 

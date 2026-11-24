@@ -10,6 +10,7 @@ type Warnings = {
   customIneligible: boolean
   customTooSmall: boolean
   modeOff: boolean
+  sharesImage?: boolean
 }
 type State =
   | { status: 'idle' }
@@ -18,6 +19,8 @@ type State =
   | { status: 'busy'; src?: string; warnings: string[] }
   | { status: 'error'; message: string }
 
+const NO_CARD = 'Disabled: this document shares no card of its own, so there is no card address to change.'
+const SHARES_IMAGE = 'Disabled: the page shares an image, not a generated card, so a new card address would change nothing.'
 const DEBOUNCE_MS = 800
 const RETRY_MS = 5000
 
@@ -47,6 +50,8 @@ export const OgPreviewField: UIFieldClientComponent = () => {
     config: { routes, serverURL },
   } = useConfig()
   const [state, setState] = useState<State>({ status: 'idle' })
+  // The last answer's raw warnings: they say whether a new nonce could change the page's card URL at all.
+  const [last, setLast] = useState<Warnings | undefined>(undefined)
   const blob = useRef<string | undefined>(undefined)
   const dataRef = useRef(getData)
   dataRef.current = getData
@@ -72,18 +77,22 @@ export const OgPreviewField: UIFieldClientComponent = () => {
           retry = setTimeout(() => void ask(true), RETRY_MS)
           return
         }
+        if (!res.ok) setLast(undefined)
         if (res.status === 403 || res.status === 401)
           return setState({ status: 'error', message: 'No preview: you may not preview this document' })
         if (res.status === 404) return setState({ status: 'error', message: 'No preview: this page has no card (is the title empty?)' })
         if (!res.ok) return setState({ status: 'error', message: 'No preview: the server could not draw the card' })
-        const warnings = sayWarnings(JSON.parse(res.headers.get('x-og-warnings') ?? 'null') as Warnings)
+        const raw = JSON.parse(res.headers.get('x-og-warnings') ?? 'null') as Warnings
+        const warnings = sayWarnings(raw)
         const src = URL.createObjectURL(await res.blob())
         if (controller.signal.aborted) return URL.revokeObjectURL(src)
         if (blob.current) URL.revokeObjectURL(blob.current)
         blob.current = src
+        setLast(raw)
         setState({ status: 'ready', src, warnings })
       } catch (error) {
         if ((error as Error)?.name === 'AbortError' || controller.signal.aborted) return
+        setLast(undefined)
         setState({ status: 'error', message: 'No preview: the request failed' })
       }
     }
@@ -110,6 +119,9 @@ export const OgPreviewField: UIFieldClientComponent = () => {
     setModified(true)
   }
 
+  // A nonce is part of a generated card's version only: with `off` (no card) or a shared image it changes no URL.
+  const mode = (getData() as { og?: { mode?: unknown } }).og?.mode
+  const cannotChange = mode === 'off' ? NO_CARD : last?.sharesImage ? SHARES_IMAGE : undefined
   const src = 'src' in state ? state.src : undefined
   const warnings = 'warnings' in state ? state.warnings : []
   return (
@@ -127,11 +139,22 @@ export const OgPreviewField: UIFieldClientComponent = () => {
       {state.status === 'loading' && !src ? <div>Drawing the card…</div> : null}
       {state.status === 'busy' ? <div>Busy, retrying</div> : null}
       {state.status === 'error' ? <div>{state.message}</div> : null}
-      <button type="button" className="btn btn--style-secondary btn--size-small" onClick={forceNewImage} style={{ marginTop: 8 }}>
+      <button
+        type="button"
+        className="btn btn--style-secondary btn--size-small"
+        onClick={forceNewImage}
+        disabled={cannotChange !== undefined}
+        aria-describedby="og-force-hint"
+        style={{ marginTop: 8 }}
+      >
         Force new image
       </button>
+      <div id="og-force-hint" style={{ opacity: 0.7, fontSize: 12, marginTop: 4 }}>
+        {cannotChange ?? 'Gives the card a new address so LinkedIn, Facebook and Telegram fetch it again.'}
+      </div>
       <div style={{ opacity: 0.7, fontSize: 12, marginTop: 4 }}>
-        Gives the card a new address so LinkedIn, Facebook and Telegram fetch it again.
+        A platform shows the new card only once it reads the page again: re-scrape it in the LinkedIn Post Inspector or the Facebook Sharing
+        Debugger.
       </div>
       {warnings.map((w) => (
         <div key={w} style={{ color: 'var(--theme-warning-600, #b45309)', marginTop: 4 }}>
