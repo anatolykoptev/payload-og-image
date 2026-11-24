@@ -1,7 +1,9 @@
 /** Mutation table (production line -> the test that goes RED). Silent-failure surface: an unbounded queue is OOM, not an error.
- * - gate.ts:31  drop the shed check -> "sheds the call past the queue and returns to zero after release" RED
- * - gate.ts:25  release() always decrements `active` (no hand-over) -> "hands the slot over without dipping below the concurrency" RED
- * - gate.ts:36  run the release only on success (no `finally`) -> "a throwing job frees its slot" RED */
+ * - gate.ts:33  drop the shed check -> "sheds the call past the queue and returns to zero after release" RED
+ * - gate.ts:27  release() always decrements `active` -> "hands the slot over without dipping below the concurrency" RED
+ * - gate.ts:38  run the release only on success -> "a throwing job frees its slot" RED
+ * - gate.ts:19  accept a fractional/NaN concurrency -> "refuses the non-integer or out-of-range option" RED
+ * - gate.ts:21  accept a negative/NaN queue -> same test RED */
 import { describe, expect, it } from 'vitest'
 import { createGate, ShedError } from '../../src/internal/gate.js'
 
@@ -55,5 +57,13 @@ describe('createGate', () => {
     ).rejects.toThrow('sync')
     expect(gate.stats().active).toBe(0)
   })
+  it.each([
+    [{ concurrency: 1.5 }],
+    [{ concurrency: Number.NaN }],
+    [{ concurrency: Number.POSITIVE_INFINITY }],
+    [{ queue: -1 }],
+    [{ queue: Number.NaN }],
+    [{ queue: 2.5 }],
+  ])('refuses the non-integer or out-of-range option %j', (o) => expect(() => createGate(o)).toThrow(/integer/))
   it('refuses a concurrency below 1', () => expect(() => createGate({ concurrency: 0 })).toThrow(/at least 1/))
 })

@@ -16,7 +16,9 @@ export type Gate = {
  * A card render is CPU and memory heavy on a small box, and an unbounded crawl of cold URLs must not pile them up.
  */
 export function createGate({ concurrency = 2, queue = 50 }: { concurrency?: number; queue?: number } = {}): Gate {
-  if (!(concurrency >= 1)) throw new Error('payload-og-image: gate concurrency must be at least 1')
+  if (!Number.isInteger(concurrency) || concurrency < 1)
+    throw new Error('payload-og-image: gate concurrency must be an integer of at least 1')
+  if (!Number.isInteger(queue) || queue < 0) throw new Error('payload-og-image: gate queue must be an integer of at least 0')
   let active = 0
   const waiting: (() => void)[] = []
   const release = () => {

@@ -1,8 +1,9 @@
 /** Mutation table (production line -> the test that goes RED). Silent-failure surface: duplicate renders and unbounded memory give no error.
  * - memo.ts:31  skip the join -> "single flight" RED
- * - memo.ts:43  keep a rejected entry -> "a failed make is forgotten" RED
+ * - memo.ts:48  keep a rejected entry -> "a failed make is forgotten" RED
  * - memo.ts:22  evict pending entries too -> "never evicts a pending entry" RED
- * - memo.ts:39  count nothing on settle -> "stays within maxBytes" / "delete releases the bytes" RED */
+ * - memo.ts:39  count the view length, not its backing buffer -> "counts the backing buffer a view keeps alive" RED
+ * - memo.ts:40  remember an empty card -> "never remembers an empty card" RED */
 import { describe, expect, it, vi } from 'vitest'
 import { createMemo } from '../../src/internal/memo.js'
 
@@ -49,6 +50,22 @@ describe('createMemo', () => {
     expect(slow).toHaveBeenCalledTimes(1)
     finish(png(1))
     expect(await joined).toBe(await pending)
+  })
+  it('counts the backing buffer a view keeps alive, not the view length', async () => {
+    const memo = createMemo({ maxBytes: 100 })
+    await memo.get('k', async () => new Uint8Array(1000).subarray(0, 10))
+    await tick()
+    expect(memo.bytes).toBe(0)
+    expect(memo.size).toBe(0)
+  })
+  it('never remembers an empty card', async () => {
+    const memo = createMemo()
+    const make = vi.fn(async () => new Uint8Array(0))
+    await memo.get('k', make)
+    await tick()
+    expect(memo.size).toBe(0)
+    await memo.get('k', make)
+    expect(make).toHaveBeenCalledTimes(2)
   })
   it('delete releases the bytes', async () => {
     const memo = createMemo()
