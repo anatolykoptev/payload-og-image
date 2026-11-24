@@ -15,6 +15,26 @@ export type OgEventName =
   | 'not_found'
   | 'crawler'
 
+/** Every event the plugin emits, for `/stats` (a counter for each). The check below fails to compile when a name is missing. */
+export const OG_EVENT_NAMES = [
+  'hit_memo',
+  'hit_store',
+  'render',
+  'shed',
+  'store_disabled',
+  'store_write_skipped',
+  'store_corrupt',
+  'downgraded',
+  'render_error',
+  'glyph_missing',
+  'over_budget',
+  'draft',
+  'not_found',
+  'crawler',
+] as const satisfies readonly OgEventName[]
+const _allEventNamesListed: Exclude<OgEventName, (typeof OG_EVENT_NAMES)[number]> extends never ? true : never = true
+void _allEventNamesListed
+
 export type OgEvent = {
   name: OgEventName
   kind?: string

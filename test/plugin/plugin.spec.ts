@@ -105,13 +105,13 @@ describe('ogImagePlugin: config transform', () => {
     expect(c.globals?.[0]?.hooks).toBeUndefined()
     expect(() => apply(options({ siteGlobals: ['nope'] }))).toThrow(/global "nope", which does not exist/)
   })
-  it('6: the plugin is schema-neutral: no fields, endpoints, jobs, hooks or access are added', () => {
+  it('6: the plugin is schema-neutral: no fields, jobs, hooks or access are added, and its one endpoint is the admin-only /stats', () => {
     const before = baseConfig()
     const after = apply(options(), baseConfig())
     expect(after.collections).toEqual(before.collections)
     expect(after.globals).toEqual(before.globals)
-    expect(Object.keys(after).sort()).toEqual([...Object.keys(before), 'custom', 'onInit'].sort())
-    expect(after.endpoints).toBeUndefined()
+    expect(Object.keys(after).sort()).toEqual([...Object.keys(before), 'custom', 'endpoints', 'onInit'].sort())
+    expect((after.endpoints ?? []).map((e) => `${e.method} ${e.path}`)).toEqual(['get /payload-og-image/stats']) // the one admin-only read endpoint
     expect(after.jobs).toBeUndefined()
   })
   it('7: disabled keeps the config valid and runs no start-up checks', async () => {

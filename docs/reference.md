@@ -117,6 +117,15 @@ whether by the `fields` option or by hand). Its rules:
 The picture is always the card `generated` would draw, whatever the mode, so an editor sees what Off or Custom would fall
 back to. The warnings travel in the `x-og-warnings` header (ASCII JSON).
 
+## Stats
+
+`GET /api/payload-og-image/stats` (always registered, unless `disabled`) tells an admin how the plugin is running:
+`{ counters, gate: { active, waiting }, memo: { size, bytes }, store: { kind, enabled, dir? } }`. `counters` has one number
+per event name (`render`, `hit_memo`, `shed`, ...), counted in this process since it started; `dir` is the disk store's
+folder and is given only for a disk store. Only a user of the admin user collection whose collection's `access.admin`
+passes gets an answer; anyone else, an anonymous request included, gets 403. The answer is `no-store` and holds nothing else
+(no config value, key or file name).
+
 ## Related documents
 
 The plugin reads your document at depth 0, whatever `defaultPopulate` or `select` say: a relation arrives as its bare

@@ -1,10 +1,12 @@
 import type { Config, Endpoint, PayloadRequest } from 'payload'
 import { ShedError } from '../internal/gate.js'
 import type { OgState } from '../internal/state.js'
+import { OG_EVENT_NAMES } from '../internal/types.js'
 import type { Target } from '../template.js'
 import { populateUploads } from './payloadSource.js'
 
 export const PREVIEW_PATH = '/payload-og-image/preview'
+export const STATS_PATH = '/payload-og-image/stats'
 /** A preview body larger than this (bytes of JSON text) is refused before any parsing work. */
 const MAX_BODY_CHARS = 256 * 1024
 const MAX_DEPTH = 24
@@ -164,8 +166,51 @@ export function previewEndpoint(state: OgState): Endpoint {
   }
 }
 
-/** The config with the preview endpoint added: only when a target collection carries the `og` group, and the plugin is not disabled. */
-export function withPreviewEndpoint(config: Config, state: OgState, hasGroup: boolean): Config {
-  if (!hasGroup || state.options.disabled) return config
-  return { ...config, endpoints: [...(config.endpoints ?? []), previewEndpoint(state)] }
+/**
+ * `GET /api/payload-og-image/stats`: how the plugin is running, for an admin. Only a user of the admin user collection whose
+ * collection's `access.admin` passes (an anonymous request included) gets it; everyone else 403. The answer is these four
+ * parts and nothing more: the event counters (one number per event), the render gate, the memo, and the store's kind, whether
+ * it is enabled and, for a disk store, its `dir`. No config value, key or file name.
+ */
+export function statsEndpoint(state: OgState): Endpoint {
+  return {
+    path: STATS_PATH,
+    method: 'get',
+    handler: async (req: PayloadRequest) => {
+      try {
+        const user = req.user as ({ collection?: string } & Record<string, unknown>) | null | undefined
+        const adminCollection = req.payload.config?.admin?.user ?? 'users'
+        if (!user || user.collection !== adminCollection) return text(403, 'Forbidden')
+        const known = req.payload.collections as unknown as Record<string, { config?: { access?: { admin?: unknown } } } | undefined>
+        const admin = known[adminCollection]?.config?.access?.admin
+        const allowed =
+          typeof admin === 'function' ? await (async () => (admin as (a: unknown) => unknown)({ req }))().catch(() => false) : false
+        if (allowed !== true) return text(403, 'Forbidden')
+
+        const seen = state.events.counters()
+        const counters = Object.fromEntries(OG_EVENT_NAMES.map((n) => [n, seen[n] ?? 0]))
+        const store = state.store() as { enabled?: boolean; dir?: string }
+        const disk = 'dir' in state.options.store
+        return new Response(
+          JSON.stringify({
+            counters,
+            gate: state.gate.stats(),
+            memo: { size: state.memo.size, bytes: state.memo.bytes },
+            store: disk ? { kind: 'disk', enabled: store.enabled !== false, dir: store.dir } : { kind: 'memory', enabled: true },
+          }),
+          { status: 200, headers: { 'content-type': 'application/json', ...NO_STORE } },
+        )
+      } catch (error) {
+        state.events.emit({ name: 'render_error', detail: { message: `stats failed: ${String((error as Error)?.message ?? error)}` } })
+        return text(500, 'Stats failed')
+      }
+    },
+  }
+}
+
+/** The config with the plugin's endpoints added (none when it is disabled): `/stats` always, the preview when a target collection carries the `og` group. */
+export function withEndpoints(config: Config, state: OgState, hasGroup: boolean): Config {
+  if (state.options.disabled) return config
+  const ours = [statsEndpoint(state), ...(hasGroup ? [previewEndpoint(state)] : [])]
+  return { ...config, endpoints: [...(config.endpoints ?? []), ...ours] }
 }
