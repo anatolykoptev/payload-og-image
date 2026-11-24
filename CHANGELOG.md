@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.2.0](https://github.com/anatolykoptev/payload-og-image/compare/v0.1.4...v0.2.0) (2026-11-24)
+
+
+### Features
+
+* admin-only /stats ([#32](https://github.com/anatolykoptev/payload-og-image/issues/32)) ([043d91d](https://github.com/anatolykoptev/payload-og-image/commit/043d91d5e29f390e1f4daac940006cdd89f1c6c8))
+* **admin:** live card preview with warnings ([#29](https://github.com/anatolykoptev/payload-og-image/issues/29)) ([f40834d](https://github.com/anatolykoptev/payload-og-image/commit/f40834d9a0c5a2dfdc1bab3e000da6f2e890571e))
+* force-new-image nonce ([#31](https://github.com/anatolykoptev/payload-og-image/issues/31)) ([c4db7e5](https://github.com/anatolykoptev/payload-og-image/commit/c4db7e5d65bb9626a9d9943b3fb29fefd257ce04))
+* per-document og field group (mode, headline, subtitle) ([#26](https://github.com/anatolykoptev/payload-og-image/issues/26)) ([4c584c5](https://github.com/anatolykoptev/payload-og-image/commit/4c584c5851616bbbc5a78ba9d5e179cb77b90124))
+
 ## [0.1.4](https://github.com/anatolykoptev/payload-og-image/compare/v0.1.3...v0.1.4) (2026-11-24)
 
 
