@@ -36,8 +36,10 @@ async function loadOne(spec: FontSpec): Promise<LoadedFont & { hash: string }> {
   if ('fonts' in parsed) throw new Error(`payload-og-image: font "${spec.family}" is a font collection; register a single face`)
   const font = parsed
   const glyphOf = (ch: string) => font.glyphForCodePoint(ch.codePointAt(0) ?? 0)
-  // A copy sized exactly to the face, so `data` never exposes a larger shared pool buffer.
-  const data = bytes.slice().buffer
+  // A copy sized exactly to the face. (`Buffer#slice` is a view, so slicing would hand out a shared pool buffer.)
+  const copy = new Uint8Array(bytes.byteLength)
+  copy.set(bytes)
+  const data = copy.buffer
   return {
     family: spec.family,
     weight: spec.weight ?? 400,
@@ -71,14 +73,20 @@ export async function loadFonts(specs: FontSpec[]): Promise<{ fonts: LoadedFont[
 }
 
 const facesOf = (fonts: LoadedFont[], family: string) => fonts.filter((f) => f.family === family)
+
+/** The face a family is measured with: upright before italic, then the heaviest. Independent of registration order. */
+const measuringFace = (fonts: LoadedFont[], family: string): LoadedFont | undefined =>
+  facesOf(fonts, family).sort((a, b) => Number(a.style !== 'normal') - Number(b.style !== 'normal') || b.weight - a.weight)[0]
 const covers = (faces: LoadedFont[], ch: string) => faces.some((f) => f.has(ch))
 
-/** The first family of the stack with a face that draws every character of the run: a whole-run swap, never per-glyph mixing. */
+/**
+ * The first family of the stack with ONE face that draws every character of the run: a whole-run swap, never
+ * per-glyph mixing, and never a family whose faces only cover the run between them (a renderer picks one face).
+ */
 export function coveringFamily(fonts: LoadedFont[], stack: string[], text: string): string | null {
   const chars = [...text]
   for (const family of stack) {
-    const faces = facesOf(fonts, family)
-    if (faces.length > 0 && chars.every((ch) => covers(faces, ch))) return family
+    if (facesOf(fonts, family).some((face) => chars.every((ch) => face.has(ch)))) return family
   }
   return null
 }
@@ -127,7 +135,7 @@ const fits = (l: Layout, size: number, box: Box) =>
  * advance widths. At `minSize` a text that still does not fit is cut with an ellipsis.
  */
 export function fitText(fonts: LoadedFont[], family: string, text: string, box: Box): { size: number; lines: number; text: string } {
-  const face = fonts.find((f) => f.family === family)
+  const face = measuringFace(fonts, family)
   if (!face) throw new Error(`payload-og-image: fitText: font family "${family}" is not registered`)
   if (box.minSize > box.maxSize) throw new Error('payload-og-image: fitText: minSize is larger than maxSize')
   const clean = text.replace(/\s+/g, ' ').trim()

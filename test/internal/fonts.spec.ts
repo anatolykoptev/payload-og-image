@@ -1,12 +1,14 @@
 /** Mutation table (production line -> the test that goes RED). Silent-failure surface: a swapped font keeps the URL; a missing glyph draws tofu.
- * - fonts.ts:27   drop the wOF2 check                               -> "rejects WOFF2 naming the family" RED
- * - fonts.ts:66  leave the file hash out of the digest             -> "digest changes when a face file changes" RED
- * - fonts.ts:61     allow the same family/weight/style twice          -> "rejects a face registered twice" RED
- * - fonts.ts:81   coveringFamily uses `some` instead of `every`     -> "whole-run swap" RED
- * - fonts.ts:88   missingGlyphs looks only at the first family      -> "reports and strips chars no face draws" RED
- * - fonts.ts:47     advance() ignores unitsPerEm (raw font units)     -> "advances match the fontTools oracle" RED
- * - fonts.ts:112   fit ignores a word wider than the line            -> "shrinks for a word wider than a line instead of breaking it" RED
- * - fonts.ts:141 fitText returns the uncut text at minSize         -> "cuts with an ellipsis at minSize" RED */
+ * - fonts.ts:27  drop the wOF2 check -> "rejects WOFF2 naming the family" RED
+ * - fonts.ts:68  leave the file hash out of the digest -> "digest changes when a face file changes, and is stable otherwise" RED
+ * - fonts.ts:63  allow the same family/weight/style twice -> "rejects a face registered twice" RED
+ * - fonts.ts:40  `data` as `bytes.slice().buffer` (a Buffer view shares its pool) -> "keeps exactly the face bytes when the source is a view into a larger buffer" RED
+ * - fonts.ts:89  a family covers a run its faces only cover between them (`some` per char) -> "a family whose faces only cover a run between them does not cover it" RED
+ * - fonts.ts:96  missingGlyphs looks only at the first family -> "reports and strips chars no face draws" RED
+ * - fonts.ts:49  advance() ignores unitsPerEm -> "advances match the fontTools oracle" RED
+ * - fonts.ts:79  fitText measures the first registered face -> "measures a family with the same face whatever the registration order" RED; no upright-first rule -> "measures with an upright face before an italic one" RED
+ * - fonts.ts:120  fit ignores a word wider than the line -> "shrinks for a word wider than a line instead of breaking it" RED
+ * - fonts.ts:149  fitText returns the uncut text at minSize -> "cuts with an ellipsis at minSize" RED */
 import { readFile } from 'node:fs/promises'
 import { describe, expect, it } from 'vitest'
 import { coveringFamily, fitText, loadFonts, missingGlyphs, stripMissing } from '../../src/internal/fonts.js'
@@ -25,6 +27,38 @@ describe('fonts', () => {
     expect(coveringFamily(fonts, STACK, 'Hello')).toBe('Archivo')
     expect(coveringFamily(fonts, STACK, 'Привет, «мир» — №1')).toBe('Inter')
     expect(coveringFamily(fonts, STACK, 'Hi 🚀')).toBeNull()
+  })
+  it('a family whose faces only cover a run between them does not cover it', async () => {
+    const { fonts: base } = await loaded
+    // One family, two faces: Archivo draws "↑" but not Cyrillic, Inter draws Cyrillic but not "↑".
+    const mixed = base.map((f) => ({ ...f, family: 'Mixed' }))
+    expect(coveringFamily(mixed, ['Mixed'], '↑')).toBe('Mixed')
+    expect(coveringFamily(mixed, ['Mixed'], 'П')).toBe('Mixed')
+    expect(coveringFamily(mixed, ['Mixed'], '↑ П')).toBeNull()
+    expect(coveringFamily([...mixed, ...base], ['Mixed', 'Inter'], '↑ П')).toBeNull()
+  })
+  it('measures a family with the same face whatever the registration order', async () => {
+    const { fonts: base } = await loaded
+    const text = 'A considerably longer headline that must wrap onto several lines'
+    const box = { width: 560, height: 300, maxSize: 96, minSize: 40, leading: 1, maxLines: 4 }
+    const mixed = base.map((f) => ({ ...f, family: 'Mixed' })) // Archivo 600, Inter 800
+    const fwd = fitText(mixed, 'Mixed', text, box)
+    expect(fitText([...mixed].reverse(), 'Mixed', text, box)).toEqual(fwd)
+    // The rule picks the heaviest face (Inter 800), and the two faces really do fit differently.
+    expect(fwd).toEqual(fitText(base, 'Inter', text, box))
+    expect(fwd).not.toEqual(fitText(base, 'Archivo', text, box))
+  })
+  it('measures with an upright face before an italic one, even a heavier one', async () => {
+    const { fonts: base } = await loaded
+    const text = 'A considerably longer headline that must wrap onto several lines'
+    const box = { width: 560, height: 300, maxSize: 96, minSize: 40, leading: 1, maxLines: 4 }
+    const archivo = base.find((f) => f.family === 'Archivo') as (typeof base)[number]
+    const inter = base.find((f) => f.family === 'Inter') as (typeof base)[number]
+    const family = [
+      { ...inter, family: 'F', style: 'italic' as const },
+      { ...archivo, family: 'F' },
+    ]
+    expect(fitText(family, 'F', text, box)).toEqual(fitText(base, 'Archivo', text, box))
   })
   it('reports and strips chars no face draws (emoji included)', async () => {
     const { fonts } = await loaded
@@ -97,6 +131,15 @@ describe('fonts', () => {
     expect(a.digest).toBe(b.digest)
     expect(c.digest).not.toBe(a.digest)
     expect((await loadFonts([...specs].reverse())).digest).toBe(a.digest)
+  })
+  it('keeps exactly the face bytes when the source is a view into a larger buffer', async () => {
+    const whole = await file('inter-latin-cyrillic-800.woff')()
+    const padded = Buffer.concat([Buffer.alloc(100, 7), whole, Buffer.alloc(100, 9)])
+    const slice = padded.subarray(100, 100 + whole.byteLength)
+    const { fonts, digest } = await loadFonts([{ family: 'Inter', weight: 800, data: async () => slice }])
+    expect(fonts[0]?.data.byteLength).toBe(whole.byteLength)
+    expect(Buffer.from(fonts[0]?.data as ArrayBuffer).equals(whole)).toBe(true)
+    expect(digest).toBe((await loadFonts([{ family: 'Inter', weight: 800, data: async () => whole }])).digest)
   })
   it('keeps the face bytes exactly', async () => {
     const { fonts } = await loaded
