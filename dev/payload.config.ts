@@ -5,6 +5,7 @@ import { buildConfig } from 'payload'
 import { ogImagePlugin } from 'payload-og-image'
 import sharp from 'sharp'
 import { ogOptions } from './src/og/options.js'
+import { revalidateDeletedPost, revalidatePost, revalidateSite } from './src/og/revalidate.js'
 
 // Run from the repository root (`pnpm dev`, `payload run`): `import.meta.url` is not a plain file URL inside Next's RSC layer.
 const dirname = path.resolve(process.cwd(), 'dev')
@@ -18,6 +19,7 @@ export default buildConfig({
     {
       slug: 'posts',
       versions: { drafts: true },
+      hooks: { afterChange: [revalidatePost], afterDelete: [revalidateDeletedPost] },
       access: { read: ({ req: { user } }) => (user ? true : { _status: { equals: 'published' } }) },
       fields: [
         { name: 'title', type: 'text', required: true },
@@ -25,9 +27,17 @@ export default buildConfig({
         { name: 'heroImage', type: 'upload', relationTo: 'media' },
       ],
     },
-    { slug: 'media', fields: [], upload: { staticDir: path.resolve(dirname, 'media') } },
+    // Public: a crawler fetches an editor-chosen share image without a login.
+    { slug: 'media', access: { read: () => true }, fields: [], upload: { staticDir: path.resolve(dirname, 'media') } },
   ],
-  globals: [{ slug: 'site-settings', access: { read: () => true }, fields: [{ name: 'businessName', type: 'text' }] }],
+  globals: [
+    {
+      slug: 'site-settings',
+      access: { read: () => true },
+      hooks: { afterChange: [revalidateSite] },
+      fields: [{ name: 'businessName', type: 'text' }],
+    },
+  ],
   db: sqliteAdapter({ client: { url: process.env.DATABASE_URL || 'file:./dev.db' } }),
   editor: lexicalEditor(),
   jobs: { autoRun: [] },

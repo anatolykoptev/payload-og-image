@@ -8,7 +8,7 @@ import { join } from 'node:path'
 
 const EXPECTED = {
   'payload-og-image': ['defineTarget', 'defineTemplate', 'ogFields', 'ogImagePlugin'],
-  'payload-og-image/next': ['createOgRoute', 'ogMetadata', 'withHead'],
+  'payload-og-image/next': ['OG_SITE_TAG', 'createOgRoute', 'ogMetadata', 'ogTag', 'withHead'],
   'payload-og-image/testing': ['installTestRuntime', 'ogKit'],
 }
 const run = (cmd, args, cwd) => execFileSync(cmd, args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'inherit'] })

@@ -9,7 +9,7 @@ render queue, and a crash never leaves a half-written card behind.
 automatically from this repository, with provenance.
 
 **Compatibility:** Payload `^3.93.0`, Next.js `^16.4.5`, React `^19.3.1`, sharp `^0.35.4`, Node
-`^22.23.5 || ^24.22.3 || >=26.13.1`. ESM only.
+`^22.23.5 || ^24.22.3 || >=26.13.1`. ESM only. Node runtime only: edge and serverless platforms need `store: { memory: true }` and are untested.
 
 ## Install
 

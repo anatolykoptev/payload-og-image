@@ -7,6 +7,7 @@
       "!etc",
       "!dev/app",
       "!dev/payload-types.ts",
+      "!dev/next-env.d.ts",
       "!**/*.tsbuildinfo",
       "!temp",
       "!**/.next",

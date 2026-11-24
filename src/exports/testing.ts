@@ -1,5 +1,5 @@
 export type { RouteContext } from '../internal/handler.js'
-export type { IndexableRoute, Params, RouteModule } from '../testing/kit.js'
+export type { IndexableRoute, Params, RestRouteModule, RouteModule } from '../testing/kit.js'
 export { ogKit } from '../testing/kit.js'
 export type { KitDocs, TestRuntime, TestRuntimeHandle, TestRuntimeOptions } from '../testing/runtime.js'
 export { installTestRuntime } from '../testing/runtime.js'

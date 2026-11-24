@@ -6,6 +6,7 @@
  * - OgPreviewField.tsx  drop the warnings from the loading state -> "keeps the last warnings visible ..." RED
  * - OgPreviewField.tsx:146  Force new image: never disabled -> "Force new image is disabled, with a reason, where a new nonce cannot change the URL" RED
  * - OgPreviewField.tsx:124  mode off not read from the form, or sharesImage ignored -> the same test RED
+ * - OgPreviewField.tsx:129  keep the shared-image reason across a mode change (drop the `last.mode === mode` check) -> "a switch of mode drops the shared-image reason at once" RED
  * - OgPreviewField.tsx:156  the crawler hint dropped -> "names the crawler step next to the button" RED
  * - OgPreviewField.tsx  Force new image: no dispatch / not +1 / no setModified -> "Force new image sets og.nonce ..." RED
  * - OgPreviewField.tsx:62  retry a 503 more than once -> "a second 503 in a row is not retried again" RED; not at all -> "a 503 shows Busy, retrying ..." RED */
@@ -200,6 +201,23 @@ describe('OgPreviewField', () => {
     await tick(800)
     expect(button().disabled).toBe(false)
     expect(screen.getByText('Gives the card a new address so LinkedIn, Facebook and Telegram fetch it again.')).toBeTruthy()
+  })
+  it('a switch of mode drops the shared-image reason at once, not after the next answer', async () => {
+    const button = () => screen.getByRole('button', { name: 'Force new image' }) as HTMLButtonElement
+    data = { title: 'Hello', og: { mode: 'inherit' } }
+    fetchMock.mockResolvedValueOnce(
+      png({ missing: [], overBudget: false, customIneligible: false, customTooSmall: false, modeOff: false, sharesImage: true }),
+    )
+    const { rerender } = render(el())
+    await tick(800)
+    expect(button().disabled).toBe(true)
+    // The editor switches to Generated; the next answer is still on its way.
+    fetchMock.mockImplementationOnce(() => new Promise(() => {}))
+    data = { title: 'Hello', og: { mode: 'generated' } }
+    fields = { v: 1 }
+    rerender(el())
+    expect(button().disabled).toBe(false)
+    expect(screen.queryByText(/shares an image, not a generated card/)).toBeNull()
   })
   it('names the crawler step next to the button: a platform shows the new card once it re-reads the page', async () => {
     render(el())

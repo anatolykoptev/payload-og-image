@@ -158,6 +158,18 @@ export interface Post {
   title: string;
   slug?: string | null;
   heroImage?: (number | null) | Media;
+  og?: {
+    mode?: ('inherit' | 'generated' | 'custom' | 'off') | null;
+    /**
+     * Replaces the page title on the generated card. Leave empty to use the title.
+     */
+    headline?: string | null;
+    /**
+     * A second line on the generated card, where the template draws one.
+     */
+    subtitle?: string | null;
+    nonce?: number | null;
+  };
   updatedAt: string;
   createdAt: string;
   _status?: ('draft' | 'published') | null;
@@ -289,6 +301,14 @@ export interface PostsSelect<T extends boolean = true> {
   title?: T;
   slug?: T;
   heroImage?: T;
+  og?:
+    | T
+    | {
+        mode?: T;
+        headline?: T;
+        subtitle?: T;
+        nonce?: T;
+      };
   updatedAt?: T;
   createdAt?: T;
   _status?: T;

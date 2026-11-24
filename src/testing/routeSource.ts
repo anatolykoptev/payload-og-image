@@ -5,9 +5,16 @@
  * an export list. Only `createOgRoute(...)`, its `.GET`, and names that hold either are credited: any other expression
  * (`cond ? card : other`, a call of `route.GET`) is not.
  *
- * The compiler is an optional peer: the main entry never loads it, this module does so on the first call.
+ * The compiler is an optional peer: the main entry never loads it, this module does so on the first call. It is looked up from
+ * the project the tests run in (the working directory) first, then from this package, so a linked or workspace-symlinked copy
+ * of the plugin still finds the consumer's `typescript`.
+ *
+ * Limits, by design: `GET` is read from the module's top-level declarations, so a `let GET = route.GET` that is reassigned
+ * later is not modelled (use `const`), and `export * from` is not followed. `import * as og from 'payload-og-image/next'` with
+ * `og.createOgRoute(...)` is understood.
  */
 import { createRequire } from 'node:module'
+import path from 'node:path'
 import type * as TS from '@typescript/typescript6'
 
 type Ts = typeof TS
@@ -15,26 +22,40 @@ type Ts = typeof TS
 /** In order of preference. TypeScript 7 ships no in-process compiler API (its main entry exports a version only), so it is skipped. */
 const COMPILERS = ['typescript', '@typescript/typescript6'] as const
 
+type Load = (id: string) => unknown
+
 /**
- * The TypeScript compiler API, from the first of `typescript` (5 or 6) or `@typescript/typescript6` that has it. `load` is
- * `require` unless a test substitutes it. Throws an Error that says what to install when neither does.
+ * The places a compiler is looked for, in order: the project the tests run in (`cwd`), then this package. The consumer's own
+ * compiler wins: a plugin that is linked or symlinked into a workspace resolves from its real location, which may not hold the
+ * project's `typescript`.
  */
-export function loadTypescript(load: (id: string) => unknown = createRequire(import.meta.url)): Ts {
+export function compilerLocations(cwd: string = process.cwd()): Load[] {
+  return [createRequire(path.join(cwd, 'noop.js')), createRequire(import.meta.url)]
+}
+
+/**
+ * The TypeScript compiler API, from the first of `typescript` (5 or 6) or `@typescript/typescript6` that has it, looked up in each
+ * location in turn (default: the working directory, then this package; a test substitutes its own). A package without the API
+ * (TypeScript 7) in one location does not hide a usable one in the next. Throws an Error that says what to install when none has it.
+ */
+export function loadTypescript(...locations: Load[]): Ts {
   const notes: string[] = []
-  for (const id of COMPILERS) {
-    let found: unknown
-    try {
-      found = load(id)
-    } catch {
-      continue
+  for (const load of locations.length > 0 ? locations : compilerLocations()) {
+    for (const id of COMPILERS) {
+      let found: unknown
+      try {
+        found = load(id)
+      } catch {
+        continue
+      }
+      if (typeof (found as Partial<Ts> | undefined)?.createSourceFile === 'function') return found as Ts
+      notes.push(
+        `${id} ${String((found as { version?: unknown } | undefined)?.version ?? '')}`.trim() + ' has no compiler API (TypeScript 7)',
+      )
     }
-    if (typeof (found as Partial<Ts> | undefined)?.createSourceFile === 'function') return found as Ts
-    notes.push(
-      `${id} ${String((found as { version?: unknown } | undefined)?.version ?? '')}`.trim() + ' has no compiler API (TypeScript 7)',
-    )
   }
   throw new Error(
-    `payload-og-image/testing reads route files with the TypeScript compiler API, and none is installed${notes.length > 0 ? ` (${notes.join('; ')})` : ''}. ` +
+    `payload-og-image/testing reads route files with the TypeScript compiler API, and none is installed${notes.length > 0 ? ` (${[...new Set(notes)].join('; ')})` : ''}. ` +
       'Add `typescript` (5 or 6) as a dev dependency or, on TypeScript 7, `@typescript/typescript6`.',
   )
 }
@@ -51,6 +72,7 @@ const FACTORY = 'createOgRoute'
 /** What a module-level name holds. */
 type Binding =
   | { kind: 'import'; from: string; imported: string; typeOnly: boolean }
+  | { kind: 'namespace'; from: string; typeOnly: boolean }
   | { kind: 'variable'; node: TS.VariableDeclaration | TS.BindingElement }
   | { kind: 'other' }
 
@@ -82,7 +104,7 @@ export function analyzeRouteSource(source: string, fileName = 'route.ts', ts: Ts
       const from = ts.isStringLiteralLike(st.moduleSpecifier) ? st.moduleSpecifier.text : ''
       if (clause?.name) bind(clause.name.text, { kind: 'other' })
       const named = clause?.namedBindings
-      if (named && ts.isNamespaceImport(named)) bind(named.name.text, { kind: 'other' })
+      if (named && ts.isNamespaceImport(named)) bind(named.name.text, { kind: 'namespace', from, typeOnly: clause.isTypeOnly })
       else if (named)
         for (const el of named.elements)
           bind(el.name.text, {
@@ -116,10 +138,24 @@ export function analyzeRouteSource(source: string, fileName = 'route.ts', ts: Ts
     return b?.kind === 'import' && !b.typeOnly && b.from === FACTORY_MODULE && b.imported === FACTORY
   }
 
+  /** `og` in `og.createOgRoute`: a value import of the whole module. */
+  const isFactoryNamespace = (name: string) => {
+    const list = bindings.get(name)
+    const b = list?.length === 1 ? list[0] : undefined
+    return b?.kind === 'namespace' && !b.typeOnly && b.from === FACTORY_MODULE
+  }
+  const isFactoryCallee = (callee: TS.Expression): boolean => {
+    const c = unwrap(callee)
+    if (ts.isIdentifier(c)) return isFactory(c.text)
+    return (
+      ts.isPropertyAccessExpression(c) && c.name.text === FACTORY && ts.isIdentifier(c.expression) && isFactoryNamespace(c.expression.text)
+    )
+  }
+
   const memo = new Map<TS.Node, Kind>()
   const classify = (expr: TS.Expression): Kind => {
     const e = unwrap(expr)
-    if (ts.isCallExpression(e)) return ts.isIdentifier(e.expression) && isFactory(e.expression.text) ? 'route' : undefined
+    if (ts.isCallExpression(e)) return isFactoryCallee(e.expression) ? 'route' : undefined
     if (ts.isPropertyAccessExpression(e)) return e.name.text === 'GET' && classify(e.expression) === 'route' ? 'get' : undefined
     if (ts.isElementAccessExpression(e))
       return ts.isStringLiteralLike(e.argumentExpression) && e.argumentExpression.text === 'GET' && classify(e.expression) === 'route'

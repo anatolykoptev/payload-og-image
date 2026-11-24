@@ -19,6 +19,9 @@ type State =
   | { status: 'busy'; src?: string; warnings: string[] }
   | { status: 'error'; message: string }
 
+/** The mode in the form data, as the preview endpoint is asked about it. */
+const modeOf = (data: unknown): unknown => (data as { og?: { mode?: unknown } } | undefined)?.og?.mode
+
 const NO_CARD = 'Disabled: this document shares no card of its own, so there is no card address to change.'
 const SHARES_IMAGE = 'Disabled: the page shares an image, not a generated card, so a new card address would change nothing.'
 const DEBOUNCE_MS = 800
@@ -50,8 +53,9 @@ export const OgPreviewField: UIFieldClientComponent = () => {
     config: { routes, serverURL },
   } = useConfig()
   const [state, setState] = useState<State>({ status: 'idle' })
-  // The last answer's raw warnings: they say whether a new nonce could change the page's card URL at all.
-  const [last, setLast] = useState<Warnings | undefined>(undefined)
+  // The last answer's raw warnings and the mode they were drawn for: they say whether a new nonce could change the page's card URL
+  // at all, and only for that mode. After a switch of mode they say nothing until the next answer.
+  const [last, setLast] = useState<{ warnings: Warnings; mode: unknown } | undefined>(undefined)
   const blob = useRef<string | undefined>(undefined)
   const dataRef = useRef(getData)
   dataRef.current = getData
@@ -63,13 +67,14 @@ export const OgPreviewField: UIFieldClientComponent = () => {
     let retry: ReturnType<typeof setTimeout> | undefined
     const url = `${serverURL ?? ''}${routes.api}/payload-og-image/preview`
     const ask = async (retried: boolean): Promise<void> => {
+      const asked = dataRef.current()
       setState((s) => ({ status: 'loading', src: 'src' in s ? s.src : undefined, warnings: 'warnings' in s ? s.warnings : [] }))
       try {
         const res = await fetch(url, {
           method: 'POST',
           credentials: 'include',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ collection: collectionSlug, ...(id !== undefined && id !== null ? { id } : {}), doc: dataRef.current() }),
+          body: JSON.stringify({ collection: collectionSlug, ...(id !== undefined && id !== null ? { id } : {}), doc: asked }),
           signal: controller.signal,
         })
         if (res.status === 503 && !retried) {
@@ -88,7 +93,7 @@ export const OgPreviewField: UIFieldClientComponent = () => {
         if (controller.signal.aborted) return URL.revokeObjectURL(src)
         if (blob.current) URL.revokeObjectURL(blob.current)
         blob.current = src
-        setLast(raw)
+        setLast({ warnings: raw, mode: modeOf(asked) })
         setState({ status: 'ready', src, warnings })
       } catch (error) {
         if ((error as Error)?.name === 'AbortError' || controller.signal.aborted) return
@@ -120,8 +125,8 @@ export const OgPreviewField: UIFieldClientComponent = () => {
   }
 
   // A nonce is part of a generated card's version only: with `off` (no card) or a shared image it changes no URL.
-  const mode = (getData() as { og?: { mode?: unknown } }).og?.mode
-  const cannotChange = mode === 'off' ? NO_CARD : last?.sharesImage ? SHARES_IMAGE : undefined
+  const mode = modeOf(getData())
+  const cannotChange = mode === 'off' ? NO_CARD : last?.warnings.sharesImage && last.mode === mode ? SHARES_IMAGE : undefined
   const src = 'src' in state ? state.src : undefined
   const warnings = 'warnings' in state ? state.warnings : []
   return (

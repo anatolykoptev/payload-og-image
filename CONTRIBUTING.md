@@ -17,6 +17,7 @@ pnpm dev          # the dev app in dev/ (Payload + Next on SQLite)
 ```sh
 pnpm test -- test/<file>   # the tests for the code you touched
 make preflight             # lint, typecheck, test, build, api-extractor: the same gate CI runs
+node scripts/probe-dev-server.mjs   # after the build: serves the dev app with `next start` and probes it over HTTP (CI runs it too)
 ```
 
 - **Public API.** `etc/*.api.md` are api-extractor reports of the three entry points (`payload-og-image`,
