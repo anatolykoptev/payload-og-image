@@ -26,6 +26,12 @@ for (const [name, file] of Object.entries(pkg.bin ?? {})) {
   if (!inTarball.has(file.replace(/^\.\//, ''))) errors.push(`bin "${name}" -> ${file} is not in the tarball`)
 }
 
+// The admin entry needs `@payloadcms/ui` (an optional peer), which a clean project does not have: it cannot be imported
+// here, so check that it is shipped and exported instead.
+for (const f of ['dist/exports/client.js', 'dist/exports/client.d.ts'])
+  if (!inTarball.has(f)) errors.push(`${f} is not in the tarball (the ./client entry)`)
+if (!pkg.exports?.['./client']) errors.push('package.json exports has no ./client entry')
+
 const project = join(work, 'project')
 run('mkdir', ['-p', project], work)
 writeFileSync(join(project, 'package.json'), JSON.stringify({ name: 'verify', private: true, type: 'module' }))

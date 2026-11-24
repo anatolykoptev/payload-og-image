@@ -44,7 +44,13 @@ describe('ogFields()', () => {
     const [group, ...rest] = ogFields() as any[]
     expect(rest).toEqual([])
     expect(group).toMatchObject({ type: 'group', name: 'og', admin: { position: 'sidebar' } })
-    const [mode, headline, subtitle] = group.fields
+    const [mode, headline, subtitle, preview] = group.fields
+    expect(group.fields).toHaveLength(4)
+    expect(preview).toMatchObject({
+      name: 'preview',
+      type: 'ui',
+      admin: { components: { Field: 'payload-og-image/client#OgPreviewField' } },
+    })
     expect(mode).toMatchObject({ name: 'mode', type: 'select', defaultValue: 'inherit' })
     expect(mode.options.map((o: { value: string }) => o.value)).toEqual(['inherit', 'generated', 'custom', 'off'])
     expect(headline).toMatchObject({ name: 'headline', type: 'text' })
@@ -141,13 +147,32 @@ describe('fields option', () => {
     expect(warn).toHaveBeenCalledTimes(1)
     warn.mockRestore()
   })
-  it('never adds a collection, a global, an endpoint or a job', () => {
+  it('never adds a collection, a global or a job; its one endpoint is the preview', () => {
     const before = baseConfig()
     const c = apply(options({ fields: { enabled: true } }))
     expect((c.collections ?? []).map((x) => x.slug)).toEqual((before.collections ?? []).map((x) => x.slug))
     expect(c.globals).toBeUndefined()
-    expect(c.endpoints).toBeUndefined()
     expect(c.jobs).toBeUndefined()
+    expect((c.endpoints ?? []).map((e) => `${e.method} ${e.path}`)).toEqual(['post /payload-og-image/preview'])
+  })
+  it('the preview endpoint is added wherever a target collection carries og: by option or by hand; otherwise none', () => {
+    expect(apply(options()).endpoints).toBeUndefined()
+    expect(apply(options({ fields: { enabled: false } })).endpoints).toBeUndefined()
+    const hand = baseConfig()
+    ;(hand.collections as any[])[0].fields.push(...ogFields())
+    expect(apply(options(), hand).endpoints).toHaveLength(1)
+    expect(apply(options({ fields: { enabled: true }, disabled: true })).endpoints).toBeUndefined()
+    const other = baseConfig()
+    ;(other.collections as any[])[1].fields.push(...ogFields()) // a collection that is no target
+    expect(apply(options(), other).endpoints).toBeUndefined()
+  })
+  it("keeps the host's own endpoints and puts ours after them", () => {
+    const cfg = baseConfig()
+    cfg.endpoints = [{ path: '/mine', method: 'get', handler: async () => new Response('x') }]
+    expect((apply(options({ fields: { enabled: true } }), cfg).endpoints ?? []).map((e) => e.path)).toEqual([
+      '/mine',
+      '/payload-og-image/preview',
+    ])
   })
   it('does not mutate the config it was given', () => {
     const cfg = baseConfig()

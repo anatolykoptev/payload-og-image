@@ -14,6 +14,8 @@ import type { CardStore } from './types.js'
 export type OgRuntime = {
   handler(fixedTarget?: string): { GET(r: Request, c: RouteContext): Promise<Response> }
   resolveForMetadata(a: { target: string; id: string | number } | { static: string }, request?: Request): Promise<ResolvedCard>
+  /** An editor's live preview of a document being typed (see `CardHandler.preview`). */
+  preview: CardHandler['preview']
   emit: OgState['events']['emit']
 }
 
@@ -82,7 +84,12 @@ export function heroLoaderFor(payload: Payload, o: Pick<OgImagePluginOptions, 'a
 export function buildRuntime(state: OgState, payload: Payload, over: RuntimeOverrides = {}): OgRuntime {
   const o = state.options
   if (o.disabled) {
-    return { handler: () => disabledHandler, resolveForMetadata: async () => ({ kind: 'none' }), emit: state.events.emit }
+    return {
+      handler: () => disabledHandler,
+      resolveForMetadata: async () => ({ kind: 'none' }),
+      preview: async () => ({ kind: 'none' }),
+      emit: state.events.emit,
+    }
   }
   state.siteCache ??= cachedSite(async () => o.site({ payload, draft: false }))
   const siteCache = state.siteCache
@@ -142,6 +149,7 @@ export function buildRuntime(state: OgState, payload: Payload, over: RuntimeOver
 
   return {
     emit: state.events.emit,
+    preview: (a) => handlerFor().preview(a),
     handler(fixedTarget) {
       const key = fixedTarget ?? ''
       let route = routes.get(key)

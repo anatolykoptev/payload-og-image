@@ -71,6 +71,38 @@ export function uploadFieldPaths(fields: Field[] | undefined, prefix: string[] =
 }
 
 /**
+ * The doc was read at depth 0, so its upload fields are bare ids. The hero and the share image are uploads, which have no
+ * drafts: read each by id, with the caller's access (`user` for an editor, none for the public), and put it in place. An
+ * upload that is missing or that the caller may not read becomes null. A value that is already an object (a document
+ * assembled from an editor's form) is reduced to its id first, so it is read afresh and never trusted.
+ */
+export async function populateUploads<T extends Record<string, any> | null>(
+  payload: Payload,
+  collection: string,
+  doc: T,
+  user?: unknown,
+): Promise<T> {
+  if (!doc) return doc
+  const known = payload.collections as unknown as Record<string, { config?: { fields?: Field[] } } | undefined>
+  for (const { path, relationTo } of uploadFieldPaths(known[collection]?.config?.fields)) {
+    let holder: Record<string, any> | undefined = doc
+    for (const key of path.slice(0, -1)) holder = holder?.[key] as Record<string, any> | undefined
+    const field = path[path.length - 1] as string
+    const raw = holder?.[field]
+    const id = raw && typeof raw === 'object' ? (raw as { id?: unknown }).id : raw
+    if (!holder) continue
+    if (typeof id !== 'string' && typeof id !== 'number') {
+      if (raw && typeof raw === 'object') holder[field] = null // an object with no usable id is no upload of ours
+      continue
+    }
+    holder[field] = await payload
+      .findByID({ collection: relationTo as never, id, depth: 0, overrideAccess: false, ...(user ? { user } : {}) } as never)
+      .catch(() => null)
+  }
+  return doc
+}
+
+/**
  * Documents for the handler, from Payload. Published reads are `draft: false` AND `overrideAccess: false` (the
  * first means "published only" only together with the second). A draft is returned only to an authenticated
  * editor, and draft site data likewise.
@@ -86,25 +118,8 @@ export function payloadSource(payload: Payload, state: OgState, cachedSite: () =
     string,
     { config?: { fields?: Field[]; versions?: { drafts?: unknown } } } | undefined
   >
-  /**
-   * The doc was read at depth 0, so its upload fields are bare ids. The hero and the share image are uploads, which have no
-   * drafts: read each by id, with the caller's access (`user` for an editor, none for the public), and put it in place. An
-   * upload that is missing or that the caller may not read becomes null.
-   */
-  const withUploads = async <T extends Record<string, any> | null>(collection: string, doc: T, user?: unknown): Promise<T> => {
-    if (!doc) return doc
-    for (const { path, relationTo } of uploadFieldPaths(known[collection]?.config?.fields)) {
-      let holder: Record<string, any> | undefined = doc
-      for (const key of path.slice(0, -1)) holder = holder?.[key] as Record<string, any> | undefined
-      const field = path[path.length - 1] as string
-      const id = holder?.[field]
-      if (!holder || (typeof id !== 'string' && typeof id !== 'number')) continue
-      holder[field] = await payload
-        .findByID({ collection: relationTo as never, id, depth: 0, overrideAccess: false, ...(user ? { user } : {}) } as never)
-        .catch(() => null)
-    }
-    return doc
-  }
+  const withUploads = <T extends Record<string, any> | null>(collection: string, doc: T, user?: unknown) =>
+    populateUploads(payload, collection, doc, user)
   const readIn = async (collection: string, args: FindArgs, user?: unknown) => withUploads(collection, await first(args), user)
   // Editors: users of the admin user collection (or the configured auth collections), nobody else.
   const editorCollections = new Set(o.editors ?? [payload.config?.admin?.user ?? 'users'])

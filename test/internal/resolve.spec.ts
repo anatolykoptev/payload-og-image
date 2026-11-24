@@ -231,6 +231,25 @@ describe('resolveCard', () => {
     await resolveCard({ ...(await base()), target: t, doc: { id: 1, slug: 'a', title: 'A', og: { headline: 'B' } } })
     expect(seen).toEqual([{ headline: 'B' }, { headline: 'B' }])
   })
+  it('og #27: mode generated never asks isDeliberate (the editor image is ignored)', async () => {
+    const isDeliberate = vi.fn(() => true)
+    const seoImage = { path: 'meta.image', isDeliberate }
+    const r = await resolveCard({
+      ...(await base()),
+      seoImage,
+      doc: { id: 1, slug: 'a', title: 'A', meta: { image: jpeg }, og: { mode: 'generated' } },
+    })
+    expect(r.kind).toBe('generated')
+    expect(isDeliberate).not.toHaveBeenCalled()
+    await resolveCard({ ...(await base()), seoImage, doc: { id: 1, slug: 'a', title: 'A', meta: { image: jpeg } } })
+    expect(isDeliberate).toHaveBeenCalledTimes(1) // inherit still asks
+  })
+  it('og #27: share() receives the overrides', async () => {
+    const seen: unknown[] = []
+    const target = defineTarget<any, any>({ ...posts, share: ({ overrides }) => (seen.push(overrides), []) })
+    await resolveCard({ ...(await base()), target, doc: { id: 1, slug: 'a', title: 'A', og: { headline: 'H', subtitle: 'S' } } })
+    expect(seen).toEqual([{ headline: 'H', subtitle: 'S' }])
+  })
   it('11: cardPath encodes the key', () => expect(cardPath(posts, 'posts', 'a b/c')).toBe('/og/posts/a%20b%2Fc/card.png'))
   it('cardPath fills placeholders in one pass', () => {
     expect(cardPath(posts, 'posts', ':kind')).toBe('/og/posts/%3Akind/card.png')

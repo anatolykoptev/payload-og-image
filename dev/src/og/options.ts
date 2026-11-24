@@ -16,10 +16,15 @@ export const ogOptions: OgImagePluginOptions = {
     posts: {
       path: '/og/:kind/:slug/card.png',
       template: 'post',
-      props: ({ doc, site }: { doc: { title: string }; site: { name: string } }) => ({ label: 'Blog', title: doc.title, site: site.name }),
+      props: ({ doc, site, overrides }: { doc: { title: string }; site: { name: string }; overrides?: { headline?: string } }) => ({
+        label: 'Blog',
+        title: overrides?.headline ?? doc.title,
+        site: site.name,
+      }),
       hero: ({ doc }: { doc: { heroImage?: never } }) => doc.heroImage,
     },
   },
+  fields: { enabled: true },
   // Production: an absolute path on a volume only the app writes. Without one, cards stay in memory.
   store: process.env.OG_STORE_DIR ? { dir: process.env.OG_STORE_DIR } : { memory: true },
 }

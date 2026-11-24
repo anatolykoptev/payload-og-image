@@ -41,6 +41,11 @@ const group = (position: 'sidebar' | undefined): Field =>
         label: 'Card subtitle',
         admin: { description: 'A second line on the generated card, where the template draws one.' },
       },
+      {
+        name: 'preview',
+        type: 'ui',
+        admin: { components: { Field: 'payload-og-image/client#OgPreviewField' } },
+      },
     ],
   }) as Field
 
@@ -97,6 +102,12 @@ const nestedOg = (fields: Field[] | undefined, prefix: string[] = []): string | 
     }
   }
   return undefined
+}
+
+/** True when some target's collection has the `og` group at the top level (placed by the plugin or by hand). */
+export function targetsCarryOg(config: Config, targets: Record<string, Target>): boolean {
+  const wanted = new Set(Object.entries(targets).map(([name, t]) => t.collection ?? name))
+  return (config.collections ?? []).some((c) => wanted.has(c.slug) && carriesOg(c.fields))
 }
 
 /** The config with the group added to each target's collection. The same object when the option is off: the schema is then exactly 0.1. */

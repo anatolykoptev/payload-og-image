@@ -73,6 +73,12 @@ const isPlainObject = (v: unknown): v is Record<string, unknown> => {
   return proto === Object.prototype || proto === null
 }
 
+/** The document's `og.mode`: one of the four, and `inherit` for anything else (including no `og` data). */
+export function ogMode(doc: Record<string, any>): 'inherit' | 'generated' | 'custom' | 'off' {
+  const m = isPlainObject(doc.og) ? doc.og.mode : undefined
+  return m === 'generated' || m === 'custom' || m === 'off' ? m : 'inherit'
+}
+
 /** A card key (slug) longer than this is no document of ours: the route refuses it, so a page must not advertise it either. */
 export const MAX_SLUG = 256
 
@@ -121,7 +127,7 @@ export function buildKindIndex(targets: Record<string, Target>): Record<string, 
  */
 export async function resolveCard(i: ResolveInput): Promise<ResolvedCard> {
   const og = isPlainObject(i.doc.og) ? i.doc.og : {}
-  const mode = og.mode === 'generated' || og.mode === 'custom' || og.mode === 'off' ? og.mode : 'inherit'
+  const mode = ogMode(i.doc)
   const overrides = { headline: nonEmpty(og.headline, true), subtitle: nonEmpty(og.subtitle, true) }
   if (mode === 'off') return { kind: 'none' }
   const args = {
@@ -133,7 +139,8 @@ export async function resolveCard(i: ResolveInput): Promise<ResolvedCard> {
   const rawHero = i.target.hero?.(args)
   const hero = usableHero(rawHero)
   const seo = i.seoImage ? getPath(i.doc, i.seoImage.path) : undefined
-  const editor = seo != null && (i.seoImage?.isDeliberate?.(seo) ?? true) && !sameUpload(seo, rawHero) ? seo : undefined
+  const editor =
+    mode !== 'generated' && seo != null && (i.seoImage?.isDeliberate?.(seo) ?? true) && !sameUpload(seo, rawHero) ? seo : undefined
   const title = typeof i.doc.title === 'string' ? i.doc.title.trim() : ''
   // The editor's image wins without asking the target for alternatives (and without running its code).
   // Mode `custom` is the editor's image alone (target.share() is not asked); `generated` skips the image step.

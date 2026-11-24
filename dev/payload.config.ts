@@ -11,7 +11,7 @@ const dirname = path.resolve(process.cwd(), 'dev')
 
 // Dev app for the plugin: posts with drafts, one example template, fonts from the OFL test fixtures.
 export default buildConfig({
-  admin: { importMap: { baseDir: path.resolve(dirname) } },
+  admin: { importMap: { baseDir: path.resolve(dirname), importMapFile: path.resolve(dirname, 'app/(payload)/admin/importMap.js') } },
   serverURL: process.env.NEXT_PUBLIC_SERVER_URL || 'http://localhost:3000',
   collections: [
     { slug: 'users', auth: true, fields: [] },

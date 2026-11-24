@@ -1,6 +1,8 @@
 /** Mutation table (production line -> the test that goes RED). Silent-failure surface: the Payload CLI loads `payload.config` outside Next; a `next/*`, sharp or renderer import in the main entry breaks it there.
  * - index.ts:4  import the runtime from the plugin (the main entry then reaches next/*, sharp, the renderer) -> "the main entry reaches no next/*, sharp, payload value import or renderer module" RED
- * - state.ts:2  import sharp from state.ts -> same test RED */
+ * - state.ts:2  import sharp from state.ts -> same test RED
+ * - endpoints.ts  import the runtime statically (not inside the handler) -> "the one lazy edge ..." and the static test RED
+ * - endpoints.ts  a second lazy import -> "the one lazy edge ..." RED */
 import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -8,7 +10,7 @@ import { describe, expect, it } from 'vitest'
 const SRC = path.resolve(import.meta.dirname, '../src')
 
 /** Every module reachable through VALUE imports (type-only imports are erased) from an entry file, with its bare specifiers. */
-function graph(entry: string) {
+function graph(entry: string, o: { dynamic?: boolean } = { dynamic: true }) {
   const files = new Set<string>()
   const bare = new Set<string>()
   const walk = (file: string) => {
@@ -19,7 +21,7 @@ function graph(entry: string) {
       /(?:^|\n)\s*(import|export)\s+(type\s+)?([^'";]*?)from\s*['"]([^'"]+)['"]|import\(\s*['"]([^'"]+)['"]\s*\)/g,
     )) {
       const spec = m[4] ?? m[5]
-      const typeOnly = Boolean(m[2])
+      const typeOnly = Boolean(m[2]) || (m[5] !== undefined && o.dynamic === false)
       if (!spec || typeOnly) continue
       if (spec.startsWith('.')) {
         const base = path.resolve(path.dirname(file), spec.replace(/\.js$/, ''))
@@ -33,9 +35,21 @@ function graph(entry: string) {
 
 describe('entry points load in the Payload CLI (outside Next)', () => {
   it('the main entry reaches no next/*, sharp, payload value import or renderer module', () => {
-    const { files, bare } = graph('exports/index.ts')
+    // Static imports only: the preview endpoint loads the runtime on a request (see the next test), never at config load.
+    const { files, bare } = graph('exports/index.ts', { dynamic: false })
     expect(bare.filter((b) => /^(next|sharp|payload|react)(\/|$)/.test(b))).toEqual([])
     expect(files.filter((f) => /^(render|next)\//.test(f) || f.endsWith('runtime.ts') || f.endsWith('handler.ts'))).toEqual([])
+  })
+  it('the one lazy edge from the main entry to the runtime is the preview endpoint handler, inside the request function', () => {
+    const lazy: string[] = []
+    const all = graph('exports/index.ts')
+    const fixed = graph('exports/index.ts', { dynamic: false })
+    for (const f of all.files.filter((f) => !fixed.files.includes(f))) lazy.push(f)
+    expect(lazy).toEqual(expect.arrayContaining(['internal/handler.ts', 'internal/runtime.ts']))
+    expect(fixed.files).not.toContain('internal/runtime.ts')
+    const src = readFileSync(path.join(SRC, 'plugin/endpoints.ts'), 'utf8')
+    expect(src.match(/import\(['"][^'"]+['"]\)/g)).toEqual(["import('../internal/runtime.js')"])
+    expect(src).not.toMatch(/^import[^\n]*runtime/m)
   })
   it('the /next entry is where the renderer, the handler and the runtime live', () => {
     const { files } = graph('exports/next.ts')

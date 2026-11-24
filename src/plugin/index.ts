@@ -7,7 +7,8 @@ import { buildKindIndex } from '../internal/resolve.js'
 import { CUSTOM_KEY, createState } from '../internal/state.js'
 import type { OnEvent, SiteInfo } from '../internal/types.js'
 import type { StaticCard, Target, Template } from '../template.js'
-import { type OgFieldsOption, withOgFields } from './fields.js'
+import { withPreviewEndpoint } from './endpoints.js'
+import { type OgFieldsOption, targetsCarryOg, withOgFields } from './fields.js'
 
 export { type OgDocFields, type OgFieldsOption, ogFields } from './fields.js'
 
@@ -172,8 +173,10 @@ export function ogImagePlugin(o: OgImagePluginOptions): (config: Config) => Conf
     })
     const previousOnInit = config.onInit
     const withFields = withOgFields(config, o.targets, o.fields)
+    // The preview endpoint rides with the `og` group: wherever a target collection carries it, however it got there.
+    const withEndpoint = withPreviewEndpoint(withFields, state, targetsCarryOg(withFields, o.targets))
     return {
-      ...withFields,
+      ...withEndpoint,
       ...(config.globals ? { globals } : {}),
       custom: { ...config.custom, [CUSTOM_KEY]: state },
       onInit: async (payload) => {
