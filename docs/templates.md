@@ -1,6 +1,6 @@
 # Templates
 
-A template turns props into a card. [`dev/src/og/exampleTemplate.tsx`](../dev/src/og/exampleTemplate.tsx) is a
+A template turns props into a card. [`dev/src/og/exampleTemplate.tsx`](https://github.com/anatolykoptev/payload-og-image/blob/main/dev/src/og/exampleTemplate.tsx) is a
 working one; every snippet below comes from it.
 
 ```tsx

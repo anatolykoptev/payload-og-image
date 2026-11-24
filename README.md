@@ -10,7 +10,7 @@ Status: 0.1, extracted from four production sites. Requires Payload `^3.93.0`, N
 ## Install
 
 ```sh
-pnpm add payload-og-image
+pnpm add payload-og-image@next   # 0.x releases are published to the `next` tag until promoted to `latest`
 ```
 
 Add one entry to `next.config`:
@@ -23,7 +23,7 @@ serverExternalPackages: ['fontkit']
 ## Quick start: three files
 
 **1. The Payload config** registers the plugin, your fonts and one template (see
-[`dev/src/og/options.ts`](dev/src/og/options.ts) and [`dev/payload.config.ts`](dev/payload.config.ts)):
+[`dev/src/og/options.ts`](https://github.com/anatolykoptev/payload-og-image/blob/main/dev/src/og/options.ts) and [`dev/payload.config.ts`](https://github.com/anatolykoptev/payload-og-image/blob/main/dev/payload.config.ts)):
 
 ```ts
 import { ogImagePlugin } from 'payload-og-image'
@@ -51,7 +51,7 @@ store: process.env.OG_STORE_DIR ? { dir: process.env.OG_STORE_DIR } : { memory: 
 // OG_STORE_DIR: an absolute path on a volume only the app writes
 ```
 
-**2. The card route** is the whole file ([`dev/app/(frontend)/og/[kind]/[slug]/card.png/route.ts`](dev/app/(frontend)/og/[kind]/[slug]/card.png/route.ts)):
+**2. The card route** is the whole file ([`dev/app/(frontend)/og/[kind]/[slug]/card.png/route.ts`](https://github.com/anatolykoptev/payload-og-image/blob/main/dev/app/(frontend)/og/[kind]/[slug]/card.png/route.ts)):
 
 ```ts
 import config from '@payload-config'
@@ -64,7 +64,7 @@ export const GET = route.GET
 export const HEAD = GET
 ```
 
-**3. A page's metadata** ([`dev/app/(frontend)/posts/[slug]/page.tsx`](dev/app/(frontend)/posts/[slug]/page.tsx)):
+**3. A page's metadata** ([`dev/app/(frontend)/posts/[slug]/page.tsx`](https://github.com/anatolykoptev/payload-og-image/blob/main/dev/app/(frontend)/posts/[slug]/page.tsx)):
 
 ```ts
 export async function generateMetadata({ params }: Props) {
@@ -96,11 +96,14 @@ title) advertises nothing.
 | the hero could not be read, or the card fell back                          | `public, max-age=300, no-transform`                 |
 | unknown document, shed (503 with `Retry-After: 5`), any draft-mode request | `no-store`                                          |
 
-Every card answer has `etag: "<v>"` and `x-og-cache` (`render`, `memo`, `store`, `draft`, `downgraded` or
-`fallback`). The request's `?v=` only picks the header; it is never a key, and the version is always derived
+A card answer carries `etag: "<v>"` and `x-og-cache` (`render`, `memo`, `store` or `draft`). A downgraded card
+(`x-og-cache: downgraded`, hero missing) and the brand fallback carry no `etag`, so a cache cannot revalidate them
+into the current version; a 304 carries the `etag` and `cache-control` only. The request's `?v=` only picks the header; it is never a key, and the version is always derived
 on the server.
 
-Draft mode is never cached, never stored, and shows draft text only to an authenticated editor.
+Draft mode is never cached, never stored, and shows draft text only to an authenticated editor. An HTTP cache
+that already holds a card for the same URL may serve it during a preview without asking the app; preview with a
+fresh URL (`?preview=1`) if you need to be sure.
 
 ## Next 16 specifics (measured in the dev app)
 
@@ -151,7 +154,7 @@ nothing that is not in its props.
 `payload-og-image/testing` exports `installTestRuntime` and `ogKit`. The kit calls your real page, metadata and
 route modules and checks the failures this plugin exists to prevent: a draft cached, a stale version served as
 immutable, a client-chosen version stored, a HEAD that is not GET's twin, a card route whose path no config
-declares, a template that draws something the URL does not cover. See [`dev/tests/og.spec.ts`](dev/tests/og.spec.ts).
+declares, a template that draws something the URL does not cover. See [`dev/tests/og.spec.ts`](https://github.com/anatolykoptev/payload-og-image/blob/main/dev/tests/og.spec.ts).
 
 `og-parity --old <dir> --new <dir>` compares two directories of rendered cards (`<card>.png` plus
 `<card>.layout.json`) pixel for pixel, for a migration that must not change a card.

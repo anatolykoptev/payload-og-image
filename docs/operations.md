@@ -35,6 +35,8 @@ Inspector, Facebook Sharing Debugger). A platform caches by full URL, so a card 
 if it did not change when you expected, something the template draws is not in its props. Until a force-new-image
 option exists, bump the template's `revision`.
 
+**The store is writable but not on the volume.** The store checks that its directory exists and is writable. It cannot tell a mounted volume from a folder inside the container, so a missing mount gives no `store_disabled` event: cards then vanish with every container recreate. Confirm the mount in your compose file (and `df` on the path) when you deploy.
+
 **The store is off (`store_disabled`).** Cards keep working from memory but are redrawn after every restart.
 Check that the volume is mounted at `store.dir`, that the app user owns it and can write, that it is not a
 symlink, and that it has free space. The event's `detail` names the errno. Restart after fixing it.
@@ -52,3 +54,10 @@ directory fsynced. A read checks the whole file (every chunk's CRC, the image da
 header promises); a torn file is deleted and drawn again. Only files that match the store's own two name
 patterns are ever counted or deleted. Pruning runs off the request path at most once a minute and keeps the
 newest two versions of a page, then trims oldest-first to `maxFiles` and `maxBytes`.
+
+## Several app processes
+
+The cached `site()` (60 seconds) and the memo are per process. Saving a site global drops the cache of the
+process that handled the save; other workers show the old value until their 60 seconds are up. The card URL
+changes when a worker reads the new value, so the worst case is a card that lags a minute behind a site-wide
+edit. The disk store is shared between processes that mount the same directory.
