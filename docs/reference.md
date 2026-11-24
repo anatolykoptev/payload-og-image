@@ -81,10 +81,12 @@ Use `{ expire: 0 }`, not `'max'`: `'max'` serves the stale page to the next visi
 often the crawler. `afterChange` (and `afterOperation`) run inside the operation's transaction, before it commits (Payload 3.94.1: `updateByID` calls
 `buildAfterOperation` before `commitTransaction`; `req.transactionID` is set while one is open). A request that re-renders the
 page in that window reads the old document and caches it again, with the old `og:image`. For a rarely read page the window is
-milliseconds and does not matter. For a hot page, add the tags to a module-level `Set` in the hook (the wrapper below cannot see `req`) and expire
-them once the commit is done, from outside Payload: wrap the REST route's handlers in `app/(payload)/api/[...slug]/route.ts`
-(`export const PATCH = async (r, c) => { const res = await REST_PATCH(config)(r, c); /* expire the tags in the Set, then clear it */ return res }`),
-which resolve after the commit. Saves through the Local API (a job, a script) have no such wrapper: expire there yourself.
+milliseconds and does not matter. For a hot page, collect the tags of the request and expire them
+once the commit is done, from outside Payload: wrap the REST route's handlers in `app/(payload)/api/[...slug]/route.ts` and share the
+tags through an `AsyncLocalStorage` (the wrapper cannot see `req`, and a module-level set would mix the tags of overlapping saves):
+`const tags = new AsyncLocalStorage<Set<string>>()`; the hook does `tags.getStore()?.add(ogTag('posts', slug))` instead of expiring;
+`export const PATCH = async (r, c) => { const mine = new Set<string>(); const res = await tags.run(mine, () => REST_PATCH(config)(r, c)); for (const t of mine) revalidateTag(t, { expire: 0 }); return res }`
+(that wrapper resolves after the commit). Saves through the Local API (a job, a script) have no such wrapper: expire there yourself.
 
 Deleting a document runs no `afterChange`: add an `afterDelete` hook that expires the same tag. Without a tagged read, `revalidatePath('/posts/<slug>')` does the same for one page. The plugin's own
 `afterChange` on `siteGlobals` only drops its per-process `site()` cache; it never touches Next's page cache. A vitest suite

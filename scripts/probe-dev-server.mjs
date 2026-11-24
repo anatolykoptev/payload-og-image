@@ -36,6 +36,16 @@ const CACHE = {
   short: 'public, max-age=3600, no-transform',
 }
 
+// The dev media folder is the developer's too: only what appeared during this run is removed.
+const media = join(root, 'dev', 'media')
+const listing = () => {
+  try {
+    return new Set(readdirSync(media))
+  } catch {
+    return new Set()
+  }
+}
+const mediaBefore = listing()
 let server
 let log = ''
 let stopping = false
@@ -45,18 +55,17 @@ const fail = (what) => {
   throw new ProbeFailure(what)
 }
 // Every request has a deadline, and a server that has died answers nothing: a hung probe would hold the CI job for its whole timeout.
-const fetch = (url, init = {}) => {
+const fetch = (url, init = {}, ms = 30_000) => {
   if (died !== undefined) throw new ProbeFailure(`next start exited ${died}`)
-  return globalThis.fetch(url, { ...init, signal: AbortSignal.timeout(30_000) })
+  return globalThis.fetch(url, { ...init, signal: AbortSignal.timeout(ms) })
 }
 // Always runs: the server, the throwaway database, and the uploads this probe made in the dev app's media folder.
 const stop = () => {
   stopping = true
   server?.kill('SIGTERM')
   rmSync(work, { recursive: true, force: true })
-  const media = join(root, 'dev', 'media')
   try {
-    for (const name of readdirSync(media)) if (/^probe(-\d+)?\.png$/.test(name)) rmSync(join(media, name), { force: true })
+    for (const name of readdirSync(media)) if (!mediaBefore.has(name)) rmSync(join(media, name), { force: true })
   } catch {}
 }
 const ok = (what) => console.log(`ok   ${what}`)
@@ -78,10 +87,10 @@ try {
   server.on('exit', (code) => {
     if (!stopping) died = code
   })
-  for (let i = 0; ; i++) {
-    if (i > 100) fail('the server did not answer within 30 s')
+  for (const deadline = Date.now() + 30_000; ; ) {
+    if (Date.now() > deadline) fail('the server did not answer within 30 s')
     try {
-      if ((await fetch(`${origin}/posts/plain`)).status === 200) break
+      if ((await fetch(`${origin}/posts/plain`, {}, 3_000)).status === 200) break
     } catch (error) {
       if (error instanceof ProbeFailure) throw error
     }
