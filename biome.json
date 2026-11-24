@@ -1,7 +1,7 @@
 {
   "$schema": "https://biomejs.dev/schemas/2.6.8/schema.json",
   "files": {
-    "includes": ["**", "!dist", "!etc", "!dev/app", "!dev/payload-types.ts", "!**/*.tsbuildinfo", "!temp"]
+    "includes": ["**", "!dist", "!etc", "!dev/app", "!dev/payload-types.ts", "!**/*.tsbuildinfo", "!temp", "!**/.next", "!dev/media"]
   },
   "formatter": {
     "indentStyle": "space",
@@ -29,6 +29,13 @@
         "test/internal/resolve.spec.ts",
         "src/internal/handler.ts",
         "test/internal/handler.spec.ts",
+        "src/plugin/index.ts",
+        "src/plugin/payloadSource.ts",
+        "src/internal/runtime.ts",
+        "src/internal/state.ts",
+        "src/next/*.ts",
+        "test/plugin/*.ts",
+        "test/next/*.ts",
         "test/render/render.spec.ts"
       ],
       "linter": {

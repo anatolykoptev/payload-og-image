@@ -1,0 +1,138 @@
+/** Mutation table (production line -> the test that goes RED). Silent-failure surface: a page advertising a card URL the route does not serve (a different v, a different image).
+ * - runtime.ts:149  resolve from the document the page passed instead of re-reading by id (patched through metadata.ts and runtime.ts together) -> "4: the page passes a doc whose hero is a bare id ..." RED
+ * - metadata.ts:38  always throw -> "a failure throws in development and test, and is an event with {} in production" RED
+ * - metadata.ts:11  advertise a card that would be blank -> "3: a card that would be blank advertises nothing" RED */
+import type { Payload } from 'payload'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import type { DocSource } from '../../src/internal/handler.js'
+import { buildRuntime, setTestRuntime } from '../../src/internal/runtime.js'
+import { createState } from '../../src/internal/state.js'
+import { memoryStore } from '../../src/internal/store/memory.js'
+import { descriptorOf, ogMetadata } from '../../src/next/metadata.js'
+import { createOgRoute } from '../../src/next/route.js'
+import type { OgImagePluginOptions } from '../../src/plugin/index.js'
+import { defineTarget, defineTemplate } from '../../src/template.js'
+import { loadTestFonts, realPng } from '../helpers.js'
+
+const post = defineTemplate<{ title: string; label: string }>({
+  id: 'post',
+  revision: '1',
+  required: (p) => !!p.title.trim(),
+  textFields: ['title'],
+  render: (p) => ({ type: 'div', props: { children: p.title } }) as never,
+})
+const jpeg = { id: 7, url: '/media/own.jpg', width: 1200, height: 630, mimeType: 'image/jpeg', alt: 'Own' }
+const heroUpload = { id: 9, url: '/media/h.jpg', updatedAt: 'u1', filename: 'h.jpg' }
+
+function setup(docs: Record<string, any>, over: Partial<OgImagePluginOptions> = {}) {
+  const publishedById = vi.fn(async (_t: string, id: string | number) => docs[String(id)] ?? null)
+  const source: DocSource = {
+    published: async (_t, slug) => Object.values(docs).find((d: any) => d.slug === slug) ?? null,
+    publishedById,
+    draft: async () => null,
+    site: async () => ({ name: 'Site' }),
+    related: async () => null,
+  }
+  const options: OgImagePluginOptions = {
+    site: () => ({ name: 'Site' }),
+    fonts: [],
+    stacks: { title: ['Inter'], default: ['Inter'] },
+    templates: [post],
+    targets: {
+      posts: defineTarget<any, any>({
+        path: '/og/:kind/:slug/card.png',
+        template: 'post',
+        props: ({ doc }: any) => ({ title: doc.title, label: 'Blog' }),
+        hero: ({ doc }: any) => doc.heroImage,
+      }),
+    },
+    static: {
+      'index/blog': {
+        path: '/og/index/blog/card.png',
+        kind: 'index',
+        slug: 'blog',
+        template: 'post',
+        props: () => ({ title: 'Blog', label: '' }),
+      },
+    },
+    store: { memory: true },
+    seoImage: { path: 'meta.image' },
+    ...over,
+  }
+  const state = createState(options, 'https://x.test')
+  // The state loads the real fixture faces through the same memo the plugin uses.
+  state.fonts = loadTestFonts
+  const rt = buildRuntime(state, {} as Payload, {
+    source,
+    store: memoryStore(),
+    renderer: { render: async (el: any) => realPng(String(el?.props?.children ?? '')) },
+    heroLoader: async () => 'data:image/png;base64,AAAA',
+    isDraftRequest: async () => false,
+  })
+  setTestRuntime(rt)
+  return { rt, publishedById, config: {} as never }
+}
+afterEach(() => setTestRuntime(null))
+
+describe('ogMetadata', () => {
+  it('1: a generated card -> openGraph image {url,width,height,type,alt} and the summary_large_image twitter pair', async () => {
+    const { config } = setup({ 1: { id: 1, slug: 'a', title: 'A' } })
+    const m = await ogMetadata({ config, target: 'posts', doc: { id: 1 } })
+    const image = (m.openGraph as any).images[0]
+    expect(image.url).toMatch(/^https:\/\/x\.test\/og\/posts\/a\/card\.png\?v=[0-9a-f]{12}$/)
+    expect([image.width, image.height, image.type, image.alt]).toEqual([1200, 630, 'image/png', 'Blog: A'])
+    expect(m.twitter).toEqual({ card: 'summary_large_image', images: [{ url: image.url, width: 1200, height: 630, alt: 'Blog: A' }] })
+  })
+  it('2: the editor image is advertised as it is', async () => {
+    const { config } = setup({ 1: { id: 1, slug: 'a', title: 'A', meta: { image: jpeg } } })
+    const m = await ogMetadata({ config, target: 'posts', doc: { id: 1 } })
+    expect((m.openGraph as any).images[0]).toEqual({
+      url: 'https://x.test/media/own.jpg',
+      width: 1200,
+      height: 630,
+      type: 'image/jpeg',
+      alt: 'Own',
+    })
+    expect((m.twitter as any).images[0]).toEqual({ url: 'https://x.test/media/own.jpg', width: 1200, height: 630, alt: 'Own' })
+  })
+  it('3: a card that would be blank advertises nothing, and so does a missing doc', async () => {
+    const { config } = setup({ 1: { id: 1, slug: 'a', title: '  ' } })
+    expect(await ogMetadata({ config, target: 'posts', doc: { id: 1 } })).toEqual({})
+    expect(await ogMetadata({ config, target: 'posts', doc: { id: 404 } })).toEqual({})
+    expect(await ogMetadata({ config, target: 'posts', doc: null })).toEqual({})
+    expect(await ogMetadata({ config, target: 'posts', doc: undefined })).toEqual({})
+  })
+  it("4: the page passes a doc whose hero is a bare id; the helper re-reads by id and advertises the ROUTE's version", async () => {
+    const full = { id: 1, slug: 'a', title: 'A', heroImage: heroUpload }
+    const { config, publishedById } = setup({ 1: full })
+    const shallow = { id: 1, slug: 'a', title: 'A', heroImage: 9 } // what a depth-0 page read holds
+    const m = await ogMetadata({ config, target: 'posts', doc: shallow as never })
+    const advertised = (m.openGraph as any).images[0].url as string
+    expect(publishedById).toHaveBeenCalledWith('posts', 1)
+    const res = await createOgRoute({ config }).GET(new Request(advertised), { params: Promise.resolve({ kind: 'posts', slug: 'a' }) })
+    expect(advertised.endsWith(`?v=${(res.headers.get('etag') as string).replaceAll('"', '')}`)).toBe(true)
+    expect(res.headers.get('cache-control')).toContain('immutable') // the advertised URL IS the current version
+  })
+  it('5: a static card -> its URL', async () => {
+    const { config } = setup({})
+    const m = await ogMetadata({ config, static: 'index/blog' })
+    expect((m.openGraph as any).images[0].url).toMatch(/^https:\/\/x\.test\/og\/index\/blog\/card\.png\?v=[0-9a-f]{12}$/)
+  })
+  it('descriptorOf is the one place the metadata shape is built', () => {
+    expect(descriptorOf({ kind: 'none' })).toEqual({})
+  })
+  it('a failure throws in development and test, and is an event with {} in production', async () => {
+    const { config, rt } = setup({ 1: { id: 1, slug: 'a', title: 'A' } }, { static: {} })
+    await expect(ogMetadata({ config, static: 'index/nope' })).rejects.toThrow(/no static card/)
+    const events: string[] = []
+    const emit = vi.spyOn(rt, 'emit').mockImplementation((e) => void events.push(e.name))
+    vi.stubEnv('NODE_ENV', 'production')
+    try {
+      expect(await ogMetadata({ config, static: 'index/nope' })).toEqual({})
+    } finally {
+      vi.unstubAllEnvs()
+      emit.mockRestore()
+    }
+    expect(events).toEqual(['render_error'])
+  })
+})

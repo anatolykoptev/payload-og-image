@@ -3,7 +3,9 @@ import type { StaticCard, Target, Template, TemplateContext } from '../template.
 import { coveringFamily, fitText, type LoadedFont, type Stacks, stripMissing } from './fonts.js'
 import { createGate, type Gate, ShedError } from './gate.js'
 import type { Memo } from './memo.js'
-import { buildKindIndex, type GeneratedCard, MAX_SLUG, type ResolveInput, resolveCard } from './resolve.js'
+
+import { buildKindIndex, type GeneratedCard, MAX_SLUG, type ResolvedCard, type ResolveInput, resolveCard } from './resolve.js'
+
 import type { CardStore, OnEvent, SiteInfo, Size, Upload } from './types.js'
 
 export type DocSource = {
@@ -17,6 +19,11 @@ export type DocSource = {
    * ONLY for an authenticated editor, and the published site data otherwise.
    */
   site(request?: Request): Promise<SiteInfo>
+  /**
+   * A related document for a target's resolvers: published only and access-respecting; in draft mode for an authenticated
+   * editor, the draft. Null when it does not exist or may not be read. Never a draft for anyone else.
+   */
+  related(collection: string, id: string | number, ctx: { previewing: boolean; request?: Request }): Promise<Record<string, any> | null>
 }
 export type HeroLoader = (hero: Upload, box: Size, o?: { collection?: string }) => Promise<string | null>
 export type Renderer = { render(el: ReactElement, o: { width: number; height: number; fonts: LoadedFont[] }): Promise<Uint8Array> }
@@ -71,7 +78,20 @@ function etagMatches(header: string | null, v: string): boolean {
   })
 }
 
-export function createCardHandler(d: HandlerDeps): { GET(r: Request, c: RouteContext): Promise<Response> } {
+export type CardHandler = {
+  GET(r: Request, c: RouteContext): Promise<Response>
+  /**
+   * What a page should advertise for a document or a static card: the same resolution the route runs, so the
+   * `v` in the page's og:image is the route's etag. `target` names a target (its `doc` already read), `staticKey`
+   * is `<kind>/<slug>`.
+   */
+  resolve(
+    a: { target: string; doc: Record<string, any> } | { staticKey: string },
+    o: { previewing: boolean; request?: Request },
+  ): Promise<ResolvedCard>
+}
+
+export function createCardHandler(d: HandlerDeps): CardHandler {
   let serverUrl: URL
   try {
     serverUrl = new URL(d.serverUrl)
@@ -157,6 +177,67 @@ export function createCardHandler(d: HandlerDeps): { GET(r: Request, c: RouteCon
     }
   }
 
+  function cardFor(a: {
+    target: Target
+    targetName: string
+    doc: Record<string, any>
+    site: SiteInfo
+    fonts: LoadedFont[]
+    digest: string
+    isStatic: boolean
+    previewing: boolean
+    request?: Request
+  }) {
+    return resolveCard({
+      target: a.target,
+      targetName: a.targetName,
+      doc: a.doc,
+      site: a.site,
+      host,
+      serverUrl: d.serverUrl,
+      templates: d.templates,
+      fonts: a.fonts,
+      fontsDigest: a.digest,
+      stacks: d.stacks,
+      seoImage: a.isStatic ? undefined : d.seoImage,
+      related: (collection, id) => d.source.related(collection, id, { previewing: a.previewing, request: a.request }),
+    })
+  }
+
+  async function resolve(
+    a: { target: string; doc: Record<string, any> } | { staticKey: string },
+    o: { previewing: boolean; request?: Request },
+  ) {
+    const [{ fonts, digest }, site] = await Promise.all([d.fonts(), d.source.site(o.previewing ? o.request : undefined)])
+    if ('staticKey' in a) {
+      const card = statics.get(a.staticKey)
+      if (!card) throw new Error(`payload-og-image: no static card "${a.staticKey}"`)
+      return cardFor({
+        target: staticTarget(card),
+        targetName: card.kind,
+        doc: { slug: card.slug },
+        site,
+        fonts,
+        digest,
+        isStatic: true,
+        previewing: o.previewing,
+        request: o.request,
+      })
+    }
+    if (!Object.hasOwn(d.targets, a.target)) throw new Error(`payload-og-image: no target "${a.target}"`)
+    return cardFor({
+      target: d.targets[a.target] as Target,
+      targetName: a.target,
+      doc: a.doc,
+      site,
+      fonts,
+      digest,
+      isStatic: false,
+      previewing: o.previewing,
+      request: o.request,
+    })
+  }
+
   async function serve(request: Request, rc: RouteContext, previewing: boolean): Promise<Response> {
     const p = await rc.params // decoded by Next: never decode again
     // `:id` paths carry the key as `params.id`; `:slug` paths as `params.slug`.
@@ -192,18 +273,16 @@ export function createCardHandler(d: HandlerDeps): { GET(r: Request, c: RouteCon
           (await d.source.published(targetName as string, slug)))
       if (!doc) return null
 
-      const card = await resolveCard({
+      const card = await cardFor({
         target,
         targetName: targetName ?? (staticCard as StaticCard).kind,
         doc,
         site,
-        host,
-        serverUrl: d.serverUrl,
-        templates: d.templates,
         fonts,
-        fontsDigest: digest,
-        stacks: d.stacks,
-        seoImage: staticCard ? undefined : d.seoImage,
+        digest,
+        isStatic: staticCard !== undefined,
+        previewing,
+        request,
       })
       return { card, fonts, digest, site, doc }
     })
@@ -291,5 +370,5 @@ export function createCardHandler(d: HandlerDeps): { GET(r: Request, c: RouteCon
       return unavailable()
     }
   }
-  return { GET }
+  return { GET, resolve }
 }

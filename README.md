@@ -21,6 +21,13 @@ pnpm api:update            # accept an intended public-surface change into etc/*
 pnpm dev                   # dev app (sqlite) in dev/
 ```
 
+## Setup notes (verified in the dev app, Next 16.4.6, Turbopack and webpack)
+
+- Add `serverExternalPackages: ['fontkit']` to `next.config`. fontkit reads data files relative to its own location, and a page that imports your Payload config fails with `ERR_INVALID_ARG_TYPE` when fontkit is bundled.
+- Param encoding differs by caller: a page component's `params` arrive percent-encoded (`a%25b`), while `generateMetadata` params and a route handler's `params` arrive already decoded (`a%b`). Decode in the page component only; decoding the others again throws on a literal `%`. The card route never decodes.
+- The card route exports `GET` and `HEAD = GET`. `withHead` is only for Payload's own REST route, which answers HEAD with a 404.
+- A drafts-enabled collection must allow public read of published documents (`read: ({ req: { user } }) => user ? true : { _status: { equals: 'published' } }`): the plugin reads with `overrideAccess: false`.
+
 ## Threat model
 
 The card store directory (`store: { dir }`) must be private to the application user and live on a volume only

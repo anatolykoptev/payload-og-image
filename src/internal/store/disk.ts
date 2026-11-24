@@ -3,6 +3,7 @@ import { constants } from 'node:fs'
 import { access, lstat, mkdir, open, readdir, realpath, rename, statfs, unlink, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { safeCall } from '../events.js'
+import { assertInt, assertNumber } from '../limits.js'
 import type { CardStore, OnEvent } from '../types.js'
 import { isCompletePng } from './png.js'
 
@@ -48,6 +49,11 @@ const O_NONBLOCK = constants.O_NONBLOCK ?? 0
  */
 export function diskStore(o: DiskStoreOptions): DiskStore {
   const { dir, maxFiles = 2000, maxBytes = 100 * 1024 * 1024, keepPerPage = 2, pruneEveryMs = 60_000 } = o
+  if (typeof dir !== 'string' || dir === '') throw new Error('payload-og-image: disk store dir must be a non-empty path')
+  assertInt('disk store maxFiles', maxFiles, 0)
+  assertNumber('disk store maxBytes', maxBytes, 1)
+  assertInt('disk store keepPerPage', keepPerPage, 1)
+  assertNumber('disk store pruneEveryMs', pruneEveryMs, 0, { finite: false })
   const emit: OnEvent = (e) => {
     if (o.onEvent) safeCall(o.onEvent, e)
   }

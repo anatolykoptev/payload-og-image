@@ -1,3 +1,5 @@
+import { assertNumber } from './limits.js'
+
 type Entry = { promise: Promise<Uint8Array>; settled: boolean; bytes: number }
 
 export type Memo = {
@@ -14,6 +16,7 @@ export type Memo = {
  * A failed render is forgotten, so the next request tries again.
  */
 export function createMemo({ maxBytes = 16 * 1024 * 1024 }: { maxBytes?: number } = {}): Memo {
+  assertNumber('memo maxBytes', maxBytes, 1)
   const entries = new Map<string, Entry>()
   let bytes = 0
   const evict = () => {

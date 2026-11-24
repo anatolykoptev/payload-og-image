@@ -1,26 +1,26 @@
 /** Mutation table (reviewer neuters each once in a scratch copy). Silent-failure surface: a torn, foreign or symlinked file is served or deleted without error.
- * - disk.ts:226  get(): accept any bytes -> "a torn file (...) is a miss and is deleted" RED
- * - disk.ts:201  open without O_NOFOLLOW -> "a symlink at a cache-shaped name is a miss and is left alone" RED; without O_NONBLOCK -> "a FIFO at a cache-shaped name is a miss, not a hang" RED
- * - disk.ts:78  accept a symlinked root -> "a symlinked root turns the store off with ONE event" RED
- * - disk.ts:190  prune without the usable() gate -> "prune does nothing when the root is a symlink" RED
- * - disk.ts:212  read a file larger than the budget -> "a file larger than the whole cache budget is dropped without being read" RED
- * - disk.ts:129  count non-regular files in prune -> "prune does not count a symlink toward the caps" RED
- * - disk.ts:125  drop the ownership filter -> "never counts or deletes files it does not own" RED
- * - disk.ts:154  keep the newest 1 instead of keepPerPage -> "keeps the newest two versions of a page" RED
- * - disk.ts:269  put(): await a (throttled) prune inline -> "put schedules a prune off the hot path" RED
- * - disk.ts:172  never schedule a prune -> "put schedules a prune off the hot path" RED
- * - disk.ts:265  drop the prune after a failed write -> "a failed write still schedules a prune" RED
- * - disk.ts:157  live temp files not counted (count) -> "counts fresh temp files toward maxFiles" RED
- * - disk.ts:158  live temp files not counted (bytes) -> "counts fresh temp files toward the cap" RED
- * - disk.ts:144  never sweep old temp files -> "sweeps temp files older than an hour" RED
- * - disk.ts:256  drop the ENOENT mkdir-and-retry -> "recreates a directory that vanished after boot" RED
- * - disk.ts:262  disable on every error -> "a non-permanent write error is skipped once and keeps the store on" RED
- * - disk.ts:63  drop the once-guard -> "concurrent failing writes emit ONE store_disabled" RED
- * - disk.ts:52  call the sink unguarded -> "an async sink that rejects is not an unhandled rejection" RED
- * - disk.ts:233  drop hex validation in put -> "a non-hex page id or version never becomes a file name" RED
- * - disk.ts:91  drop the free-space check -> "warns once at boot when the cap exceeds free space" RED
- * - disk.ts:234  put(): drop the isCompletePng check -> "put refuses bytes that are not a whole PNG" RED
- * - disk.ts:177  (no test) stale-observation recheck before unlink: out of the threat model, see README */
+ * - disk.ts:232  get(): accept any bytes -> "a torn file (...) is a miss and is deleted" RED
+ * - disk.ts:207  open without O_NOFOLLOW -> "a symlink at a cache-shaped name is a miss and is left alone" RED; without O_NONBLOCK -> "a FIFO at a cache-shaped name is a miss, not a hang" RED
+ * - disk.ts:84  accept a symlinked root -> "a symlinked root turns the store off with ONE event" RED
+ * - disk.ts:196  prune without the usable() gate -> "prune does nothing when the root is a symlink" RED
+ * - disk.ts:218  read a file larger than the budget -> "a file larger than the whole cache budget is dropped without being read" RED
+ * - disk.ts:135  count non-regular files in prune -> "prune does not count a symlink toward the caps" RED
+ * - disk.ts:131  drop the ownership filter -> "never counts or deletes files it does not own" RED
+ * - disk.ts:160  keep the newest 1 instead of keepPerPage -> "keeps the newest two versions of a page" RED
+ * - disk.ts:275  put(): await a (throttled) prune inline -> "put schedules a prune off the hot path" RED
+ * - disk.ts:178  never schedule a prune -> "put schedules a prune off the hot path" RED
+ * - disk.ts:271  drop the prune after a failed write -> "a failed write still schedules a prune" RED
+ * - disk.ts:163  live temp files not counted (count) -> "counts fresh temp files toward maxFiles" RED
+ * - disk.ts:164  live temp files not counted (bytes) -> "counts fresh temp files toward the cap" RED
+ * - disk.ts:150  never sweep old temp files -> "sweeps temp files older than an hour" RED
+ * - disk.ts:262  drop the ENOENT mkdir-and-retry -> "recreates a directory that vanished after boot" RED
+ * - disk.ts:268  disable on every error -> "a non-permanent write error is skipped once and keeps the store on" RED
+ * - disk.ts:69  drop the once-guard -> "concurrent failing writes emit ONE store_disabled" RED
+ * - disk.ts:58  call the sink unguarded -> "an async sink that rejects is not an unhandled rejection" RED
+ * - disk.ts:239  drop hex validation in put -> "a non-hex page id or version never becomes a file name" RED
+ * - disk.ts:97  drop the free-space check -> "warns once at boot when the cap exceeds free space" RED
+ * - disk.ts:240  put(): drop the isCompletePng check -> "put refuses bytes that are not a whole PNG" RED
+ * - disk.ts:183  (no test) stale-observation recheck before unlink: out of the threat model, see README */
 import { execFileSync } from 'node:child_process'
 import { readdirSync } from 'node:fs'
 import { chmod, lstat, mkdir, mkdtemp, readdir, rm, symlink, utimes, writeFile } from 'node:fs/promises'

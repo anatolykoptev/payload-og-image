@@ -1,7 +1,9 @@
+import { assertNumber } from '../limits.js'
 import type { CardStore } from '../types.js'
 
 /** An in-process store bounded by bytes, oldest entries first. For tests and for sites that configure no directory. */
 export function memoryStore({ maxBytes = 16 * 1024 * 1024 }: { maxBytes?: number } = {}): CardStore {
+  assertNumber('memory store maxBytes', maxBytes, 1)
   const entries = new Map<string, Uint8Array>()
   let bytes = 0
   return {

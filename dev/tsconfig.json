@@ -1,7 +1,12 @@
 {
   "extends": "../tsconfig.json",
   "compilerOptions": {
-    "paths": { "@payload-config": ["./payload.config.ts"] },
+    "paths": {
+      "@payload-config": ["./payload.config.ts"],
+      "payload-og-image": ["../src/exports/index.ts"],
+      "payload-og-image/next": ["../src/exports/next.ts"],
+      "payload-og-image/testing": ["../src/exports/testing.ts"]
+    },
     "allowJs": true,
     "plugins": [{ "name": "next" }]
   },

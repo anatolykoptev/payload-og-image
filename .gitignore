@@ -11,3 +11,5 @@ dev/media
 dev/*.db*
 temp
 coverage
+dev/dev.db*
+dev/AGENTS.md
