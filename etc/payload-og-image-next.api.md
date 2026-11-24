@@ -16,6 +16,9 @@ export function createOgRoute(o: {
 };
 
 // @public
+export const OG_SITE_TAG = "og:site";
+
+// @public
 export function ogMetadata(a: OgMetadataArgs): Promise<Pick<Metadata, 'openGraph' | 'twitter'>>;
 
 // @public (undocumented)
@@ -29,6 +32,9 @@ export type OgMetadataArgs = {
     config: Promise<SanitizedConfig> | SanitizedConfig;
     static: string;
 };
+
+// @public
+export const ogTag: (collection: string, key: string | number) => string;
 
 // @public (undocumented)
 export type RouteContext = {

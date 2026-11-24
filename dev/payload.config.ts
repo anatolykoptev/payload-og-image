@@ -5,6 +5,7 @@ import { buildConfig } from 'payload'
 import { ogImagePlugin } from 'payload-og-image'
 import sharp from 'sharp'
 import { ogOptions } from './src/og/options.js'
+import { revalidatePost, revalidateSite } from './src/og/revalidate.js'
 
 // Run from the repository root (`pnpm dev`, `payload run`): `import.meta.url` is not a plain file URL inside Next's RSC layer.
 const dirname = path.resolve(process.cwd(), 'dev')
@@ -18,6 +19,7 @@ export default buildConfig({
     {
       slug: 'posts',
       versions: { drafts: true },
+      hooks: { afterChange: [revalidatePost] },
       access: { read: ({ req: { user } }) => (user ? true : { _status: { equals: 'published' } }) },
       fields: [
         { name: 'title', type: 'text', required: true },
@@ -32,6 +34,7 @@ export default buildConfig({
     {
       slug: 'site-settings',
       access: { read: () => true },
+      hooks: { afterChange: [revalidateSite] },
       fields: [{ name: 'businessName', type: 'text' }],
     },
   ],
