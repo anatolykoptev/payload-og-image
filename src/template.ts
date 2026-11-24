@@ -4,6 +4,28 @@ import type { SiteInfo, Size, Upload } from './internal/types.js'
 
 export type { Box }
 
+/** A value a template prop may hold: what survives normalization unchanged. A `Date` is not one (see `Normalized`). */
+export type PropValue = string | number | boolean | null | undefined | readonly PropValue[] | { [key: string]: PropValue }
+/** The shape of a template's props: plain JSON. A Date-typed (or Map, Set, class-typed) prop fails to type-check. */
+export type PropsModel = { [key: string]: PropValue }
+
+/**
+ * What the template actually receives for props a target returned as `T`: every `Date` becomes its ISO string;
+ * a Map, Set, function, bigint or symbol is `never`, because the resolver rejects them at runtime.
+ * Write the template as `defineTemplate<Normalized<TargetProps>>(...)`.
+ */
+export type Normalized<T> = T extends Date
+  ? string
+  : T extends string | number | boolean | null | undefined
+    ? T
+    : T extends readonly (infer U)[]
+      ? Normalized<U>[]
+      : T extends ((...args: never[]) => unknown) | bigint | symbol | ReadonlyMap<unknown, unknown> | ReadonlySet<unknown>
+        ? never
+        : T extends object
+          ? { [K in keyof T]: Normalized<T[K]> }
+          : never
+
 /** What a template's `render` gets besides its props. Site data reaches a template only through props, so it is part of the version. */
 export type TemplateContext = {
   host: string
@@ -14,7 +36,7 @@ export type TemplateContext = {
   font(stack: string, text: string): string
 }
 
-export type Template<P> = {
+export type Template<P extends PropsModel> = {
   /** Part of every card version: change it only with the design. */
   id: string
   /** Bump when the design changes, so every cached card is redrawn. */
@@ -32,7 +54,7 @@ export type Template<P> = {
 
 const DEFAULT_SIZE: Size = { width: 1200, height: 630 }
 
-export function defineTemplate<P>(t: Omit<Template<P>, 'size'> & { size?: Size }): Template<P> {
+export function defineTemplate<P extends PropsModel>(t: Omit<Template<P>, 'size'> & { size?: Size }): Template<P> {
   if (typeof t.id !== 'string' || t.id.trim() === '') throw new Error('payload-og-image: a template needs a non-empty id')
   if (typeof t.revision !== 'string') throw new Error(`payload-og-image: template "${t.id}" needs a string revision`)
   const size = t.size ?? DEFAULT_SIZE
