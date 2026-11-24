@@ -35,6 +35,8 @@ export type ResolveInput = {
   fonts: LoadedFont[]
   fontsDigest: string
   stacks: Stacks
+  /** Normalised hero background when not the default white. */
+  heroBackground?: string
   seoImage?: { path: string; isDeliberate?: (image: unknown) => boolean }
   /** Handed to the target's resolvers (default: always null). */
   related?: RelatedFn
@@ -164,6 +166,7 @@ export async function resolveCard(i: ResolveInput): Promise<ResolvedCard> {
     templateRevision: template.revision,
     props,
     heroes: hero ? [hero] : [],
+    heroBackground: i.heroBackground,
     fontsDigest: fontsKey(i.fontsDigest, i.stacks),
     host: i.host,
   })

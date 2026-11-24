@@ -48,6 +48,8 @@ export type SiteInfo = { name: string } & Record<string, unknown>
 export type CardKey = { kind: string; slug: string }
 
 export type VersionInput = {
+  /** Normalised hero background when it is not the default white; hashed with each hero only. */
+  heroBackground?: string
   templateId: string
   templateRevision: string
   props: unknown

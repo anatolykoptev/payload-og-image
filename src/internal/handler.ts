@@ -33,6 +33,8 @@ export type HandlerDeps = {
   templates: Map<string, Template<any>>
   fonts: () => Promise<{ fonts: LoadedFont[]; digest: string }>
   stacks: Stacks
+  /** Normalised hero background when not the default white: part of the version of a card with a hero. */
+  heroBackground?: string
   serverUrl: string
   source: DocSource
   store: CardStore
@@ -199,6 +201,7 @@ export function createCardHandler(d: HandlerDeps): CardHandler {
       fonts: a.fonts,
       fontsDigest: a.digest,
       stacks: d.stacks,
+      heroBackground: d.heroBackground,
       seoImage: a.isStatic ? undefined : d.seoImage,
       related: (collection, id) => d.source.related(collection, id, { previewing: a.previewing, request: a.request }),
     })

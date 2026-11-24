@@ -80,7 +80,18 @@ export const heroTag = (h: Upload) => `${String(h.id)}:${h.updatedAt ?? ''}`
 // Slots 8-10 (locale, variant, nonce) are constants in 0.1; 0.2 fills them, and the defaults hash identically.
 export const cardVersion = (i: VersionInput) =>
   sha(
-    canonicalJson([VERSION_FORMAT, i.templateId, i.templateRevision, i.props, i.heroes.map(heroTag), i.fontsDigest, i.host, '', 'og', 0]),
+    canonicalJson([
+      VERSION_FORMAT,
+      i.templateId,
+      i.templateRevision,
+      i.props,
+      i.heroes.map((h) => (i.heroBackground ? `${heroTag(h)}|bg:${i.heroBackground}` : heroTag(h))),
+      i.fontsDigest,
+      i.host,
+      '',
+      'og',
+      0,
+    ]),
   ).slice(0, 12)
 
 export const pageId = (k: CardKey) => sha(`${k.kind}\u0000${k.slug}`).slice(0, 16)
