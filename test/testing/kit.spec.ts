@@ -13,6 +13,8 @@
  * - kit.ts:301  accept a queue that never sheds -> "queueSheds rejects a route that hides the shedding" RED
  * - kit.ts:227  accept a cacheable draft answer -> "draftNeverCached rejects a route that makes draft answers cacheable" RED
  * - kit.ts:344  accept an immutable stale version -> "staleVersionShort rejects a route that serves every version immutable" RED
+ * - kit.ts:502  draw nothing (skip `drawElement`) -> "templatesRender > rejects a template the renderer cannot draw, naming it" RED
+ * - kit.ts:495  accept a template with no props -> "rejects a template with no props given, naming it" RED
  * - kit.ts:460  ignore the byte budget -> "sizeBudget rejects a card over the budget" RED
  * - kit.ts:440  ignore missing glyphs -> "glyphCoverage passes ... and rejects an emoji" RED
  * - kit.ts:449  measure sizes on the stub renderer -> "sizeBudget > passes within budget on the real renderer, and refuses to measure the stub renderer" RED
@@ -121,6 +123,13 @@ function site(rt: ReturnType<typeof installTestRuntime>) {
   return { module, kit: ogKit(rt), meta: (id: number) => () => ogMetadata({ config: {} as never, target: 'posts', doc: { id } }) }
 }
 afterEach(() => setTestRuntime(null))
+
+// A template satori refuses (a `div` with two children and no `display: flex`): the stub renderer never notices.
+const broken = defineTemplate<{ title: string }>({
+  id: 'broken',
+  revision: '1',
+  render: (p) => createElement('div', {}, createElement('span', {}, p.title), createElement('span', {}, p.title)),
+})
 
 const cardRoute = (module: any) => (u: URL) => ({
   module,
@@ -287,6 +296,22 @@ describe('the request-level checks pass on a correct site', () => {
     const rt = installTestRuntime(options(), docs())
     await ogKit(rt).glyphCoverage({ samples: ['Привет, «мир» — №1', 'Plain text'] })
     await reject(ogKit(rt).glyphCoverage({ samples: ['Hi 🚀'] }), /stack "default" cannot draw "🚀"/)
+  })
+})
+
+describe('templatesRender', () => {
+  const props = { post: { title: 'Alpha', label: 'Blog', site: 'Site' }, broken: { title: 'x' } }
+  it('draws every template once with the real renderer, whatever the runtime installs', async () => {
+    const rt = installTestRuntime(options(), docs()) // the stub renderer: it would draw anything
+    await ogKit(rt).templatesRender({ props: { post: props.post } })
+  })
+  it('rejects a template the renderer cannot draw, naming it', async () => {
+    const rt = installTestRuntime(options({ templates: [post, broken] }), docs())
+    await reject(ogKit(rt).templatesRender({ props }), /templatesRender: template "broken" cannot be drawn: .*display: flex/)
+  })
+  it('rejects a template with no props given, naming it', async () => {
+    const rt = installTestRuntime(options({ templates: [post, broken] }), docs())
+    await reject(ogKit(rt).templatesRender({ props: { post: props.post } }), /no props given for template "broken"/)
   })
 })
 

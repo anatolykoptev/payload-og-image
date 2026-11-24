@@ -205,6 +205,9 @@ export function ogKit(rt: TestRuntime): {
     glyphCoverage(a: {
         samples: string[];
     }): Promise<void>;
+    templatesRender(a: {
+        props: Record<string, Record<string, unknown>>;
+    }): Promise<void>;
     sizeBudget(a: {
         module: RouteModule;
         params: Params[];

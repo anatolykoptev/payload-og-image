@@ -18,6 +18,8 @@
  * - endpoints.ts  `{id, url}` not upload-shaped -> "an {id, url} object is upload-shaped ..." RED
  * - handler.ts:281  render outside `d.gate` -> "8: the gate is full -> 503 with retry-after" RED
  * - handler.ts:277  resolve the doc as it is (not forced to `generated`) -> "6: mode off still shows the would-be generated card" RED
+ * - handler.ts:301  `overBudget` a constant `false` -> "6d: a card over 300 KB -> overBudget: true" RED (a constant `true` -> "4" RED)
+ * - handler.ts:303  `customTooSmall` a constant `false` -> "6c: an editor image under 600x315" RED (a constant `true` -> "4" and "6c" RED)
  * - handler.ts  touch the memo or the store from preview() -> "4: ... never touched" RED */
 import { mkdtemp, readFile } from 'node:fs/promises'
 import os from 'node:os'
@@ -51,6 +53,8 @@ const users: Record<string, any> = {}
 const rendered: string[] = []
 let release: (() => void) | undefined
 let hold = false
+/** When set, the renderer answers these bytes instead of a tiny card (to size a preview). */
+let cardBytes: Uint8Array | undefined
 const putSpy = vi.fn()
 const getSpy = vi.fn()
 const store: CardStore = {
@@ -67,7 +71,7 @@ const renderer = {
   render: async (el: unknown) => {
     rendered.push(JSON.stringify(el))
     if (hold) await new Promise<void>((r) => (release = r))
-    return png()
+    return cardBytes ?? png()
   },
 }
 const ids: Record<string, number> = {}
@@ -171,6 +175,21 @@ beforeAll(async () => {
     file: { data: photo, mimetype: 'image/png', name: 'p.png', size: photo.length },
   })
   ids.shared = await mk('shared', { title: 'Shares a photo', meta: { image: shared.id } })
+  // The editor's own image at, and under, the 600x315 a crawler wants.
+  for (const [key, width, height] of [
+    ['small', 400, 200],
+    ['edge', 600, 315],
+  ] as const) {
+    const bytes = await sharp({ create: { width, height, channels: 3, background: '#abcdef' } })
+      .png()
+      .toBuffer()
+    const upload = await payload.create({
+      collection: 'media',
+      data: {},
+      file: { data: bytes, mimetype: 'image/png', name: `${key}.png`, size: bytes.length },
+    })
+    ids[key] = await mk(key, { title: `Image ${width}x${height}`, meta: { image: upload.id } })
+  }
   ids.custom = await mk('custom', { title: 'Custom title', og: { mode: 'custom' }, meta: { image: svg.id } })
   setTestRuntime(buildRuntime(state, payload, { renderer, store, heroLoader: heroSpy }))
 }, 60_000)
@@ -270,6 +289,28 @@ describe('POST /api/payload-og-image/preview', () => {
     // The same document, forced to the generated card: nothing is shared, so a nonce can change the URL.
     const generated = await call('ed1@x.test', { collection: 'posts', id: ids.shared, doc: { og: { mode: 'generated' } } })
     expect(warningsOf(generated).sharesImage).toBe(false)
+  })
+  it('6c: an editor image under 600x315 -> customTooSmall: true; at 600x315 and above, false', async () => {
+    expect(warningsOf(await call('ed1@x.test', { collection: 'posts', id: ids.small, doc: {} }))).toMatchObject({
+      customTooSmall: true,
+      sharesImage: true,
+    })
+    expect(warningsOf(await call('ed1@x.test', { collection: 'posts', id: ids.edge, doc: {} })).customTooSmall).toBe(false)
+    expect(warningsOf(await call('ed1@x.test', { collection: 'posts', id: ids.shared, doc: {} })).customTooSmall).toBe(false)
+    // A generated card has no editor image to be small.
+    expect(
+      warningsOf(await call('ed1@x.test', { collection: 'posts', id: ids.small, doc: { og: { mode: 'generated' } } })).customTooSmall,
+    ).toBe(false)
+  })
+  it('6d: a card over 300 KB -> overBudget: true; at exactly 300 KB, false', async () => {
+    try {
+      cardBytes = new Uint8Array(300 * 1024 + 1)
+      expect(warningsOf(await call('ed1@x.test', { collection: 'posts', id: ids.plain, doc: {} })).overBudget).toBe(true)
+      cardBytes = new Uint8Array(300 * 1024)
+      expect(warningsOf(await call('ed1@x.test', { collection: 'posts', id: ids.plain, doc: {} })).overBudget).toBe(false)
+    } finally {
+      cardBytes = undefined
+    }
   })
   it('7: a custom SVG image -> customIneligible: true (a generated card is drawn)', async () => {
     const r = await call('ed1@x.test', { collection: 'posts', id: ids.custom, doc: {} })

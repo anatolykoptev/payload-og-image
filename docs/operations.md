@@ -16,7 +16,7 @@ then every 100th); values that came from a request are printed as plain ASCII.
 | `store_corrupt`         | a stored file failed its checks and was removed                                                    |
 | `downgraded`            | the hero could not be read: the card was drawn without it and served for 5 minutes                 |
 | `render_error`          | a card could not be drawn, or a failure happened before one existed                                |
-| `glyph_missing`         | characters no font draws were removed from a card's text                                           |
+| `glyph_missing`         | characters no font draws were removed from a card's text or from what its template draws           |
 | `draft`                 | a draft-mode request was drawn, uncached                                                           |
 | `not_found`             | an unknown route, kind or slug                                                                     |
 | `crawler`               | a sampled card request (`crawlerEvents`): `ua_family`, `method`, `status`, `cache`                 |

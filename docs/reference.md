@@ -280,6 +280,12 @@ never load the compiler. Limits of the reading: a name declared twice at the top
 `og.createOgRoute(...)` is understood, and `export * from` is not followed. `everyRouteHasOwnCard` requires an `https` image URL for every image in the `og:image` and
 `twitter:image` lists, as the crawlers document it; pass `allowHttpImages: true` for a site that is only ever served on plain HTTP, such as a local dev server. See [`dev/tests/og.spec.ts`](https://github.com/anatolykoptev/payload-og-image/blob/main/dev/tests/og.spec.ts).
 
+`ogKit(rt).templatesRender({ props })` draws every registered template once with the real renderer, from the props
+you give for its id (`{ [templateId]: props }`), and fails naming a template that cannot be drawn or does not give a PNG
+of its size: a `div` with several children and no `display: flex` is caught in CI, not by the first crawler. The plugin
+also draws the brand fallback card once when Payload starts, so fonts and the renderer are proved at boot (an error
+outside production, a `render_error` event in production).
+
 `og-parity --old <dir> --new <dir>` compares two directories of rendered cards (`<card>.png` plus
 `<card>.layout.json`) pixel for pixel, for a migration that must not change a card.
 

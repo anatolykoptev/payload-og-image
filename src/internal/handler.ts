@@ -1,6 +1,7 @@
 import type { ReactElement } from 'react'
 import type { StaticCard, Target, Template, TemplateContext } from '../template.js'
-import { coveringFamily, fitText, type LoadedFont, type Stacks, stripMissing } from './fonts.js'
+import { drawElement, templateContext } from './draw.js'
+import { type LoadedFont, type Stacks, stripMissing } from './fonts.js'
 import { createGate, type Gate, ShedError } from './gate.js'
 import type { Memo } from './memo.js'
 
@@ -159,24 +160,7 @@ export function createCardHandler(d: HandlerDeps): CardHandler {
   }
   const unavailable = () => respond(503, CACHE.none, { 'retry-after': '5' })
 
-  /** The same rule `resolveCard` uses to strip: the named stack, else the explicit `default`. */
-  const stackOf = (name: string): string[] => {
-    const s = d.stacks[name] ?? d.stacks.default
-    if (!s || s.length === 0) throw new Error(`payload-og-image: unknown font stack "${name}" (and no "default" stack)`)
-    return s
-  }
-  const ctxFor = (fonts: LoadedFont[], hero: string | null): TemplateContext => ({
-    host,
-    hero,
-    fit: (text, box, stack) => {
-      const s = stackOf(stack)
-      return fitText(fonts, coveringFamily(fonts, s, text) ?? (s[0] as string), text, box)
-    },
-    font: (stack, text) => {
-      const s = stackOf(stack)
-      return coveringFamily(fonts, s, text) ?? (s[0] as string)
-    },
-  })
+  const ctxFor = (fonts: LoadedFont[], hero: string | null): TemplateContext => templateContext({ host, fonts, stacks: d.stacks, hero })
 
   function staticTarget(card: StaticCard): Target {
     return {
@@ -191,11 +175,14 @@ export function createCardHandler(d: HandlerDeps): CardHandler {
     const t0 = Date.now()
     // After the store miss and inside the gate: a cache hit pays for none of this.
     const hero = card.hero ? await d.heroLoader(card.hero, card.template.heroBox ?? card.size, { collection: card.heroCollection }) : null
-    const bytes = await d.renderer.render(card.template.render(card.props, ctxFor(fonts, hero)), { ...card.size, fonts })
+    const { bytes, dropped } = await drawElement(d.renderer, card.template.render(card.props, ctxFor(fonts, hero)), { ...card.size, fonts })
+    // Characters no face draws that came from somewhere other than a `textFields` prop (another prop, a glyph in the template itself).
+    if (dropped.length > 0 && !o.quiet)
+      d.events.emit({ name: 'glyph_missing', kind: card.key.kind, slug: card.key.slug, detail: { chars: dropped } })
     // A preview draw is not a render of a real card: no `render` event, so the counters stay about served cards.
     if (!o.quiet)
       d.events.emit({ name: 'render', kind: card.key.kind, slug: card.key.slug, v: card.v, ms: Date.now() - t0, bytes: bytes.byteLength })
-    return { bytes, downgraded: card.hero != null && hero == null }
+    return { bytes, dropped, downgraded: card.hero != null && hero == null }
   }
 
   /** The brand fallback card. A draft-mode request never memoises it (its site name may be draft text). */
@@ -206,7 +193,10 @@ export function createCardHandler(d: HandlerDeps): CardHandler {
     // Stripping leaves holes ("a 🚀 b" -> "a  b"): close them. A name that lost nothing is left exactly as given.
     const name = stripped.missing.length > 0 ? stripped.text.replace(/\s+/g, ' ').trim() : stripped.text
     const make = () =>
-      d.gate.run(() => d.renderer.render(d.fallback.render({ site: name }, ctxFor(fonts, null)), { ...d.fallback.size, fonts }))
+      d.gate.run(
+        async () =>
+          (await drawElement(d.renderer, d.fallback.render({ site: name }, ctxFor(fonts, null)), { ...d.fallback.size, fonts })).bytes,
+      )
     try {
       return previewing ? await make() : await d.memo.get(`fallback|${digest}|${d.fallback.revision}|${name}`, make)
     } catch {
@@ -302,12 +292,12 @@ export function createCardHandler(d: HandlerDeps): CardHandler {
       return { fonts, actual, forced }
     })
     if (forced.kind !== 'generated') return { kind: 'none' }
-    const { bytes } = await d.gate.run(() => draw(forced, fonts, { quiet: true }))
+    const { bytes, dropped } = await d.gate.run(() => draw(forced, fonts, { quiet: true }))
     return {
       kind: 'png',
       bytes,
       warnings: {
-        missing: forced.missing,
+        missing: [...new Set([...forced.missing, ...dropped])],
         overBudget: bytes.byteLength > PREVIEW_BUDGET_BYTES,
         customIneligible: mode === 'custom' && actual.kind === 'generated',
         customTooSmall: actual.kind === 'own' && ((actual.image.width ?? 0) < 600 || (actual.image.height ?? 0) < 315),
