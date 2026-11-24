@@ -10,8 +10,8 @@
  * - resolve.ts:126  accept any props() result -> "props() must return a plain object" RED
  * - resolve.ts:132  spread the raw props instead of normalizing -> "props with a Map or a class instance throw naming the field" / "the template receives the normalized props that were hashed" RED
  * - resolve.ts:138  fall back to the first declared stack -> "an unmapped text field uses the explicit default stack" RED
- * - resolve.ts:71  allow `.`/`..` as a slug -> "a slug that is a dot segment cannot key a route" RED
- * - resolve.ts:151  use the raw slug even when blank -> "a blank slug falls back to the id" RED
+ * - resolve.ts:74  allow `.`/`..` or an over-long slug -> "a blank, missing, dot-segment or over-long slug advertises nothing" RED
+ * - resolve.ts:155  substitute the id (or accept an over-long slug) -> "a blank, missing, dot-segment or over-long slug advertises nothing" RED
  * - resolve.ts:90  no encodeURIComponent -> "11: cardPath encodes the key" RED
  * - resolve.ts:96  plain-object index -> "a target named like an Object.prototype member ..." RED
  * - resolve.ts:100  allow two targets with one kind -> "12: buildKindIndex throws on a duplicate kind" RED
@@ -143,11 +143,11 @@ describe('resolveCard', () => {
     expect(r.key).toEqual({ kind: 'posts', slug: '42' })
     expect(r.url).toContain('/og/posts/42/card.png')
   })
-  it('a blank slug falls back to the id instead of an empty path segment', async () => {
-    const r = await generated({ doc: { id: 5, slug: '  ', title: 'A' } })
-    expect(r.key.slug).toBe('5')
-    expect(r.url).not.toContain('//card.png')
-    expect((await resolveCard({ ...(await base()), doc: { slug: '', title: 'A' } })).kind).toBe('none')
+  it('a blank, missing, dot-segment or over-long slug advertises nothing: the route could not serve it, and the id is never substituted', async () => {
+    for (const slug of ['', '  ', undefined, '.', '..', 'x'.repeat(257)]) {
+      expect((await resolveCard({ ...(await base()), doc: { id: 5, slug, title: 'A' } })).kind, JSON.stringify(slug)).toBe('none')
+    }
+    expect((await resolveCard({ ...(await base()), doc: { id: 5, slug: 'x'.repeat(256), title: 'A' } })).kind).toBe('generated')
   })
   it('the host is part of the version', async () => {
     const doc = { id: 1, slug: 'a', title: 'A' }
@@ -255,14 +255,6 @@ describe('resolveCard', () => {
     const r = await resolveCard({ ...(await base()), target, doc: { id: 1, slug: 'a', title: 'A', meta: { image: jpeg } } })
     expect(r.kind).toBe('own')
     expect(share).not.toHaveBeenCalled()
-  })
-  it('a slug that is a dot segment cannot key a route: the id is used, and with no id nothing is advertised', async () => {
-    for (const dots of ['.', '..']) {
-      const r = await generated({ doc: { id: 3, slug: dots, title: 'A' } })
-      expect(r.key.slug).toBe('3')
-      expect(r.url).toContain('/og/posts/3/card.png')
-    }
-    expect((await resolveCard({ ...(await base()), doc: { slug: '..', title: 'A' } })).kind).toBe('none')
   })
   it('a trailing slash on the server URL does not double up', async () => {
     const r = await generated({ serverUrl: 'https://x.test/', doc: { id: 1, slug: 'a', title: 'A' } })

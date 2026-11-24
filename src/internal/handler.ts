@@ -4,7 +4,7 @@ import { coveringFamily, fitText, type LoadedFont, type Stacks, stripMissing } f
 import type { Gate } from './gate.js'
 import { ShedError } from './gate.js'
 import type { Memo } from './memo.js'
-import { buildKindIndex, type GeneratedCard, type ResolveInput, resolveCard } from './resolve.js'
+import { buildKindIndex, type GeneratedCard, MAX_SLUG, type ResolveInput, resolveCard } from './resolve.js'
 import type { CardStore, OnEvent, SiteInfo, Size, Upload } from './types.js'
 
 export type DocSource = {
@@ -51,9 +51,6 @@ export const CACHE = {
   degraded: 'public, max-age=300, no-transform',
   none: 'no-store',
 } as const
-
-/** A slug longer than this is no document of ours; it is refused before any lookup. */
-const MAX_SLUG = 256
 
 /** A hero that could not be prepared: the card is drawn without it, served briefly, never stored or memoised. */
 class Downgraded extends Error {
@@ -160,11 +157,13 @@ export function createCardHandler(d: HandlerDeps): { GET(r: Request, c: RouteCon
 
   async function serve(request: Request, rc: RouteContext, previewing: boolean): Promise<Response> {
     const p = await rc.params // decoded by Next: never decode again
-    const slug = p.slug
+    // `:id` paths carry the key as `params.id`; `:slug` paths as `params.slug`.
+    const slug = p.slug ?? p.id
     const urlKind = p.kind
     if (typeof slug !== 'string' || slug === '' || slug.length > MAX_SLUG) return notFound()
     const kind = d.fixedTarget ?? urlKind
-    const staticCard = typeof kind === 'string' ? statics.get(`${kind}/${slug}`) : undefined
+    // A route pinned to a target serves that target only: statics are for the unpinned route.
+    const staticCard = d.fixedTarget === undefined && typeof kind === 'string' ? statics.get(`${kind}/${slug}`) : undefined
     const targetName = staticCard
       ? undefined
       : (d.fixedTarget ?? (typeof urlKind === 'string' && Object.hasOwn(kindIndex, urlKind) ? kindIndex[urlKind] : undefined))
@@ -234,14 +233,13 @@ export function createCardHandler(d: HandlerDeps): { GET(r: Request, c: RouteCon
         })
       if (served.source === 'downgraded') {
         d.events.emit({ name: 'downgraded', kind: card.key.kind, slug: card.key.slug, v: card.v })
-        return respond(200, CACHE.degraded, { ...type, 'x-og-cache': 'downgraded' }, bytes)
+        // No etag: a cache must never revalidate this hero-less card into a 304 that pins it as the current version.
+        return respond(200, CACHE.degraded, { 'content-type': card.type, 'x-og-cache': 'downgraded' }, bytes)
       }
-      d.events.emit({
-        name: served.source === 'memo' ? 'hit_memo' : served.source === 'store' ? 'hit_store' : 'render',
-        kind: card.key.kind,
-        slug: card.key.slug,
-        v: card.v,
-      })
+      // A fresh render was already counted by draw(); only hits are emitted here.
+      if (served.source !== 'render') {
+        d.events.emit({ name: served.source === 'memo' ? 'hit_memo' : 'hit_store', kind: card.key.kind, slug: card.key.slug, v: card.v })
+      }
       return respond(200, cache, { ...type, 'x-og-cache': served.source }, bytes)
     } catch (error) {
       if (error instanceof ShedError) {
