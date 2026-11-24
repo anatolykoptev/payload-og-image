@@ -31,6 +31,7 @@ function setup(docs: Record<string, any>, over: Partial<OgImagePluginOptions> = 
     publishedById,
     draft: async () => null,
     site: async () => ({ name: 'Site' }),
+    related: async () => null,
   }
   const options: OgImagePluginOptions = {
     site: () => ({ name: 'Site' }),
@@ -43,7 +44,6 @@ function setup(docs: Record<string, any>, over: Partial<OgImagePluginOptions> = 
         template: 'post',
         props: ({ doc }: any) => ({ title: doc.title, label: 'Blog' }),
         hero: ({ doc }: any) => doc.heroImage,
-        depth: 1,
       }),
     },
     static: {

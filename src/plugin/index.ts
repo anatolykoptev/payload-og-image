@@ -81,7 +81,6 @@ function validate(o: OgImagePluginOptions, config: Config): string {
     const collection = t.collection ?? name
     if (!collections.has(collection)) fail(`target "${name}" names the collection "${collection}", which does not exist`)
     if (typeof t.template === 'string' && !templates.has(t.template)) fail(`target "${name}" names the unknown template "${t.template}"`)
-    if (t.depth !== undefined) assertInt(`target "${name}" depth`, t.depth, 0, 10)
   }
   const kinds = buildKindIndex(o.targets ?? {}) // throws on a duplicate kind
   const seen = new Set<string>()

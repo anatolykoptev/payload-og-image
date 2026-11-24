@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import type { Target, Template } from '../template.js'
+import type { RelatedFn, Target, Template } from '../template.js'
 import { firstShareImage, type ShareImage, shareImageOf } from './eligible.js'
 import { type LoadedFont, type Stacks, stripMissing } from './fonts.js'
 import type { CardKey, SiteInfo, Size, Upload } from './types.js'
@@ -36,6 +36,8 @@ export type ResolveInput = {
   fontsDigest: string
   stacks: Stacks
   seoImage?: { path: string; isDeliberate?: (image: unknown) => boolean }
+  /** Handed to the target's resolvers (default: always null). */
+  related?: RelatedFn
 }
 
 export function getPath(obj: unknown, dotted: string): unknown {
@@ -115,7 +117,7 @@ export function buildKindIndex(targets: Record<string, Target>): Record<string, 
  * the card would be blank.
  */
 export async function resolveCard(i: ResolveInput): Promise<ResolvedCard> {
-  const args = { doc: i.doc, site: i.site }
+  const args = { doc: i.doc, site: i.site, related: i.related ?? (async () => null) }
   const rawHero = i.target.hero?.(args)
   const hero = usableHero(rawHero)
   const seo = i.seoImage ? getPath(i.doc, i.seoImage.path) : undefined

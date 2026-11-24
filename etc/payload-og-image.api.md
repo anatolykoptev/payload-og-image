@@ -123,6 +123,7 @@ export type PropValue = string | number | boolean | null | undefined | readonly 
 export type ResolverArgs<D> = {
     doc: D;
     site: SiteInfo;
+    related: RelatedFn;
 };
 
 // @public (undocumented)
@@ -163,7 +164,6 @@ export type Target<D = any, P = any> = {
     heroCollection?: string;
     share?: (a: ResolverArgs<D>) => unknown[];
     select?: Record<string, true>;
-    depth?: number;
 };
 
 // @public (undocumented)
@@ -204,6 +204,10 @@ export type Upload = {
     focalY?: number | null;
     sizes?: Record<string, Partial<Upload> | undefined> | null;
 };
+
+// Warnings were encountered during analysis:
+//
+// dist/template.d.ts:60:5 - (ae-forgotten-export) The symbol "RelatedFn" needs to be exported by the entry point index.d.ts
 
 // (No @packageDocumentation comment for this package)
 
