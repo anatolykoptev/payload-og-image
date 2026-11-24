@@ -1,0 +1,146 @@
+import type { Target, Template } from '../template.js'
+import { firstShareImage, type ShareImage } from './eligible.js'
+import { type LoadedFont, type Stacks, stripMissing } from './fonts.js'
+import type { CardKey, SiteInfo, Size, Upload } from './types.js'
+import { cardVersion, pageId } from './version.js'
+
+export type GeneratedCard = {
+  kind: 'generated'
+  key: CardKey
+  pageId: string
+  v: string
+  template: Template<any>
+  props: any
+  hero: Upload | null
+  alt: string
+  url: string
+  size: Size
+  type: 'image/png'
+  /** Characters no face in the stack draws; they were stripped from the props. */
+  missing: string[]
+}
+export type ResolvedCard = { kind: 'none' } | { kind: 'own'; image: ShareImage } | GeneratedCard
+
+export type ResolveInput = {
+  target: Target
+  targetName: string
+  doc: Record<string, any>
+  site: SiteInfo
+  host: string
+  serverUrl: string
+  templates: Map<string, Template<any>>
+  fonts: LoadedFont[]
+  fontsDigest: string
+  stacks: Stacks
+  seoImage?: { path: string; isDeliberate?: (image: unknown) => boolean }
+}
+
+export function getPath(obj: unknown, dotted: string): unknown {
+  let cur: unknown = obj
+  for (const part of dotted.split('.')) {
+    if (cur === null || typeof cur !== 'object') return undefined
+    cur = (cur as Record<string, unknown>)[part]
+  }
+  return cur
+}
+
+/** The id of an upload, whether the field is populated (an object) or not (the bare id). */
+const uploadId = (u: unknown): string | undefined => {
+  const id = u && typeof u === 'object' && 'id' in u ? (u as { id?: unknown }).id : u
+  return typeof id === 'string' || typeof id === 'number' ? String(id) : undefined
+}
+const sameUpload = (a: unknown, b: unknown) => {
+  const x = uploadId(a)
+  return x !== undefined && x === uploadId(b)
+}
+
+/** A hero is drawn only from a populated upload with an id and a file; anything else draws nothing and is no part of the version. */
+const usableHero = (h: unknown): Upload | null =>
+  h && typeof h === 'object' && uploadId(h) !== undefined && typeof (h as Upload).url === 'string' && (h as Upload).url !== ''
+    ? (h as Upload)
+    : null
+
+const nonEmpty = (v: unknown): string | undefined => {
+  const s = typeof v === 'string' ? v.trim() : typeof v === 'number' ? String(v) : ''
+  return s === '' ? undefined : s
+}
+
+/** `/og/:kind/:slug/card.png` filled in. A single pass, so a value that contains `:slug` is never expanded again. */
+export function cardPath(target: Target, targetName: string, slug: string): string {
+  const values: Record<string, string> = { kind: target.kind ?? targetName, slug, id: slug }
+  return target.path.replace(/:(kind|slug|id)\b/g, (_, name: string) => encodeURIComponent(values[name] as string))
+}
+
+/** kind -> target name. Two targets sharing a kind would share card URLs and store keys, so it throws. */
+export function buildKindIndex(targets: Record<string, Target>): Record<string, string> {
+  const index: Record<string, string> = {}
+  for (const [name, t] of Object.entries(targets)) {
+    const kind = t.kind ?? name
+    const other = index[kind]
+    if (other !== undefined) throw new Error(`payload-og-image: targets "${other}" and "${name}" share the kind "${kind}"`)
+    index[kind] = name
+  }
+  return index
+}
+
+/**
+ * What a link to a document shows, by one precedence: the editor's own share image (unless it is just the
+ * hero), then any other eligible photo the target offers, then a generated card, and nothing at all when
+ * the card would be blank.
+ */
+export async function resolveCard(i: ResolveInput): Promise<ResolvedCard> {
+  const args = { doc: i.doc, site: i.site }
+  const rawHero = i.target.hero?.(args)
+  const hero = usableHero(rawHero)
+  const seo = i.seoImage ? getPath(i.doc, i.seoImage.path) : undefined
+  const editor = seo != null && (i.seoImage?.isDeliberate?.(seo) ?? true) && !sameUpload(seo, rawHero) ? seo : undefined
+  const title = typeof i.doc.title === 'string' ? i.doc.title.trim() : ''
+  const own = firstShareImage([editor, ...(i.target.share?.(args) ?? [])], i.serverUrl)
+  if (own) return { kind: 'own', image: { ...own, alt: own.alt ?? title } }
+
+  const templateId = typeof i.target.template === 'function' ? i.target.template(args) : i.target.template
+  const template = i.templates.get(templateId)
+  if (!template) throw new Error(`payload-og-image: target "${i.targetName}" names unknown template "${templateId}"`)
+  const props: Record<string, any> = { ...(await i.target.props(args)) }
+  const missing: string[] = []
+  for (const field of template.textFields ?? []) {
+    if (typeof props[field] !== 'string') continue
+    const stackName = template.stacks?.[field] ?? field
+    const stack = i.stacks[stackName] ?? Object.values(i.stacks)[0]
+    if (!stack || stack.length === 0) {
+      throw new Error(`payload-og-image: template "${template.id}" field "${field}" has no font stack (looked for "${stackName}")`)
+    }
+    const s = stripMissing(i.fonts, stack, props[field])
+    // Stripping leaves holes ("a 🚀 b" -> "a  b"): close them. Text that lost nothing is left exactly as given.
+    props[field] = s.missing.length > 0 ? s.text.replace(/\s+/g, ' ').trim() : s.text
+    missing.push(...s.missing)
+  }
+  if (template.required && !template.required(props as never)) return { kind: 'none' }
+
+  const slug = nonEmpty(getPath(i.doc, i.target.slugField ?? 'slug')) ?? nonEmpty(i.doc.id)
+  if (slug === undefined) return { kind: 'none' }
+  const key = { kind: i.target.kind ?? i.targetName, slug }
+  const v = cardVersion({
+    templateId,
+    templateRevision: template.revision,
+    props,
+    heroes: hero ? [hero] : [],
+    fontsDigest: i.fontsDigest,
+    host: i.host,
+  })
+  const cardTitle = typeof props.title === 'string' ? props.title : ''
+  return {
+    kind: 'generated',
+    key,
+    pageId: pageId(key),
+    v,
+    template,
+    props,
+    hero,
+    alt: typeof props.label === 'string' && props.label !== '' ? `${props.label}: ${cardTitle}` : cardTitle,
+    url: `${i.serverUrl.replace(/\/+$/, '')}${cardPath(i.target, i.targetName, slug)}?v=${v}`,
+    size: template.size,
+    type: 'image/png',
+    missing: [...new Set(missing)],
+  }
+}
