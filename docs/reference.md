@@ -73,11 +73,12 @@ export const revalidatePost: CollectionAfterChangeHook = ({ doc, previousDoc, re
   for (const slug of new Set([doc.slug, previousDoc?.slug])) if (slug) revalidateTag(ogTag('posts', slug), { expire: 0 })
   return doc
 }
+// the same for `afterDelete` (a deleted post must not leave its cached page behind): revalidateTag(ogTag('posts', doc.slug), { expire: 0 })
 // a global that `site()` reads (the business name on every card): revalidateTag(OG_SITE_TAG, { expire: 0 })
 ```
 
 Use `{ expire: 0 }`, not `'max'`: `'max'` serves the stale page to the next visitor, and the next visitor after a save is
-often the crawler. Without a tagged read, `revalidatePath('/posts/<slug>')` does the same for one page. The plugin's own
+often the crawler. Deleting a document runs no `afterChange`: add an `afterDelete` hook that expires the same tag. Without a tagged read, `revalidatePath('/posts/<slug>')` does the same for one page. The plugin's own
 `afterChange` on `siteGlobals` only drops its per-process `site()` cache; it never touches Next's page cache. A vitest suite
 has no Next page cache, so the proof is over HTTP: `scripts/probe-dev-server.mjs` (run in CI after the build) edits a post
 of the dev app's cached page `/cached/[slug]` and requires the page to advertise a new card URL at once.

@@ -1,5 +1,5 @@
 import { revalidateTag } from 'next/cache.js'
-import type { CollectionAfterChangeHook, GlobalAfterChangeHook } from 'payload'
+import type { CollectionAfterChangeHook, CollectionAfterDeleteHook, GlobalAfterChangeHook } from 'payload'
 import { OG_SITE_TAG, ogTag } from 'payload-og-image/next'
 
 /** Expire at once. `'max'` serves the stale page to the next visitor, and a crawler is that visitor. */
@@ -13,6 +13,12 @@ export const revalidatePost: CollectionAfterChangeHook = ({ doc, previousDoc, re
   if (req.context.disableRevalidate) return doc
   if (doc._status !== 'published' && previousDoc?._status !== 'published') return doc
   for (const slug of new Set([doc.slug, previousDoc?.slug])) if (slug) revalidateTag(ogTag('posts', slug), NOW)
+  return doc
+}
+
+/** A deleted post has no page any more: a cached one must not keep its title and its card URL. */
+export const revalidateDeletedPost: CollectionAfterDeleteHook = ({ doc, req }) => {
+  if (!req.context.disableRevalidate && doc.slug) revalidateTag(ogTag('posts', doc.slug), NOW)
   return doc
 }
 

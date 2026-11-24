@@ -6,6 +6,7 @@
 // Mutations that turn it RED (each checked by hand):
 // - dev/app/(payload)/api/[...slug]/route.ts:17  `HEAD = GET` instead of `withHead(GET)` -> "HEAD an uploaded file: 200"
 // - src/internal/handler.ts:383  `CACHE.immutable` for every version -> "GET a stale ?v: one hour"
+// - dev/payload.config.ts:22  no `revalidateDeletedPost` hook -> "the cached page of a deleted post is gone"
 // - dev/payload.config.ts:22  no `revalidatePost` hook, or `'max'` instead of `{ expire: 0 }` in dev/src/og/revalidate.ts:15 -> "the cached page advertises a new card after the edit"
 import { spawn, spawnSync } from 'node:child_process'
 import { mkdtempSync, rmSync } from 'node:fs'
@@ -57,6 +58,8 @@ const sh = (cmd, args) => {
   const r = spawnSync(cmd, args, { cwd: root, env, encoding: 'utf8' })
   if (r.status !== 0) fail(`${cmd} ${args.join(' ')} exited ${r.status}\n${r.stdout}\n${r.stderr}`)
 }
+// A previous run's Next data cache (`dev/.next/cache`) would answer for posts of this run's fresh database.
+rmSync(join(root, 'dev', '.next'), { recursive: true, force: true })
 sh(bin('payload'), ['run', 'dev/seed.ts'])
 sh(bin('next'), ['build', 'dev'])
 server = spawn(bin('next'), ['start', 'dev', '-p', String(port), '-H', '127.0.0.1'], { cwd: root, env })
@@ -124,12 +127,19 @@ const form = new FormData()
 form.set('file', new Blob([png], { type: 'image/png' }), 'probe.png')
 const upload = await fetch(`${origin}/api/media`, { method: 'POST', headers: auth, body: form })
 eq(upload.status, 201, 'an upload was created over REST')
-const file = `${origin}/api/media/file/${(await upload.json()).doc.filename}`
+const uploaded = await upload.json()
+const file = `${origin}/api/media/file/${uploaded.doc.filename}`
 const fileGet = await fetch(file)
 const fileHead = await fetch(file, { method: 'HEAD' })
 eq(fileGet.status, 200, 'GET an uploaded file: 200')
 eq(fileHead.status, 200, 'HEAD an uploaded file: 200 (Payload alone answers 404)')
 eq(fileHead.headers.get('content-type'), fileGet.headers.get('content-type'), 'HEAD an uploaded file: the same content-type as GET')
+// The upload lands in the dev app's media folder, which is not the throwaway one: take it away again.
+eq(
+  (await fetch(`${origin}/api/media/${uploaded.doc.id}`, { method: 'DELETE', headers: auth })).status,
+  200,
+  'the probe upload was deleted again',
+)
 
 // 6. A page Next keeps in its cache follows an edit, with no redeploy: the title, og:image and its version change together.
 const first = await ogImage('/cached/cached')
@@ -148,6 +158,12 @@ const fresh = await fetch(second)
 eq(fresh.status, 200, 'the new card URL is served')
 eq(fresh.headers.get('cache-control'), CACHE.immutable, 'the new card URL is immutable')
 check((await (await fetch(`${origin}/cached/cached`)).text()).includes('Cached post, edited'), 'the cached page shows the new title')
+
+// 7. A deleted post leaves no cached page behind: its title and its card URL go with it.
+const gone = await fetch(`${origin}/api/posts/${found.docs[0].id}`, { method: 'DELETE', headers: auth })
+eq(gone.status, 200, 'the post was deleted over REST')
+const after = await (await fetch(`${origin}/cached/cached`)).text()
+check(after.includes('Not found') && !after.includes('og:image'), 'the cached page of a deleted post is gone (not found, no og:image)')
 
 console.log('probe-dev-server: all checks passed')
 stop()
