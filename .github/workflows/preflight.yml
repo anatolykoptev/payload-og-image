@@ -52,7 +52,10 @@ jobs:
         with:
           node-version: 24
       - run: pnpm install --frozen-lockfile
-      # The lockfile is not committed back: this job only reads. `pnpm add` keeps the release-age cooldown, so it takes
-      # the newest beta that is old enough.
-      - run: pnpm add --save-dev --save-exact payload@beta @payloadcms/db-sqlite@beta @payloadcms/next@beta @payloadcms/richtext-lexical@beta @payloadcms/ui@beta
+      # The lockfile is not committed back: this job only reads. The version is the newest published `4.x-beta.N` older than
+      # the release-age cooldown (the `beta` dist-tag can name one the cooldown refuses, or a build that is no beta).
+      - run: |
+          beta=$(npm view payload time --json | node scripts/latest-payload-beta.mjs)
+          echo "Payload beta: $beta"
+          pnpm add --save-dev --save-exact "payload@$beta" "@payloadcms/db-sqlite@$beta" "@payloadcms/next@$beta" "@payloadcms/richtext-lexical@$beta" "@payloadcms/ui@$beta"
       - run: pnpm test
