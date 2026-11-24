@@ -38,6 +38,9 @@ async function readCapped(req: Request, max: number): Promise<string | null> {
 /** JSON for a header: every non-ASCII character escaped, so an emoji in `missing` cannot make the header invalid. */
 const asciiJson = (v: unknown) => JSON.stringify(v).replace(/[^\x20-\x7e]/g, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, '0')}`)
 
+/** A stored file carries more than an id and a url: size, dates or sizes. An ordinary `{ id, url, label }` row is not one. */
+const hasUploadField = (o: Record<string, unknown>) => ['width', 'height', 'filesize', 'sizes', 'updatedAt'].some((k) => o[k] !== undefined)
+
 class BadBody extends Error {}
 
 /**
@@ -51,7 +54,10 @@ function scrub(value: unknown, depth = 0): unknown {
     const o = value as Record<string, unknown>
     // Upload-shaped (a stored file's own fields): never trusted, whatever it holds. It becomes its id only when that is a plain
     // id, else nothing; an upload is read afresh with the caller's access, never taken from the request.
-    if (typeof o.filename === 'string' || (typeof o.url === 'string' && typeof o.mimeType === 'string'))
+    if (
+      typeof o.filename === 'string' ||
+      (typeof o.url === 'string' && (typeof o.mimeType === 'string' || (o.id !== undefined && hasUploadField(o))))
+    )
       return typeof o.id === 'string' || (typeof o.id === 'number' && Number.isFinite(o.id)) ? o.id : undefined
     return Object.fromEntries(Object.entries(o).map(([k, v]) => [k, scrub(v, depth + 1)]))
   }

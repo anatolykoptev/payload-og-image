@@ -44,8 +44,9 @@ describe('ogFields()', () => {
     const [group, ...rest] = ogFields() as any[]
     expect(rest).toEqual([])
     expect(group).toMatchObject({ type: 'group', name: 'og', admin: { position: 'sidebar' } })
-    const [mode, headline, subtitle, preview] = group.fields
-    expect(group.fields).toHaveLength(4)
+    const [mode, headline, subtitle, , preview] = group.fields
+    expect(group.fields).toHaveLength(5)
+    expect(group.fields[3]).toMatchObject({ name: 'nonce', type: 'number', defaultValue: 0, admin: { hidden: true } })
     expect(preview).toMatchObject({
       name: 'preview',
       type: 'ui',

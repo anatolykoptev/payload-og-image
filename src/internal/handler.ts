@@ -4,7 +4,16 @@ import { coveringFamily, fitText, type LoadedFont, type Stacks, stripMissing } f
 import { createGate, type Gate, ShedError } from './gate.js'
 import type { Memo } from './memo.js'
 
-import { buildKindIndex, type GeneratedCard, MAX_SLUG, ogMode, type ResolvedCard, type ResolveInput, resolveCard } from './resolve.js'
+import {
+  buildKindIndex,
+  type GeneratedCard,
+  getPath,
+  MAX_SLUG,
+  ogMode,
+  type ResolvedCard,
+  type ResolveInput,
+  resolveCard,
+} from './resolve.js'
 
 import type { CardStore, OnEvent, SiteInfo, Size, Upload } from './types.js'
 
@@ -176,12 +185,14 @@ export function createCardHandler(d: HandlerDeps): CardHandler {
     }
   }
 
-  async function draw(card: GeneratedCard, fonts: LoadedFont[]) {
+  async function draw(card: GeneratedCard, fonts: LoadedFont[], o: { quiet?: boolean } = {}) {
     const t0 = Date.now()
     // After the store miss and inside the gate: a cache hit pays for none of this.
     const hero = card.hero ? await d.heroLoader(card.hero, card.template.heroBox ?? card.size, { collection: card.heroCollection }) : null
     const bytes = await d.renderer.render(card.template.render(card.props, ctxFor(fonts, hero)), { ...card.size, fonts })
-    d.events.emit({ name: 'render', kind: card.key.kind, slug: card.key.slug, v: card.v, ms: Date.now() - t0, bytes: bytes.byteLength })
+    // A preview draw is not a render of a real card: no `render` event, so the counters stay about served cards.
+    if (!o.quiet)
+      d.events.emit({ name: 'render', kind: card.key.kind, slug: card.key.slug, v: card.v, ms: Date.now() - t0, bytes: bytes.byteLength })
     return { bytes, downgraded: card.hero != null && hero == null }
   }
 
@@ -269,17 +280,27 @@ export function createCardHandler(d: HandlerDeps): CardHandler {
     const run = (doc: Record<string, any>, fonts: LoadedFont[], digest: string, site: SiteInfo) =>
       cardFor({ target, targetName: a.target, doc, site, fonts, digest, isStatic: false, previewing: true, request: a.request })
     const og = a.doc.og !== null && typeof a.doc.og === 'object' && !Array.isArray(a.doc.og) ? a.doc.og : {}
+    const mode = ogMode(a.doc)
+    // A document not saved yet has no slug: a placeholder lets it be drawn. It is never a URL, a key or a store entry here.
+    const slugField = target.slugField ?? 'slug'
+    const slug = getPath(a.doc, slugField)
+    const usable =
+      typeof slug === 'number' ||
+      (typeof slug === 'string' && slug.trim() !== '' && slug.length <= MAX_SLUG && slug !== '.' && slug !== '..')
+    const doc = usable || slugField.includes('.') ? a.doc : { ...a.doc, [slugField]: '_preview' }
     const { actual, forced, fonts } = await admission.run(async () => {
       const [{ fonts, digest }, site] = await Promise.all([d.fonts(), d.source.site(a.request)])
-      return {
-        fonts,
-        actual: await run(a.doc, fonts, digest, site),
-        forced: await run({ ...a.doc, og: { ...og, mode: 'generated' } }, fonts, digest, site),
-      }
+      const actual = await run(doc, fonts, digest, site)
+      // Resolved once: a generated card (or a blank one, which no mode can fix) is already the answer; only an image or
+      // `off` needs the generated card resolved as well.
+      const forced =
+        actual.kind === 'generated' || (actual.kind === 'none' && mode !== 'off')
+          ? actual
+          : await run({ ...doc, og: { ...og, mode: 'generated' } }, fonts, digest, site)
+      return { fonts, actual, forced }
     })
     if (forced.kind !== 'generated') return { kind: 'none' }
-    const { bytes } = await d.gate.run(() => draw(forced, fonts))
-    const mode = ogMode(a.doc)
+    const { bytes } = await d.gate.run(() => draw(forced, fonts, { quiet: true }))
     return {
       kind: 'png',
       bytes,

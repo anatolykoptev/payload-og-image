@@ -15,6 +15,7 @@
  * - resolve.ts:90  no encodeURIComponent -> "11: cardPath encodes the key" RED
  * - resolve.ts:96  plain-object index -> "a target named like an Object.prototype member ..." RED
  * - resolve.ts:100  allow two targets with one kind -> "12: buildKindIndex throws on a duplicate kind" RED
+ * - resolve.ts  pass og.nonce unvalidated to the version -> "og nonce: a nonce changes v; 0, absent and nonsense values hash as 0.1" RED
  * - resolve.ts:139  fall back to an empty stack silently -> "a text field with no font stack throws" RED
  * - resolve.ts:185  mix `og.headline` into the version outside props (e.g. `host`) -> "og: inherit keeps every 0.1 outcome, even with a headline set that the target never reads" RED
  * - resolve.ts:185  mix `og.mode` into the version -> "og: mode inherit with no og data resolves exactly as 0.1" and the headline case RED
@@ -249,6 +250,17 @@ describe('resolveCard', () => {
     const target = defineTarget<any, any>({ ...posts, share: ({ overrides }) => (seen.push(overrides), []) })
     await resolveCard({ ...(await base()), target, doc: { id: 1, slug: 'a', title: 'A', og: { headline: 'H', subtitle: 'S' } } })
     expect(seen).toEqual([{ headline: 'H', subtitle: 'S' }])
+  })
+  it('og nonce: a nonce changes v; 0, absent and nonsense values hash as 0.1', async () => {
+    const at = async (og: unknown) => (await generated({ doc: { id: 1, slug: 'a', title: 'A', ...(og === undefined ? {} : { og }) } })).v
+    const plain = await at(undefined)
+    expect(await at({ nonce: 0 })).toBe(plain)
+    expect(await at({ nonce: null })).toBe(plain)
+    for (const bad of [-1, 1.5, Number.NaN, '2', Number.MAX_SAFE_INTEGER + 2, {}]) expect(await at({ nonce: bad })).toBe(plain)
+    const two = await at({ nonce: 2 })
+    expect(two).not.toBe(plain)
+    expect(two).not.toBe(await at({ nonce: 1 }))
+    expect(await at({ mode: 'generated', nonce: 2 })).toBe(two)
   })
   it('11: cardPath encodes the key', () => expect(cardPath(posts, 'posts', 'a b/c')).toBe('/og/posts/a%20b%2Fc/card.png'))
   it('cardPath fills placeholders in one pass', () => {
