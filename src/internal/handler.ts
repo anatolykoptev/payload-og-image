@@ -232,7 +232,12 @@ export function createCardHandler(d: HandlerDeps): CardHandler {
     // Pre-admission work (fonts, site, the document lookup, resolution) is bounded by its own small gate, separate from
     // the render gate: a burst of distinct slugs cannot open unbounded database reads before anything is shed.
     const prepared = await admission.run(async () => {
-      const [{ fonts, digest }, site] = await Promise.all([d.fonts(), d.source.site(previewing ? request : undefined)])
+      // Settle BOTH before leaving: a failure in one must not release the admission slot while the other (a database read) keeps running.
+      const [fontsResult, siteResult] = await Promise.allSettled([d.fonts(), d.source.site(previewing ? request : undefined)])
+      if (fontsResult.status === 'rejected') throw fontsResult.reason
+      if (siteResult.status === 'rejected') throw siteResult.reason
+      const { fonts, digest } = fontsResult.value
+      const site = siteResult.value
       // A draft-mode request must not reach the published-only memo/store paths, even if a lookup below fails.
       const doc = staticCard
         ? { slug }
