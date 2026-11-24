@@ -1,4 +1,8 @@
 /** Mutation table (production line -> the test that goes RED). Silent-failure surface: a misconfigured plugin that boots and serves nothing, or one that changes the schema.
+ * - index.ts:78-79  drop the credentials check / the path-query-fragment check -> "refuses a serverURL option with credentials" (and path, query, fragment) RED
+ * - index.ts:80  keep the origin as given (no `u.origin`) -> "normalises options.serverURL to its origin" RED
+ * - internal/colour.ts:8  accept any 3-8 digit hex -> "a 5-digit hero background", "... with alpha" RED
+ * - internal/colour.ts:8  accept a colour name -> "a named hero background" RED
  * - index.ts:71  ignore `options.serverURL` (use the config's only) -> "ogImagePlugin: serverURL option > builds card URLs on options.serverURL" RED
  * - index.ts:64  no `default` stack required -> "refuses no default stack" RED
  * - index.ts:82  accept a target on a missing collection -> "3: a target whose collection does not exist throws" RED
@@ -130,7 +134,18 @@ describe('ogImagePlugin: config transform', () => {
     ['a crawler sample above 1', { crawlerEvents: { sample: 2 } }, /crawlerEvents\.sample/],
     ['a NaN crawler sample', { crawlerEvents: { sample: Number.NaN } }, /crawlerEvents\.sample/],
     ['a url as an image host', { allowedImageHosts: ['https://cdn.test'] }, /bare hostname/],
-    ['a css injection as the hero background', { heroBackground: 'red; background:url(x)' }, /heroBackground/],
+    ['a css injection as the hero background', { heroBackground: 'red; background:url(x)' }, /heroBackground must be #rgb or #rrggbb/],
+    ['a 5-digit hero background', { heroBackground: '#12345' }, /heroBackground must be #rgb or #rrggbb/],
+    ['a hero background with alpha (#rrggbbaa)', { heroBackground: '#11223344' }, /heroBackground must be #rgb or #rrggbb/],
+    ['a hero background with alpha (#rgba)', { heroBackground: '#1234' }, /heroBackground must be #rgb or #rrggbb/],
+    ['a named hero background', { heroBackground: 'red' }, /heroBackground must be #rgb or #rrggbb/],
+    ['a non-hex digit in the hero background', { heroBackground: '#12g456' }, /heroBackground must be #rgb or #rrggbb/],
+    ['a non-string hero background', { heroBackground: 5 as never }, /heroBackground must be #rgb or #rrggbb/],
+    ['a serverURL option with credentials', { serverURL: 'https://u:p@cards.test' }, /options\.serverURL must be an http\(s\) origin/],
+    ['a serverURL option with a path', { serverURL: 'https://cards.test/app' }, /options\.serverURL must be an http\(s\) origin/],
+    ['a serverURL option with a query', { serverURL: 'https://cards.test/?a=1' }, /options\.serverURL must be an http\(s\) origin/],
+    ['a serverURL option with a fragment', { serverURL: 'https://cards.test/#x' }, /options\.serverURL must be an http\(s\) origin/],
+    ['a serverURL option that is not http(s)', { serverURL: 'ftp://cards.test' }, /options\.serverURL must be an http\(s\) origin/],
     ['a css injection as a brand colour', { brand: { ink: 'red; background:url(x)' } }, /brand\.ink/],
     [
       'a static card colliding with a target kind',
@@ -160,8 +175,22 @@ describe('ogImagePlugin: serverURL option', () => {
     const out = ogImagePlugin(options({ serverURL: 'https://cards.test' }))(cfg) as { custom: Record<string, { serverUrl: string }> }
     expect(Object.values(out.custom)[0]?.serverUrl).toBe('https://cards.test')
   })
+  it('normalises options.serverURL to its origin (a trailing slash or default port is dropped)', () => {
+    for (const given of ['https://cards.test/', 'https://cards.test:443', 'HTTPS://Cards.Test']) {
+      const out = ogImagePlugin(options({ serverURL: given }))({ ...baseConfig(), serverURL: '' }) as {
+        custom: Record<string, { serverUrl: string }>
+      }
+      expect(Object.values(out.custom)[0]?.serverUrl, given).toBe('https://cards.test')
+    }
+  })
+  it('keeps the config fallback as it was (no origin rule on config.serverURL)', () => {
+    const out = ogImagePlugin(options())({ ...baseConfig(), serverURL: 'https://x.test/base' }) as {
+      custom: Record<string, { serverUrl: string }>
+    }
+    expect(Object.values(out.custom)[0]?.serverUrl).toBe('https://x.test/base')
+  })
   it('refuses a relative options.serverURL even when the config has an absolute one', () => {
-    expect(() => apply(options({ serverURL: '/relative' }))).toThrow(/absolute `serverURL`/)
+    expect(() => apply(options({ serverURL: '/relative' }))).toThrow(/options\.serverURL must be an http\(s\) origin/)
   })
 })
 

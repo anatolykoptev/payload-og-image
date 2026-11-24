@@ -1,5 +1,6 @@
 /** Mutation table (production line -> the test that goes RED). Silent-failure surface: a page advertising a card URL the route does not serve (a different v, a different image).
  * - runtime.ts:149  resolve from the document the page passed instead of re-reading by id (patched through metadata.ts and runtime.ts together) -> "4: the page passes a doc whose hero is a bare id ..." RED
+ * - resolve.ts:169 leave heroBackground out of the version -> "a changed heroBackground is a new card URL" RED
  * - metadata.ts:38  always throw -> "a failure throws in development and test, and is an event with {} in production" RED
  * - metadata.ts:11  advertise a card that would be blank -> "3: a card that would be blank advertises nothing" RED */
 import type { Payload } from 'payload'
@@ -112,6 +113,22 @@ describe('ogMetadata', () => {
     const res = await createOgRoute({ config }).GET(new Request(advertised), { params: Promise.resolve({ kind: 'posts', slug: 'a' }) })
     expect(advertised.endsWith(`?v=${(res.headers.get('etag') as string).replaceAll('"', '')}`)).toBe(true)
     expect(res.headers.get('cache-control')).toContain('immutable') // the advertised URL IS the current version
+  })
+  it('a changed heroBackground is a new card URL for a card with a hero, never a reused stored PNG; none for a card without one', async () => {
+    const vOf = async (over: Partial<OgImagePluginOptions>, doc: object) => {
+      const { config } = setup({ 1: doc }, over)
+      return ((await ogMetadata({ config, target: 'posts', doc: { id: 1 } })).openGraph as any).images[0].url as string
+    }
+    const withHero = { id: 1, slug: 'a', title: 'A', heroImage: heroUpload }
+    const plain = { id: 1, slug: 'a', title: 'A' }
+    const paper = await vOf({ heroBackground: '#f1f3ef' }, withHero)
+    expect(await vOf({ heroBackground: '#336699' }, withHero)).not.toBe(paper)
+    expect(await vOf({}, withHero)).not.toBe(paper)
+    // The effective colour is what counts: spellings of one colour agree, and an explicit white is the default.
+    expect(await vOf({ heroBackground: '#F1F3EF' }, withHero)).toBe(paper)
+    expect(await vOf({ heroBackground: '#ffffff' }, withHero)).toBe(await vOf({}, withHero))
+    expect(await vOf({ heroBackground: '#fff' }, withHero)).toBe(await vOf({}, withHero))
+    expect(await vOf({ heroBackground: '#336699' }, plain)).toBe(await vOf({}, plain))
   })
   it('5: a static card -> its URL', async () => {
     const { config } = setup({})

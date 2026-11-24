@@ -1,5 +1,6 @@
 import path from 'node:path'
 import type { Config, Payload } from 'payload'
+import { normaliseHeroBackground } from '../internal/colour.js'
 import { type FontSpec, missingGlyphs, type Stacks } from '../internal/fonts.js'
 import { createGate } from '../internal/gate.js'
 import { buildKindIndex } from '../internal/resolve.js'
@@ -38,7 +39,7 @@ export type OgImagePluginOptions = {
    * change more than you want (it also makes Payload store absolute upload URLs).
    */
   serverURL?: string
-  /** The colour a transparent hero is flattened onto before it is cut to the card (a hex colour or colour name). Default white. */
+  /** The colour a transparent hero is flattened onto before it is cut to the card: `#rgb` or `#rrggbb`. Default white. It is part of the version of a card with a hero. */
   heroBackground?: string
   /** Characters every stack must draw, checked at start-up. Default `Aa’‘“”–—…`. */
   requiredSample?: string
@@ -68,12 +69,22 @@ function validate(o: OgImagePluginOptions, config: Config): string {
       if (!o.fonts.some((f) => f.family === family)) fail(`stack "${name}" names the family "${family}", which no registered font provides`)
   }
   if (!Object.hasOwn(o.stacks, 'default')) fail('options.stacks needs a "default" stack: the fallback card and unmapped text fields use it')
-  const serverUrl = o.serverURL ?? config.serverURL
+  let serverUrl = config.serverURL
   try {
-    const u = new URL(serverUrl ?? '')
+    const u = new URL(o.serverURL ?? serverUrl ?? '')
     if (u.protocol !== 'https:' && u.protocol !== 'http:') throw new Error('protocol')
+    if (o.serverURL !== undefined) {
+      // The option is an ORIGIN: card paths are appended to it, so anything more would build wrong or leaky URLs.
+      if (u.username !== '' || u.password !== '') throw new Error('credentials')
+      if (u.pathname !== '/' || u.search !== '' || u.hash !== '') throw new Error('not an origin')
+      serverUrl = u.origin
+    }
   } catch {
-    fail('the Payload config (or the `serverURL` option) needs an absolute `serverURL` (card URLs are absolute)')
+    fail(
+      o.serverURL !== undefined
+        ? `options.serverURL must be an http(s) origin such as "https://example.com" (no credentials, path, query or fragment), got ${JSON.stringify(o.serverURL)}`
+        : 'the Payload config (or the `serverURL` option) needs an absolute `serverURL` (card URLs are absolute)',
+    )
   }
 
   const templates = new Map<string, Template<any>>()
@@ -126,8 +137,7 @@ function validate(o: OgImagePluginOptions, config: Config): string {
       fail(`allowedImageHosts entry "${String(host)}" must be a bare hostname`)
   for (const [k, v] of Object.entries(o.brand ?? {}))
     if (typeof v !== 'string' || !COLOUR.test(v)) fail(`brand.${k} must be a hex colour or a colour name`)
-  if (o.heroBackground !== undefined && (typeof o.heroBackground !== 'string' || !COLOUR.test(o.heroBackground)))
-    fail('heroBackground must be a hex colour or a colour name')
+  if (o.heroBackground !== undefined) normaliseHeroBackground(o.heroBackground) // throws a named error at start-up
   if (o.requiredSample !== undefined && typeof o.requiredSample !== 'string') fail('requiredSample must be a string')
   return serverUrl as string
 }

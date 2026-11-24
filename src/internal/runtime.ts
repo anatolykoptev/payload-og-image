@@ -1,4 +1,5 @@
 import { getPayload, type Payload, type SanitizedConfig } from 'payload'
+import { DEFAULT_HERO_BACKGROUND, normaliseHeroBackground } from '../internal/colour.js'
 import type { OgImagePluginOptions } from '../plugin/index.js'
 import { payloadSource } from '../plugin/payloadSource.js'
 import { createFallbackTemplate, fallbackTemplate } from '../render/fallback.js'
@@ -55,6 +56,13 @@ const disabledHandler = {
   },
 }
 
+/** The normalised hero background when it is not the default white (the only case the version must mention). */
+const heroBackgroundOf = (o: Pick<OgImagePluginOptions, 'heroBackground'>) => {
+  if (o.heroBackground === undefined) return undefined
+  const c = normaliseHeroBackground(o.heroBackground)
+  return c === DEFAULT_HERO_BACKGROUND ? undefined : c
+}
+
 /** The production hero loader: reads only the hero's own upload collection (`Target.heroCollection`), or the one upload collection there is. */
 export function heroLoaderFor(payload: Payload, o: Pick<OgImagePluginOptions, 'allowedImageHosts' | 'heroBackground'>) {
   return payloadHeroLoader({
@@ -67,7 +75,7 @@ export function heroLoaderFor(payload: Payload, o: Pick<OgImagePluginOptions, 'a
       return own.map((u) => u.dir)
     },
     allowedHosts: o.allowedImageHosts,
-    background: o.heroBackground,
+    background: o.heroBackground === undefined ? undefined : normaliseHeroBackground(o.heroBackground),
   })
 }
 
@@ -97,6 +105,7 @@ export function buildRuntime(state: OgState, payload: Payload, over: RuntimeOver
       templates: new Map(o.templates.map((t) => [t.id, t])),
       fonts: state.fonts,
       stacks: o.stacks,
+      heroBackground: heroBackgroundOf(o),
       serverUrl: state.serverUrl,
       source,
       store: over.store ?? state.store(),

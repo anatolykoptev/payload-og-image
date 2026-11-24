@@ -29,7 +29,7 @@ serverExternalPackages: ['fontkit']
 import { ogImagePlugin } from 'payload-og-image'
 
 export default buildConfig({
-  serverURL: 'https://example.com', // card URLs are absolute (or pass `serverURL` to ogImagePlugin: the config's own also makes Payload store absolute upload URLs)
+  serverURL: 'https://example.com', // card URLs are absolute (or pass `serverURL` to ogImagePlugin, an http(s) origin with no path, query or credentials: the config's own also makes Payload store absolute upload URLs)
   plugins: [ogImagePlugin(ogOptions)],
   // ...
 })
@@ -138,7 +138,7 @@ props: async ({ doc, site, related }) => {
 `related` is published-only and access-respecting (it is `null` for a missing, unpublished or forbidden document); an
 editor previewing a draft also gets the draft of a related document. `Target.depth` is gone: there is nothing to tune.
 Say which upload collection a hero lives in with `heroCollection` on the target; a hero file is read only inside that
-collection's folder. A transparent hero is flattened onto `heroBackground` (default white) before it is cut. Remote heroes (`allowedImageHosts`) are fetched over https on the default port with a dedicated
+collection's folder. A transparent hero is flattened onto `heroBackground` (`#rgb` or `#rrggbb`, default white; names and alpha forms are refused at start-up) before it is cut. It is part of the version of a card with a hero, so changing it gives new URLs. Remote heroes (`allowedImageHosts`) are fetched over https on the default port with a dedicated
 agent (never an environment proxy), from a vetted public address only (IANA special-purpose ranges are refused), with no
 redirect.
 

@@ -18,6 +18,21 @@ const pixel = async (dataUrl: string) => {
 }
 
 describe('heroLoaderFor', () => {
+  it('flattens onto the normalised colour: #rgb and #RRGGBB spellings draw the same pixel', async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), 'og-hero-'))
+    await writeFile(
+      path.join(dir, 't.png'),
+      await sharp({ create: { width: 40, height: 40, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } } })
+        .png()
+        .toBuffer(),
+    )
+    const payload = { collections: { media: { config: { upload: { staticDir: dir } } } } } as unknown as Payload
+    const hero = { id: 1, filename: 't.png', url: '/m/t.png', updatedAt: 'u' }
+    const px = async (c: string) =>
+      pixel((await heroLoaderFor(payload, { heroBackground: c })(hero, { width: 20, height: 20 }, { collection: 'media' })) as string)
+    expect(await px('#369')).toEqual([51, 102, 153, 255])
+    expect(await px('#336699')).toEqual([51, 102, 153, 255])
+  })
   it('a transparent hero is flattened onto heroBackground (white by default)', async () => {
     const dir = await mkdtemp(path.join(os.tmpdir(), 'og-hero-'))
     await writeFile(
