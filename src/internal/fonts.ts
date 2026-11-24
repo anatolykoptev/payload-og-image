@@ -127,6 +127,18 @@ function layout(face: LoadedFont, words: string[], size: number, width: number):
   return { lines, broke }
 }
 
+/** Every number finite and positive, minSize <= maxSize: anything else would make the size loop never end. */
+function assertBox(box: Box): void {
+  for (const k of ['width', 'height', 'maxSize', 'minSize', 'leading'] as const) {
+    if (!Number.isFinite(box[k]) || box[k] <= 0)
+      throw new Error(`payload-og-image: fitText: box.${k} must be a finite number above 0, got ${box[k]}`)
+  }
+  if (box.minSize > box.maxSize) throw new Error('payload-og-image: fitText: minSize is larger than maxSize')
+  if (box.maxLines !== undefined && (!Number.isInteger(box.maxLines) || box.maxLines < 1)) {
+    throw new Error(`payload-og-image: fitText: box.maxLines must be an integer of at least 1, got ${box.maxLines}`)
+  }
+}
+
 const fits = (l: Layout, size: number, box: Box) =>
   !l.broke && l.lines * size * box.leading <= box.height && (box.maxLines === undefined || l.lines <= box.maxLines)
 
@@ -137,7 +149,7 @@ const fits = (l: Layout, size: number, box: Box) =>
 export function fitText(fonts: LoadedFont[], family: string, text: string, box: Box): { size: number; lines: number; text: string } {
   const face = measuringFace(fonts, family)
   if (!face) throw new Error(`payload-og-image: fitText: font family "${family}" is not registered`)
-  if (box.minSize > box.maxSize) throw new Error('payload-og-image: fitText: minSize is larger than maxSize')
+  assertBox(box)
   const clean = text.replace(/\s+/g, ' ').trim()
   if (clean === '') return { size: box.maxSize, lines: 0, text: '' }
   const words = clean.split(' ')

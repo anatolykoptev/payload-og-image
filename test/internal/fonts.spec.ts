@@ -113,6 +113,19 @@ describe('fonts', () => {
     expect(r.text.endsWith('…')).toBe(true)
     expect(text.startsWith(r.text.slice(0, -1))).toBe(true)
   })
+  it.each([
+    ['NaN minSize (would loop forever)', { minSize: Number.NaN }],
+    ['Infinity maxSize', { maxSize: Number.POSITIVE_INFINITY }],
+    ['zero width', { width: 0 }],
+    ['negative leading', { leading: -1 }],
+    ['minSize above maxSize', { minSize: 200 }],
+    ['fractional maxLines', { maxLines: 1.5 }],
+    ['zero maxLines', { maxLines: 0 }],
+  ])('rejects a box with %s', async (_, bad) => {
+    const { fonts } = await loaded
+    const box = { width: 400, height: 200, maxSize: 60, minSize: 40, leading: 1, ...bad }
+    expect(() => fitText(fonts, 'Inter', 'Hello', box)).toThrow(/fitText: /)
+  })
   it('handles empty text and an unregistered family', async () => {
     const { fonts } = await loaded
     expect(fitText(fonts, 'Inter', '   ', { width: 100, height: 100, maxSize: 50, minSize: 20, leading: 1 })).toEqual({

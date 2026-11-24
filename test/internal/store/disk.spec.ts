@@ -1,22 +1,27 @@
-/** Mutation table (reviewer neuters each once in a scratch copy). Silent-failure surface: a torn or foreign file is served or deleted without error.
- * - disk.ts:181  get(): accept any bytes -> "a torn file (...) is a miss and is deleted" RED
- * - disk.ts:112  drop the ownership filter -> "never counts or deletes files it does not own" RED
- * - disk.ts:137  keep the newest 1 instead of keepPerPage -> "keeps the newest two versions of a page" RED
- * - disk.ts:217  put(): await a (throttled) prune inline instead of scheduling -> "put schedules a prune off the hot path" RED
- * - disk.ts:155  never schedule a prune -> "put schedules a prune off the hot path" RED
- * - disk.ts:213  drop the prune after a failed write -> "a failed write still schedules a prune" RED
- * - disk.ts:140  live temp files not counted (count) -> "counts fresh temp files toward maxFiles" RED
- * - disk.ts:141  live temp files not counted (bytes) -> "counts fresh temp files toward the cap" RED
- * - disk.ts:127  never sweep old temp files -> "sweeps temp files older than an hour" RED
- * - disk.ts:204  drop the ENOENT mkdir-and-retry -> "recreates a directory that vanished after boot" RED
- * - disk.ts:210  disable on every error -> "a non-permanent write error is skipped once and keeps the store on" RED
- * - disk.ts:57  drop the once-guard -> "concurrent failing writes emit ONE store_disabled" RED
- * - disk.ts:48  call the sink unguarded -> "an async sink that rejects is not an unhandled rejection" RED
- * - disk.ts:188  drop hex validation in put -> "a non-hex page id or version never becomes a file name" RED
- * - disk.ts:78  drop the free-space check -> "warns once at boot when the cap exceeds free space" RED
- * - disk.ts:189  put(): drop the isCompletePng check -> "put refuses bytes that are not a whole PNG" RED */
+/** Mutation table (reviewer neuters each once in a scratch copy). Silent-failure surface: a torn, foreign or symlinked file is served or deleted without error.
+ * - disk.ts:223  get(): accept any bytes -> "a torn file (...) is a miss and is deleted" RED
+ * - disk.ts:198  open following symlinks -> "a symlink at a cache-shaped name is a miss and is left alone" RED
+ * - disk.ts:76  accept a symlinked root -> "a symlinked root turns the store off with ONE event" RED
+ * - disk.ts:209  read a file larger than the budget -> "a file larger than the whole cache budget is dropped without being read" RED
+ * - disk.ts:127  count non-regular files in prune -> "prune does not count a symlink toward the caps" RED
+ * - disk.ts:123  drop the ownership filter -> "never counts or deletes files it does not own" RED
+ * - disk.ts:152  keep the newest 1 instead of keepPerPage -> "keeps the newest two versions of a page" RED
+ * - disk.ts:259  put(): await a (throttled) prune inline -> "put schedules a prune off the hot path" RED
+ * - disk.ts:170  never schedule a prune -> "put schedules a prune off the hot path" RED
+ * - disk.ts:255  drop the prune after a failed write -> "a failed write still schedules a prune" RED
+ * - disk.ts:155  live temp files not counted (count) -> "counts fresh temp files toward maxFiles" RED
+ * - disk.ts:156  live temp files not counted (bytes) -> "counts fresh temp files toward the cap" RED
+ * - disk.ts:142  never sweep old temp files -> "sweeps temp files older than an hour" RED
+ * - disk.ts:246  drop the ENOENT mkdir-and-retry -> "recreates a directory that vanished after boot" RED
+ * - disk.ts:252  disable on every error -> "a non-permanent write error is skipped once and keeps the store on" RED
+ * - disk.ts:61  drop the once-guard -> "concurrent failing writes emit ONE store_disabled" RED
+ * - disk.ts:50  call the sink unguarded -> "an async sink that rejects is not an unhandled rejection" RED
+ * - disk.ts:230  drop hex validation in put -> "a non-hex page id or version never becomes a file name" RED
+ * - disk.ts:89  drop the free-space check -> "warns once at boot when the cap exceeds free space" RED
+ * - disk.ts:231  put(): drop the isCompletePng check -> "put refuses bytes that are not a whole PNG" RED
+ * - disk.ts:175  (no test) stale-observation recheck before unlink: needs an interleaving no public API can force */
 import { readdirSync } from 'node:fs'
-import { chmod, mkdir, mkdtemp, readdir, rm, utimes, writeFile } from 'node:fs/promises'
+import { chmod, lstat, mkdir, mkdtemp, readdir, rm, symlink, utimes, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import sharp from 'sharp'
@@ -135,8 +140,9 @@ describe('diskStore', () => {
     await mkdir(path.join(dir, squat)) // makes the write fail with a non-permanent error (EISDIR)
     const s = diskStore({ dir, maxFiles: 1, pruneEveryMs: 0 })
     await s.put(P, V('a'), await png())
-    expect(await until(async () => (await readdir(dir)).length === 1)).toBe(true)
-    expect(await readdir(dir)).toEqual([squat])
+    // The squatting directory is foreign (never counted, never deleted); the oldest real card goes.
+    expect(await until(async () => !(await readdir(dir)).includes(old[0] as string))).toBe(true)
+    expect((await readdir(dir)).sort()).toEqual([old[1], squat].sort())
   })
 
   it('an async sink that rejects is not an unhandled rejection', async () => {
@@ -152,6 +158,90 @@ describe('diskStore', () => {
       process.off('unhandledRejection', on)
     }
     expect(unhandled).toEqual([])
+  })
+
+  it('a symlink at a cache-shaped name is a miss and is left alone', async () => {
+    const outer = await tmp()
+    const secret = path.join(outer, 'secret.png')
+    await writeFile(secret, await png())
+    const dir = path.join(outer, 'store')
+    await mkdir(dir)
+    const link = path.join(dir, `${P}-${V('a')}.png`)
+    await symlink(secret, link)
+    const ev = events()
+    const s = diskStore({ dir, onEvent: ev.onEvent })
+    expect(await s.get(P, V('a'))).toBeNull()
+    expect((await lstat(link)).isSymbolicLink()).toBe(true)
+    expect((await lstat(secret)).isFile()).toBe(true)
+    expect(ev.names()).not.toContain('store_corrupt')
+  })
+
+  it('prune neither counts nor deletes a symlink at a cache-shaped name, nor what it points to', async () => {
+    const outer = await tmp()
+    const target = path.join(outer, 'target.png')
+    await writeFile(target, await png())
+    const dir = path.join(outer, 'store')
+    await mkdir(dir)
+    const link = path.join(dir, `${'1'.repeat(16)}-${V('1')}.png`)
+    await symlink(target, link)
+    await utimes(link, 1, 1)
+    const s = diskStore({ dir, maxFiles: 0, pruneEveryMs: Number.POSITIVE_INFINITY })
+    await s.put(P, V('a'), await png())
+    await s.prune()
+    expect((await lstat(link)).isSymbolicLink()).toBe(true)
+    expect((await lstat(target)).isFile()).toBe(true)
+    expect(await readdir(dir)).toEqual([path.basename(link)]) // the real card was trimmed, the link was not
+  })
+
+  it('prune does not count a symlink toward the caps', async () => {
+    const outer = await tmp()
+    const target = path.join(outer, 'target.png')
+    await writeFile(target, await png())
+    const dir = path.join(outer, 'store')
+    await mkdir(dir)
+    const s = diskStore({ dir, maxFiles: 1, pruneEveryMs: Number.POSITIVE_INFINITY })
+    await s.put(P, V('a'), await png())
+    await utimes(path.join(dir, `${P}-${V('a')}.png`), 1, 1)
+    await symlink(target, path.join(dir, `${'1'.repeat(16)}-${V('1')}.png`)) // newer than the real card
+    await s.prune()
+    expect(await s.get(P, V('a'))).not.toBeNull() // one real card fits maxFiles: 1
+  })
+
+  it('a symlinked root turns the store off with ONE event and writes nothing through it', async () => {
+    const outer = await tmp()
+    const real = path.join(outer, 'real')
+    await mkdir(real)
+    const dir = path.join(outer, 'link')
+    await symlink(real, dir)
+    const ev = events()
+    const s = diskStore({ dir, onEvent: ev.onEvent })
+    await s.put(P, V('a'), await png())
+    await s.put(P, V('b'), await png())
+    expect(await s.get(P, V('a'))).toBeNull()
+    expect(ev.names().filter((n) => n === 'store_disabled')).toHaveLength(1)
+    expect(s.enabled).toBe(false)
+    expect(await readdir(real)).toEqual([])
+  })
+
+  it('a symlinked parent directory is fine (the real path is resolved once)', async () => {
+    const outer = await tmp()
+    await mkdir(path.join(outer, 'real'))
+    await symlink(path.join(outer, 'real'), path.join(outer, 'parent'))
+    const s = diskStore({ dir: path.join(outer, 'parent', 'store') })
+    await s.put(P, V('a'), await png())
+    expect(await s.get(P, V('a'))).not.toBeNull()
+    expect(s.enabled).toBe(true)
+  })
+
+  it('a file larger than the whole cache budget is dropped without being read', async () => {
+    const dir = await tmp()
+    const name = `${P}-${V('a')}.png`
+    await writeFile(path.join(dir, name), Buffer.alloc(5000, 1))
+    const ev = events()
+    const s = diskStore({ dir, maxBytes: 1000, onEvent: ev.onEvent })
+    expect(await s.get(P, V('a'))).toBeNull()
+    expect(await readdir(dir)).not.toContain(name)
+    expect(ev.list.some((e) => e.name === 'store_corrupt' && e.detail?.reason === 'oversized')).toBe(true)
   })
 
   it('sweeps temp files older than an hour', async () => {

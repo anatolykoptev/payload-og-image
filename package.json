@@ -41,7 +41,7 @@
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
     "test": "vitest run",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit && tsc -p dev/tsconfig.json --noEmit"
   },
   "peerDependencies": {
     "next": "^16.4.5",

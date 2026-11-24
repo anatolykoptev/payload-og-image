@@ -35,8 +35,13 @@ export function createMemo({ maxBytes = 16 * 1024 * 1024 }: { maxBytes?: number 
         (b) => {
           if (entries.get(key) !== entry) return
           entry.settled = true
-          entry.bytes = b.byteLength
-          bytes += b.byteLength
+          // A view keeps its whole backing buffer alive: count that, not the view's length.
+          entry.bytes = b.buffer.byteLength
+          if (b.byteLength === 0) {
+            entries.delete(key) // an empty card is a failed render, never worth remembering
+            return
+          }
+          bytes += entry.bytes
           evict()
         },
         () => {
