@@ -4,15 +4,16 @@
  * - hero.ts:77  drop the exact host match -> "is never fetched for another host / a subdomain / a trailing-dot host" RED
  * - hero.ts:77  allow plain http -> "is never fetched for plain http" RED; allow userinfo -> "credentials on the allowed host" RED
  * - hero.ts:79  follow redirects -> "(f) an allowlisted host is fetched ... redirect: error" RED
- * - hero.ts:83  ignore a declared content-length over the cap -> "a body over maxBytes is null whether it is declared or only streamed" RED
- * - hero.ts:94  no running cap on the stream -> same test RED
- * - hero.ts:119  accept an SVG -> "an SVG, a non-image and an empty file are null" RED
- * - hero.ts:116  no pixel limit -> "an image above maxPixels is not decoded" RED
+ * - hero.ts:86  ignore a declared content-length over the cap -> "a body over maxBytes is null whether it is declared or only streamed" RED
+ * - hero.ts:97  no running cap on the stream -> same test RED
+ * - hero.ts:122  accept an SVG -> "an SVG, a non-image and an empty file are null" RED
+ * - hero.ts:119  no pixel limit -> "an image above maxPixels is not decoded" RED
  * - hero.ts:45  read a file above maxBytes -> "a file above maxBytes is not read" RED
  * - encode.ts:25  always the palette encoding -> "(b) encodePng keeps the smaller encoding" RED
  * - nextOg.ts:16  accept any card size -> "refuses a bad palette and an out-of-range card size" RED
  * - template.ts:66  accept a size above the cap -> "a template size above the pixel cap is refused when it is defined" RED
- * - (none):0  nextOg.ts `isCompletePng(out)` guard: next/og never yields an invalid PNG here, so no test can reach it; it is the last line before a card may be cached immutable */
+ * - (none):0  nextOg.ts `isCompletePng(out)` guard: next/og never yields an invalid PNG here, so no test can reach it; it is the last line before a card may be cached immutable
+ * - hero.ts:82  leave an error response body open -> "an error response has its body cancelled, not left open" RED */
 import { execFileSync } from 'node:child_process'
 import { chmod, mkdir, mkdtemp, symlink, writeFile } from 'node:fs/promises'
 import os from 'node:os'
@@ -246,6 +247,17 @@ describe('payloadHeroLoader (remote)', () => {
     ]) {
       expect(await remote({ fetchImpl: vi.fn(make), allowedHosts: ['cdn.test'] })({ id: 1, url: 'https://cdn.test/a.jpg' }, BOX)).toBeNull()
     }
+  })
+  it('an error response has its body cancelled, not left open', async () => {
+    let cancelled = false
+    const body = new ReadableStream({
+      cancel: () => {
+        cancelled = true
+      },
+    })
+    const fetchImpl = vi.fn(async () => new Response(body, { status: 500 }))
+    expect(await remote({ fetchImpl, allowedHosts: ['cdn.test'] })({ id: 1, url: 'https://cdn.test/a.jpg' }, BOX)).toBeNull()
+    expect(cancelled).toBe(true)
   })
   it('a body over maxBytes is null whether it is declared or only streamed (a valid image, so only the cap can refuse it)', async () => {
     const bytes = new Uint8Array(await image)
