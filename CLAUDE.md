@@ -40,8 +40,8 @@ pnpm api:update            # accept an intended public-surface change into etc/*
 1. Merge to `main`. `release.yml` runs release-please, which opens or updates a release PR (version and
    `CHANGELOG.md`). It only runs in a public repository.
 2. Merging the release PR tags `vX.Y.Z`. The `publish` job checks the tag against `package.json`, runs
-   `make preflight` and `scripts/verify-pack.mjs`, then `npm publish --provenance --access public --tag next`
+   `make preflight` and `scripts/verify-pack.mjs`, then `npm publish --provenance --access public`
    through npm trusted publishing (OIDC): npm trusts `release.yml` of this repository, set on the package's
    npm access page. No token or secret is involved.
-3. Promotion is manual: `npm dist-tag add payload-og-image@<version> latest`.
+3. Every release becomes `latest` on npm. Nothing about a release is manual beyond merging the release PR.
 4. A failed publish is retried with the `release` workflow's `tag` input (`workflow_dispatch`).
