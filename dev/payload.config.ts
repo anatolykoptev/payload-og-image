@@ -25,9 +25,16 @@ export default buildConfig({
         { name: 'heroImage', type: 'upload', relationTo: 'media' },
       ],
     },
-    { slug: 'media', fields: [], upload: { staticDir: path.resolve(dirname, 'media') } },
+    // Public: a crawler fetches an editor-chosen share image without a login.
+    { slug: 'media', access: { read: () => true }, fields: [], upload: { staticDir: path.resolve(dirname, 'media') } },
   ],
-  globals: [{ slug: 'site-settings', access: { read: () => true }, fields: [{ name: 'businessName', type: 'text' }] }],
+  globals: [
+    {
+      slug: 'site-settings',
+      access: { read: () => true },
+      fields: [{ name: 'businessName', type: 'text' }],
+    },
+  ],
   db: sqliteAdapter({ client: { url: process.env.DATABASE_URL || 'file:./dev.db' } }),
   editor: lexicalEditor(),
   jobs: { autoRun: [] },

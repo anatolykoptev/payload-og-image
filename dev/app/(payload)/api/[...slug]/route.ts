@@ -10,8 +10,11 @@ import {
   REST_POST,
   REST_PUT,
 } from '@payloadcms/next/routes'
+import { withHead } from 'payload-og-image/next'
 
 export const GET = REST_GET(config)
+// Payload REST answers 404 to HEAD (payload#16754) and LinkedIn HEADs an og:image first: answer HEAD from GET.
+export const HEAD = withHead(GET)
 export const POST = REST_POST(config)
 export const DELETE = REST_DELETE(config)
 export const PATCH = REST_PATCH(config)

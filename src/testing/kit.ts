@@ -8,6 +8,11 @@ import { analyzeRouteSource } from './routeSource.js'
 import type { TestRuntime } from './runtime.js'
 
 export type RouteModule = { GET(r: Request, c: RouteContext): Promise<Response>; HEAD?(r: Request, c: RouteContext): Promise<Response> }
+/** A Payload REST route module (`app/(payload)/api/[...slug]/route.ts`): the catch-all's `slug` is the path under the API route. */
+export type RestRouteModule = {
+  GET(r: Request, c: { params: Promise<{ slug: string[] }> }): Promise<Response> | Response
+  HEAD?(r: Request, c: { params: Promise<{ slug: string[] }> }): Promise<Response> | Response
+}
 export type IndexableRoute = { path: string; metadata: () => Promise<Metadata>; allowShared?: boolean }
 export type Params = Record<string, string>
 
@@ -76,6 +81,21 @@ const twitterUrlsOf = (m: Metadata) => {
     list: 'twitter image',
     url: String(typeof i === 'object' && i !== null && !(i instanceof URL) ? (i as { url?: unknown }).url : i),
   }))
+}
+
+/** A HEAD answer is the GET's twin: same status, same headers (Content-Length only when present), no body is read. */
+async function sameHeadAndGet(check: string, get: Response, head: Response): Promise<void> {
+  await head.body?.cancel()
+  await get.body?.cancel()
+  if (head.status !== get.status)
+    fail(check, `HEAD answers ${head.status}, GET ${get.status}: link-preview crawlers HEAD an og:image first`)
+  const names = new Set([...get.headers.keys(), ...head.headers.keys()])
+  names.delete('date')
+  if (!head.headers.has('content-length')) names.delete('content-length') // a HEAD answer may omit it; when present it must equal GET's
+  for (const n of names) {
+    if (get.headers.get(n) !== head.headers.get(n))
+      fail(check, `header "${n}" differs: GET "${get.headers.get(n)}", HEAD "${head.headers.get(n)}"`)
+  }
 }
 
 export function ogKit(rt: TestRuntime) {
@@ -359,17 +379,34 @@ export function ogKit(rt: TestRuntime) {
       await (await call(a.module, a.params)).arrayBuffer() // warm: the cache state is then the same for both
       const get = await call(a.module, a.params)
       const head = await call(a.module, a.params, { method: 'HEAD', fn: 'HEAD' })
-      await head.body?.cancel()
-      await get.body?.cancel()
-      if (head.status !== get.status)
-        fail('headParity', `HEAD answers ${head.status}, GET ${get.status}: link-preview crawlers HEAD an og:image first`)
-      const names = new Set([...get.headers.keys(), ...head.headers.keys()])
-      names.delete('date')
-      if (!head.headers.has('content-length')) names.delete('content-length') // a HEAD answer may omit it; when present it must equal GET's
-      for (const n of names) {
-        if (get.headers.get(n) !== head.headers.get(n))
-          fail('headParity', `header "${n}" differs: GET "${get.headers.get(n)}", HEAD "${head.headers.get(n)}"`)
+      await sameHeadAndGet('headParity', get, head)
+    },
+
+    /**
+     * Payload's REST router looks endpoints up by method, so a HEAD to an uploaded file (`/api/media/file/...`) answers 404 unless
+     * the route wraps its GET (payload#16754, `withHead`), and LinkedIn drops an editor-chosen image whose HEAD is 404. Calls the
+     * REST route module with a GET and a HEAD for `url` (an upload that exists, absolute, under `apiRoute`, default `/api`): the
+     * GET must succeed, and the HEAD must answer the same status and headers. A module with no `HEAD` export is called as Next calls it:
+     * its `GET`, with the request's method set to HEAD.
+     */
+    async restHeadParity(a: { module: RestRouteModule; url: string; apiRoute?: string }): Promise<void> {
+      const u = new URL(a.url)
+      const base = (a.apiRoute ?? '/api').replace(/\/+$/, '')
+      if (!u.pathname.startsWith(`${base}/`))
+        fail('restHeadParity', `"${a.url}" is not under the API route "${base}" (pass apiRoute if the site serves Payload elsewhere)`)
+      const slug = u.pathname
+        .slice(base.length + 1)
+        .split('/')
+        .map(decodeURIComponent)
+      const send = (method: 'GET' | 'HEAD') => {
+        const fn = method === 'HEAD' ? (a.module.HEAD ?? a.module.GET) : a.module.GET
+        return fn(new Request(a.url, { method }), { params: Promise.resolve({ slug }) })
       }
+      const get = await send('GET')
+      if (!get.ok)
+        fail('restHeadParity', `GET ${a.url} answers ${get.status}: give the check an upload that exists and that the public may read`)
+      const head = await send('HEAD')
+      await sameHeadAndGet('restHeadParity', get, head)
     },
 
     /** A version that is not current is served for an hour, never as immutable, with the current bytes. */

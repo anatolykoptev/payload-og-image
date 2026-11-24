@@ -6,8 +6,9 @@
  * - kit.ts:116  allow two routes to share one card -> "rejects two routes sharing one card unless allowShared" RED
  * - kit.ts:109  accept an image with no alt -> same test RED
  * - kit.ts:206  never report a path/route mismatch -> "routesMatchPaths > rejects a route file ... naming both" RED
- * - kit.ts:326  ignore a HEAD status that differs -> "headParity > rejects a HEAD that answers a different status" RED
- * - kit.ts:332  ignore header differences -> "rejects a route module whose HEAD answers an empty 200" RED
+ * - kit.ts:90  ignore a HEAD status that differs -> "headParity > rejects a HEAD that answers a different status" RED
+ * - kit.ts:96  ignore header differences -> "rejects a route module whose HEAD answers an empty 200" RED
+ * - kit.ts:409  restHeadParity compares nothing (drop the `sameHeadAndGet` call) -> "restHeadParity > rejects a REST route that answers HEAD 404 ..." and "... headers differ" RED (the dev spec dev/tests/restHead.spec.ts runs the same check on the dev app's real REST route)
  * - kit.ts:397  accept bytes that changed under an unchanged URL -> "versionCoversEverythingDrawn > rejects a template that draws module-level state" RED
  * - kit.ts:301  accept a queue that never sheds -> "queueSheds rejects a route that hides the shedding" RED
  * - kit.ts:227  accept a cacheable draft answer -> "draftNeverCached rejects a route that makes draft answers cacheable" RED
@@ -50,6 +51,7 @@ import { installTestRuntime, ogKit } from '../../src/exports/testing.js'
 import { CACHE } from '../../src/internal/handler.js'
 import { setTestRuntime } from '../../src/internal/runtime.js'
 import { ogMetadata } from '../../src/next/metadata.js'
+import { withHead } from '../../src/next/withHead.js'
 import type { OgImagePluginOptions } from '../../src/plugin/index.js'
 import { defineTarget, defineTemplate } from '../../src/template.js'
 
@@ -322,6 +324,60 @@ describe('headParity', () => {
       kit.headParity({ module: { ...module, HEAD: async () => new Response(null, { status: 404 }) }, params: p('a') }),
       /HEAD answers 404, GET 200/,
     )
+  })
+})
+
+describe('restHeadParity', () => {
+  // Payload REST looks endpoints up by method: a HEAD to an upload answers 404 (payload#16754). Next hands a module with no HEAD
+  // export the GET, with the request's method set to HEAD.
+  const seen: string[][] = []
+  const payloadLike = async (r: Request, c: { params: Promise<{ slug: string[] }> }) => {
+    seen.push((await c.params).slug)
+    return r.method === 'HEAD'
+      ? new Response('Not found', { status: 404 })
+      : new Response('png', { status: 200, headers: { 'content-type': 'image/png', 'content-length': '3' } })
+  }
+  const denied = async () => new Response('no', { status: 403 })
+  const url = 'https://example.test/api/media/file/a%20b.png'
+  const kit = () => ogKit(installTestRuntime(options(), docs()))
+
+  it('rejects a REST route that answers HEAD 404 (no HEAD export: Next runs GET with method HEAD)', async () => {
+    await reject(kit().restHeadParity({ module: { GET: payloadLike }, url }), /restHeadParity: HEAD answers 404, GET 200/)
+  })
+  it('accepts the same route wrapped in withHead, and hands the path segments (decoded) to the route as the slug', async () => {
+    seen.length = 0
+    await kit().restHeadParity({ module: { GET: payloadLike, HEAD: withHead(payloadLike) }, url })
+    expect(seen).toEqual([
+      ['media', 'file', 'a b.png'],
+      ['media', 'file', 'a b.png'],
+    ])
+  })
+  it('rejects a HEAD whose headers differ from the GET ones', async () => {
+    const module = {
+      GET: payloadLike,
+      HEAD: async (r: Request, c: { params: Promise<{ slug: string[] }> }) => {
+        const res = await withHead(payloadLike)(r, c)
+        res.headers.set('content-type', 'text/plain')
+        return res
+      },
+    }
+    await reject(kit().restHeadParity({ module, url }), /restHeadParity: header "content-type" differs/)
+  })
+  it('refuses to judge when the GET itself fails (the upload must exist and be public)', async () => {
+    await reject(kit().restHeadParity({ module: { GET: denied }, url }), /GET .* answers 403: give the check an upload that exists/)
+  })
+  it('refuses a URL outside the API route, and reads a custom apiRoute', async () => {
+    await reject(
+      kit().restHeadParity({ module: { GET: payloadLike }, url: 'https://example.test/media/a.png' }),
+      /not under the API route "\/api"/,
+    )
+    seen.length = 0
+    await kit().restHeadParity({
+      module: { GET: payloadLike, HEAD: withHead(payloadLike) },
+      url: 'https://example.test/cms/api/media/file/a.png',
+      apiRoute: '/cms/api/',
+    })
+    expect(seen[0]).toEqual(['media', 'file', 'a.png'])
   })
 })
 

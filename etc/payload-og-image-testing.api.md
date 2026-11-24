@@ -177,6 +177,11 @@ export function ogKit(rt: TestRuntime): {
         module: RouteModule;
         params: Params;
     }): Promise<void>;
+    restHeadParity(a: {
+        module: RestRouteModule;
+        url: string;
+        apiRoute?: string;
+    }): Promise<void>;
     staleVersionShort(a: {
         module: RouteModule;
         params: Params;
@@ -238,6 +243,20 @@ export type ResolverArgs<D> = {
     site: SiteInfo;
     related: RelatedFn; /** Always given by the resolver; optional so that a test calling `target.props({ doc, site, related })` by hand still compiles. */
     overrides?: OgOverrides;
+};
+
+// @public
+export type RestRouteModule = {
+    GET(r: Request, c: {
+        params: Promise<{
+            slug: string[];
+        }>;
+    }): Promise<Response> | Response;
+    HEAD?(r: Request, c: {
+        params: Promise<{
+            slug: string[];
+        }>;
+    }): Promise<Response> | Response;
 };
 
 // @public (undocumented)
