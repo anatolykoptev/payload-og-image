@@ -123,10 +123,24 @@ an editor, and `site()` is told which user it is serving (`site({ payload, draft
 
 ## Related documents
 
-A published read never draws a related document that is not published: a populated relation to a draft is replaced
-by its bare id before the template sees it. Say which upload collection a hero lives in with `heroCollection` on the
-target; a hero file is read only inside that collection's folder. Remote heroes (`allowedImageHosts`) are fetched
-over https on the default port, from a vetted public address only, with no redirect.
+The plugin reads your document at depth 0, whatever `defaultPopulate` or `select` say: a relation arrives as its bare
+id, so a draft-only related document can never leak into a published card. Two things are loaded for you, each by id and
+with the visitor's access: the hero upload and the upload fields the document carries. Anything else a card draws comes
+through `related(collection, id)` in `props`:
+
+```ts
+props: async ({ doc, site, related }) => {
+  const author = await related('authors', doc.author)
+  return { title: doc.title, byline: author?.name ?? '', site: site.name }
+},
+```
+
+`related` is published-only and access-respecting (it is `null` for a missing, unpublished or forbidden document); an
+editor previewing a draft also gets the draft of a related document. `Target.depth` is gone: there is nothing to tune.
+Say which upload collection a hero lives in with `heroCollection` on the target; a hero file is read only inside that
+collection's folder. Remote heroes (`allowedImageHosts`) are fetched over https on the default port with a dedicated
+agent (never an environment proxy), from a vetted public address only (IANA special-purpose ranges are refused), with no
+redirect.
 
 ## Where the cards live
 
@@ -167,7 +181,11 @@ nothing that is not in its props.
 `payload-og-image/testing` exports `installTestRuntime` and `ogKit`. The kit calls your real page, metadata and
 route modules and checks the failures this plugin exists to prevent: a draft cached, a stale version served as
 immutable, a client-chosen version stored, a HEAD that is not GET's twin, a card route whose path no config
-declares, a template that draws something the URL does not cover. See [`dev/tests/og.spec.ts`](https://github.com/anatolykoptev/payload-og-image/blob/main/dev/tests/og.spec.ts).
+declares, a template that draws something the URL does not cover. The test runtime runs the production draft logic over an in-memory drafts collection, so give `draftNeverCached` a
+document that exists only as a draft (`draftOnly`): the public and a draft-mode visitor without an editor must get a 404,
+and an editor's credential (a user of the first editor collection) the draft. `routesMatchPaths` reads your route files
+and counts one only when the `GET` it exports is the one `createOgRoute()` returned; a mention in a comment or a string
+does not count. See [`dev/tests/og.spec.ts`](https://github.com/anatolykoptev/payload-og-image/blob/main/dev/tests/og.spec.ts).
 
 `og-parity --old <dir> --new <dir>` compares two directories of rendered cards (`<card>.png` plus
 `<card>.layout.json`) pixel for pixel, for a migration that must not change a card.

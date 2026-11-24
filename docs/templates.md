@@ -26,6 +26,12 @@ export const postCard = defineTemplate<PostCardProps>({
   removed before layout (and reported as a `glyph_missing` event), so a card never shows empty boxes.
 - `size` defaults to 1200x630 and may not exceed 4000 pixels on a side.
 
+## Related documents in props
+
+`props` and `share` receive `{ doc, site, related }`. `doc` is read at depth 0 (relations are bare ids). `await related('authors', doc.author)`
+returns the related document if it is published and the visitor may read it, otherwise `null`. Call it for every related
+document the card draws: its fields are part of the card's version only through the props you return.
+
 ## Everything drawn goes through props
 
 `ctx` has no site data on purpose. The card's URL version is computed from the props, so a site name, a
