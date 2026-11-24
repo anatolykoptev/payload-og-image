@@ -11,7 +11,13 @@ type FindArgs = Parameters<Payload['find']>[0]
  * advertises is the route's etag. `select` is passed only when the target defines one: Payload then returns every
  * field, and a target that does not restrict itself never gets a half-empty document.
  */
-export function buildFind(payload: Payload, name: string, target: Target, key: { slug: string } | { id: string | number }): FindArgs {
+export function buildFind(
+  payload: Payload,
+  name: string,
+  target: Target,
+  key: { slug: string } | { id: string | number },
+  seoPath?: string,
+): FindArgs {
   const collection = target.collection ?? name
   const slugField = target.slugField ?? 'slug'
   // Indexed loosely: a consumer's generated types narrow the collection keys, and this library must compile against any of them.
@@ -24,7 +30,11 @@ export function buildFind(payload: Payload, name: string, target: Target, key: {
     limit: 1,
     pagination: false,
     where: hasDrafts ? { and: [match, { _status: { equals: 'published' } }] } : match,
-    ...(target.select ? { select: { ...target.select, [slugField]: true } } : {}),
+    // The slug field and the root of the editor's share-image field are always selected: without them the resolver
+    // would drop the editor's chosen image and fall through to a generated card.
+    ...(target.select
+      ? { select: { ...target.select, [slugField]: true, ...(seoPath ? { [seoPath.split('.')[0] as string]: true } : {}) } }
+      : {}),
   } as FindArgs
 }
 
@@ -55,9 +65,9 @@ export function payloadSource(payload: Payload, state: OgState, cachedSite: () =
   }
   return {
     published: (name, slug) =>
-      first({ ...buildFind(payload, name, targetOf(name), { slug }), draft: false, overrideAccess: false } as FindArgs),
+      first({ ...buildFind(payload, name, targetOf(name), { slug }, o.seoImage?.path), draft: false, overrideAccess: false } as FindArgs),
     publishedById: (name, id) =>
-      first({ ...buildFind(payload, name, targetOf(name), { id }), draft: false, overrideAccess: false } as FindArgs),
+      first({ ...buildFind(payload, name, targetOf(name), { id }, o.seoImage?.path), draft: false, overrideAccess: false } as FindArgs),
     async draft(name, key, request) {
       const user = await editor(request)
       if (!user) return null
