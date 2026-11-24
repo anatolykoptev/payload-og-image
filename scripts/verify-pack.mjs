@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 const EXPECTED = {
-  'payload-og-image': ['defineTarget', 'defineTemplate', 'ogImagePlugin'],
+  'payload-og-image': ['defineTarget', 'defineTemplate', 'ogFields', 'ogImagePlugin'],
   'payload-og-image/next': ['createOgRoute', 'ogMetadata', 'withHead'],
   'payload-og-image/testing': ['installTestRuntime', 'ogKit'],
 }

@@ -80,7 +80,13 @@ export function defineTemplate<P extends PropsModel>(t: Omit<Template<P>, 'size'
  */
 export type RelatedFn = (collection: string, id: string | number) => Promise<Record<string, any> | null>
 
-export type ResolverArgs<D> = { doc: D; site: SiteInfo; related: RelatedFn }
+/**
+ * What the editor typed into the document's `og` group: a headline and a subtitle, trimmed, undefined when empty.
+ * They change a card only when a target's `props` reads them (`overrides.headline ?? doc.title`).
+ */
+export type OgOverrides = { headline?: string; subtitle?: string }
+
+export type ResolverArgs<D> = { doc: D; site: SiteInfo; related: RelatedFn; overrides: OgOverrides }
 
 export type Target<D = any, P = any> = {
   /** Route path of the card; must contain `:slug` or `:id`, and may contain `:kind`. */

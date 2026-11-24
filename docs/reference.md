@@ -47,6 +47,45 @@ Draft text and draft site data go only to users of the admin user collection (`a
 the auth collections named in the `editors` option. A user of any other auth collection (customers, say) is never
 an editor, and `site()` is told which user it is serving (`site({ payload, draft: true, user })`).
 
+## Per-document share card fields
+
+Set `fields: { enabled: true }` on `ogImagePlugin` and each target's collection gets a group `og` with three
+fields: `mode`, `headline` and `subtitle`. It is off by default, and with it off the schema is exactly what it
+was without the option. The plugin only adds fields: it never adds a collection, an endpoint or a job.
+
+```ts
+ogImagePlugin({ /* ... */, fields: { enabled: true } }) // the group sits in the sidebar
+ogImagePlugin({ /* ... */, fields: { enabled: true, position: 'tab' } }) // a "Share card" tab instead
+```
+
+To place the group yourself, call `ogFields()` and leave `fields` off, for example inside plugin-seo:
+`seoPlugin({ fields: ({ defaultFields }) => [...defaultFields, ...ogFields()] })`. A collection that already
+carries an `og` field is not given a second one.
+
+| `og.mode`               | What the page advertises                                                                |
+| ----------------------- | --------------------------------------------------------------------------------------- |
+| `inherit` (the default) | Exactly what 0.1 did: the editor's image, else `share`, else the generated card.        |
+| `generated`             | The generated card, even when the editor set an eligible image.                         |
+| `custom`                | The editor's image only (`share` is not asked). A generated card if it is not eligible. |
+| `off`                   | Nothing: no share image for the page.                                                   |
+
+A document with no `og` data, or `inherit`, resolves to the same card and the same `?v=` as before: the mode does
+not enter the version. The headline and the subtitle reach a target through `overrides`, trimmed and left out
+when empty, and they change a card only when its `props` reads them:
+
+```ts
+defineTarget({
+  // ...
+  props: ({ doc, overrides, site }) => ({ title: overrides.headline ?? doc.title, subtitle: overrides.subtitle, site: site.name }),
+})
+```
+
+Because they go through `props`, they are part of the version like any other prop, and a document with a
+headline gets its own URL. A target that sets `select` keeps `og` selected without listing it.
+
+**Migration.** The new fields are columns. After enabling `fields` (or placing `ogFields()`), each site runs
+`payload migrate:create` and ships the migration with the plugin bump; the plugin does not migrate for you.
+
 ## Related documents
 
 The plugin reads your document at depth 0, whatever `defaultPopulate` or `select` say: a relation arrives as its bare
@@ -113,7 +152,7 @@ does not count. `everyRouteHasOwnCard` requires an `https` image URL, as the cra
 
 ## Not implemented
 
-Per-document mode and headline fields in the admin, live preview, a force-new-image nonce, a stats endpoint,
+Live preview, a force-new-image nonce, a stats endpoint,
 pre-warming, locales, JPEG/WebP output, size variants, local emoji, another renderer, object-storage stores.
 The version and URL formats already reserve the slots, so adding them later changes no existing URL.
 

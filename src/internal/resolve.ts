@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import type { RelatedFn, Target, Template } from '../template.js'
+import type { OgOverrides, RelatedFn, Target, Template } from '../template.js'
 import { firstShareImage, type ShareImage, shareImageOf } from './eligible.js'
 import { type LoadedFont, type Stacks, stripMissing } from './fonts.js'
 import type { CardKey, SiteInfo, Size, Upload } from './types.js'
@@ -80,8 +80,8 @@ export const MAX_SLUG = 256
 const routable = (slug: string | undefined) =>
   slug === undefined || slug === '.' || slug === '..' || slug.length > MAX_SLUG ? undefined : slug
 
-const nonEmpty = (v: unknown): string | undefined => {
-  const s = typeof v === 'string' ? v.trim() : typeof v === 'number' ? String(v) : ''
+const nonEmpty = (v: unknown, stringsOnly = false): string | undefined => {
+  const s = typeof v === 'string' ? v.trim() : typeof v === 'number' && !stringsOnly ? String(v) : ''
   return s === '' ? undefined : s
 }
 
@@ -116,17 +116,31 @@ export function buildKindIndex(targets: Record<string, Target>): Record<string, 
 /**
  * What a link to a document shows, by one precedence: the editor's own share image (unless it is just the
  * hero), then any other eligible photo the target offers, then a generated card, and nothing at all when
- * the card would be blank.
+ * the card would be blank. The document's `og.mode` bends it: `off` shows nothing, `generated` skips the
+ * images, `custom` takes the editor's image only; `inherit` (and no `og` data) is the precedence above, unchanged.
  */
 export async function resolveCard(i: ResolveInput): Promise<ResolvedCard> {
-  const args = { doc: i.doc, site: i.site, related: i.related ?? (async () => null) }
+  const og = isPlainObject(i.doc.og) ? i.doc.og : {}
+  const mode = og.mode === 'generated' || og.mode === 'custom' || og.mode === 'off' ? og.mode : 'inherit'
+  const overrides = { headline: nonEmpty(og.headline, true), subtitle: nonEmpty(og.subtitle, true) }
+  if (mode === 'off') return { kind: 'none' }
+  const args = {
+    doc: i.doc,
+    site: i.site,
+    related: i.related ?? (async () => null),
+    overrides: Object.fromEntries(Object.entries(overrides).filter(([, v]) => v !== undefined)) as OgOverrides,
+  }
   const rawHero = i.target.hero?.(args)
   const hero = usableHero(rawHero)
   const seo = i.seoImage ? getPath(i.doc, i.seoImage.path) : undefined
   const editor = seo != null && (i.seoImage?.isDeliberate?.(seo) ?? true) && !sameUpload(seo, rawHero) ? seo : undefined
   const title = typeof i.doc.title === 'string' ? i.doc.title.trim() : ''
   // The editor's image wins without asking the target for alternatives (and without running its code).
-  const own = shareImageOf(editor, i.serverUrl) ?? firstShareImage(i.target.share?.(args) ?? [], i.serverUrl)
+  // Mode `custom` is the editor's image alone (target.share() is not asked); `generated` skips the image step.
+  const own =
+    mode === 'generated'
+      ? undefined
+      : (shareImageOf(editor, i.serverUrl) ?? (mode === 'custom' ? undefined : firstShareImage(i.target.share?.(args) ?? [], i.serverUrl)))
   if (own) return { kind: 'own', image: { ...own, alt: own.alt ?? title } }
 
   const templateId = typeof i.target.template === 'function' ? i.target.template(args) : i.target.template
