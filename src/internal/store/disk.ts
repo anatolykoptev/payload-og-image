@@ -32,6 +32,8 @@ const code = (e: unknown) => (e as NodeJS.ErrnoException | undefined)?.code
 const noop = () => undefined
 /** Open without following a symlink planted at a cache-shaped name (absent on Windows, where it is 0). */
 const O_NOFOLLOW = constants.O_NOFOLLOW ?? 0
+/** A FIFO at a cache-shaped name must not block open() before fstat can reject it. */
+const O_NONBLOCK = constants.O_NONBLOCK ?? 0
 
 /**
  * Rendered cards on disk, one file per version: `<pageId>-<v>.png`. A file is never stale for its name,
@@ -184,7 +186,8 @@ export function diskStore(o: DiskStoreOptions): DiskStore {
     },
     prune() {
       // Runs queue behind each other, so an explicit call waits for one already running.
-      const run = tail.then(doPrune).catch(noop)
+      // A disabled store (unwritable, or a symlinked root) never prunes: its root is not to be trusted.
+      const run = tail.then(async () => ((await usable()) ? doPrune() : undefined)).catch(noop)
       tail = run
       lastPrune = Date.now()
       return run
@@ -195,7 +198,7 @@ export function diskStore(o: DiskStoreOptions): DiskStore {
       let handle: Awaited<ReturnType<typeof open>>
       try {
         // O_NOFOLLOW: a symlink at a cache-shaped name fails to open (ELOOP), and is left alone.
-        handle = await open(file, constants.O_RDONLY | O_NOFOLLOW)
+        handle = await open(file, constants.O_RDONLY | O_NOFOLLOW | O_NONBLOCK)
       } catch {
         return null
       }
@@ -234,8 +237,15 @@ export function diskStore(o: DiskStoreOptions): DiskStore {
       }
       const target = path.join(root, `${pageId}-${v}.png`)
       const tmp = `${target}.${process.pid}.${randomBytes(4).toString('hex')}.tmp`
+      let owned = true // false once the exclusive create found the name already taken: not ours to unlink
       const write = async () => {
-        await writeFile(tmp, bytes, { flush: true, flag: 'wx' })
+        owned = true
+        try {
+          await writeFile(tmp, bytes, { flush: true, flag: 'wx' })
+        } catch (error) {
+          if (code(error) === 'EEXIST') owned = false
+          throw error
+        }
         await rename(tmp, target)
         await fsyncDir()
       }
@@ -248,7 +258,7 @@ export function diskStore(o: DiskStoreOptions): DiskStore {
           await write()
         }
       } catch (error) {
-        await unlink(tmp).catch(noop)
+        if (owned) await unlink(tmp).catch(noop)
         if (PERMANENT.has(code(error) ?? '')) disable(error)
         else {
           skipOnce(error)

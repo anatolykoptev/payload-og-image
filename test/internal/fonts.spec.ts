@@ -1,14 +1,15 @@
 /** Mutation table (production line -> the test that goes RED). Silent-failure surface: a swapped font keeps the URL; a missing glyph draws tofu.
- * - fonts.ts:27  drop the wOF2 check -> "rejects WOFF2 naming the family" RED
- * - fonts.ts:68  leave the file hash out of the digest -> "digest changes when a face file changes, and is stable otherwise" RED
- * - fonts.ts:63  allow the same family/weight/style twice -> "rejects a face registered twice" RED
+ * - fonts.ts:29  drop the wOF2 check -> "rejects WOFF2 naming the family" RED
+ * - fonts.ts:70  leave the file hash out of the digest -> "digest changes when a face file changes, and is stable otherwise" RED
+ * - fonts.ts:65  allow the same family/weight/style twice -> "rejects a face registered twice" RED
  * - fonts.ts:40  `data` as `bytes.slice().buffer` (a Buffer view shares its pool) -> "keeps exactly the face bytes when the source is a view into a larger buffer" RED
- * - fonts.ts:89  a family covers a run its faces only cover between them (`some` per char) -> "a family whose faces only cover a run between them does not cover it" RED
- * - fonts.ts:96  missingGlyphs looks only at the first family -> "reports and strips chars no face draws" RED
- * - fonts.ts:49  advance() ignores unitsPerEm -> "advances match the fontTools oracle" RED
- * - fonts.ts:79  fitText measures the first registered face -> "measures a family with the same face whatever the registration order" RED; no upright-first rule -> "measures with an upright face before an italic one" RED
- * - fonts.ts:120  fit ignores a word wider than the line -> "shrinks for a word wider than a line instead of breaking it" RED
- * - fonts.ts:149  fitText returns the uncut text at minSize -> "cuts with an ellipsis at minSize" RED */
+ * - fonts.ts:91  a family covers a run its faces only cover between them (`some` per char) -> "a family whose faces only cover a run between them does not cover it" RED
+ * - fonts.ts:98  missingGlyphs looks only at the first family -> "reports and strips chars no face draws" RED
+ * - fonts.ts:51  advance() ignores unitsPerEm -> "advances match the fontTools oracle" RED
+ * - fonts.ts:81  fitText measures the first registered face -> "measures a family with the same face whatever the registration order" RED; no upright-first rule -> "measures with an upright face before an italic one" RED
+ * - fonts.ts:122  fit ignores a word wider than the line -> "shrinks for a word wider than a line instead of breaking it" RED
+ * - fonts.ts:167  fitText returns the uncut text at minSize -> "cuts with an ellipsis at minSize" RED
+ * - fonts.ts:138  accept a maxSize above 2048 (Number.MAX_VALUE: size - 2 === size, so only the cap and the `next >= size` guard stop the loop) -> "rejects a box with maxSize beyond any card" / "just above the 2048 cap" RED */
 import { readFile } from 'node:fs/promises'
 import { describe, expect, it } from 'vitest'
 import { coveringFamily, fitText, loadFonts, missingGlyphs, stripMissing } from '../../src/internal/fonts.js'
@@ -119,6 +120,8 @@ describe('fonts', () => {
     ['zero width', { width: 0 }],
     ['negative leading', { leading: -1 }],
     ['minSize above maxSize', { minSize: 200 }],
+    ['maxSize beyond any card (Number.MAX_VALUE: size - 2 === size)', { maxSize: Number.MAX_VALUE, minSize: 40 }],
+    ['maxSize just above the 2048 cap', { maxSize: 2049 }],
     ['fractional maxLines', { maxLines: 1.5 }],
     ['zero maxLines', { maxLines: 0 }],
   ])('rejects a box with %s', async (_, bad) => {
