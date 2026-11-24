@@ -1,0 +1,5 @@
+{
+  "extends": "./api-extractor.json",
+  "mainEntryPointFilePath": "<projectFolder>/dist/exports/client.d.ts",
+  "apiReport": { "reportFileName": "payload-og-image-client.api.md" }
+}

@@ -85,6 +85,8 @@ A working Payload + Next app that wires all three is in [`dev/`](dev).
 
 - `payload-og-image`: `ogImagePlugin`, `defineTemplate`, `defineTarget`, and `ogFields()` for the optional per-document
   `og` group (mode, headline, subtitle; see [reference](docs/reference.md#per-document-share-card-fields)).
+- `payload-og-image/client`: the admin's live card preview (`OgPreviewField`), referenced by the `og` group; run
+  `payload generate:importmap` after adding the plugin.
 - `payload-og-image/next`: `createOgRoute`, `ogMetadata`, and `withHead` for Payload's REST route (which does not
   answer HEAD, and LinkedIn sends one).
 - `payload-og-image/testing`: `installTestRuntime` and `ogKit`, a test kit that calls your real route and metadata

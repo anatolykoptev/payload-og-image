@@ -65,12 +65,12 @@ never read, so the plugin warns at start-up and, with `fields` on, still adds th
 already has a top-level `og` is not given a second one. If it has its own `og` group with a `mode` field, the
 plugin reads that on upgrade: rename yours first if its values differ from `inherit`, `generated`, `custom`, `off`.
 
-| `og.mode`               | What the page advertises                                                                |
-| ----------------------- | --------------------------------------------------------------------------------------- |
-| `inherit` (the default) | Exactly what 0.1 did: the editor's image, else `share`, else the generated card.        |
-| `generated`             | The generated card, even when the editor set an eligible image.                         |
-| `custom`                | The editor's image only (`share` is not asked). A generated card if it is not eligible. |
-| `off`                   | Nothing: no share image for the page.                                                   |
+| `og.mode`               | What the page advertises                                                                                                                          |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `inherit` (the default) | Exactly what 0.1 did: the editor's image, else `share`, else the generated card.                                                                  |
+| `generated`             | The generated card, even when the editor set an eligible image.                                                                                   |
+| `custom`                | The editor's image only (`share` is not asked). A generated card if it is not eligible.                                                           |
+| `off`                   | No card of its own: the page adds no `og:image`, so a site-wide default image set in the layout still applies. It does not suppress that default. |
 
 A document with no `og` data, or `inherit`, resolves to the same card and the same `?v=` as before: the mode does
 not enter the version. The headline and the subtitle reach a target through `overrides`, trimmed and left out
@@ -90,6 +90,32 @@ headline gets its own URL. A target that sets `select` keeps `og` selected witho
 `payload migrate:create` and ships the migration with the plugin bump; the plugin does not migrate for you.
 Postgres limits an enum name to 63 characters; the select's is `enum_<collection>_og_mode`, so for a long collection
 slug set `dbName` on the `mode` field of the group you place (or shorten the slug).
+
+## Live preview in the admin
+
+The `og` group ends with a "Card preview": a picture of the card for the document as it is being edited, redrawn 800 ms
+after the last change, with warnings in plain words (a character no font draws, mode Off, a custom image that cannot be
+shared or is under 600x315, a card over 300 KB). It is a UI field: no column, no migration.
+
+After adding the plugin (or upgrading), run `payload generate:importmap` so the admin finds the component
+(`payload-og-image/client#OgPreviewField`). The component needs `@payloadcms/ui`, an optional peer at the version of your
+`payload`.
+
+The preview asks `POST /api/payload-og-image/preview` (added whenever a target collection carries the `og` group,
+whether by the `fields` option or by hand). Its rules:
+
+- a signed-in user of an editor collection (the admin user collection, or `editors`), else 401 or 403;
+- the collection must be one of your targets, else 404: the endpoint cannot draw any other;
+- with an `id`, the document must be readable by that user as a draft (`overrideAccess: false`), else 403; without an
+  `id`, the collection's `access.create` must pass;
+- only then is the editor's unsaved form merged over the saved draft. Anything in the form that looks like an upload
+  (it has a `filename`, or a `url` and a `mimeType`) is reduced to its plain id or dropped; the known upload fields are
+  read again with the user's own access, never taken from the request. The body is capped at 256 KB even without a length;
+- the card is drawn through the render gate and returned as a PNG with `Cache-Control: no-store`. It never touches the
+  memo or the store. A full gate answers 503 with `Retry-After`.
+
+The picture is always the card `generated` would draw, whatever the mode, so an editor sees what Off or Custom would fall
+back to. The warnings travel in the `x-og-warnings` header (ASCII JSON).
 
 ## Related documents
 
@@ -157,7 +183,7 @@ does not count. `everyRouteHasOwnCard` requires an `https` image URL, as the cra
 
 ## Not implemented
 
-Live preview, a force-new-image nonce, a stats endpoint,
+A force-new-image nonce, a stats endpoint,
 pre-warming, locales, JPEG/WebP output, size variants, local emoji, another renderer, object-storage stores.
 The version and URL formats already reserve the slots, so adding them later changes no existing URL.
 

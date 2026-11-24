@@ -4,7 +4,7 @@ import { coveringFamily, fitText, type LoadedFont, type Stacks, stripMissing } f
 import { createGate, type Gate, ShedError } from './gate.js'
 import type { Memo } from './memo.js'
 
-import { buildKindIndex, type GeneratedCard, MAX_SLUG, type ResolvedCard, type ResolveInput, resolveCard } from './resolve.js'
+import { buildKindIndex, type GeneratedCard, MAX_SLUG, ogMode, type ResolvedCard, type ResolveInput, resolveCard } from './resolve.js'
 
 import type { CardStore, OnEvent, SiteInfo, Size, Upload } from './types.js'
 
@@ -80,7 +80,29 @@ function etagMatches(header: string | null, v: string): boolean {
   })
 }
 
+/** What an editor's preview says about the card, beyond the picture. */
+export type PreviewWarnings = {
+  /** Characters no font in the stack draws (they are left out of the card). */
+  missing: string[]
+  overBudget: boolean
+  /** Mode `custom`, but the editor's image cannot be shared (an SVG, or no size on record): a generated card is shown. */
+  customIneligible: boolean
+  /** The shared image is smaller than 600x315. */
+  customTooSmall: boolean
+  /** Mode `off`: the page advertises no card of its own; the picture is what `generated` would show. */
+  modeOff: boolean
+}
+export type PreviewResult = { kind: 'none' } | { kind: 'png'; bytes: Uint8Array; warnings: PreviewWarnings }
+/** A card over this many bytes is flagged in a preview. */
+export const PREVIEW_BUDGET_BYTES = 300 * 1024
+
 export type CardHandler = {
+  /**
+   * The generated card for a document an editor is typing (`doc` already authorised and assembled by the caller), drawn
+   * through the render gate and returned, never kept: the memo and the store are not touched. Whatever the document's mode,
+   * the card shown is the one `generated` would draw. Throws `ShedError` when the gate is full.
+   */
+  preview(a: { target: string; doc: Record<string, any>; request: Request }): Promise<PreviewResult>
   GET(r: Request, c: RouteContext): Promise<Response>
   /**
    * What a page should advertise for a document or a static card: the same resolution the route runs, so the
@@ -241,6 +263,36 @@ export function createCardHandler(d: HandlerDeps): CardHandler {
     })
   }
 
+  async function preview(a: { target: string; doc: Record<string, any>; request: Request }): Promise<PreviewResult> {
+    if (!Object.hasOwn(d.targets, a.target)) throw new Error(`payload-og-image: no target "${a.target}"`)
+    const target = d.targets[a.target] as Target
+    const run = (doc: Record<string, any>, fonts: LoadedFont[], digest: string, site: SiteInfo) =>
+      cardFor({ target, targetName: a.target, doc, site, fonts, digest, isStatic: false, previewing: true, request: a.request })
+    const og = a.doc.og !== null && typeof a.doc.og === 'object' && !Array.isArray(a.doc.og) ? a.doc.og : {}
+    const { actual, forced, fonts } = await admission.run(async () => {
+      const [{ fonts, digest }, site] = await Promise.all([d.fonts(), d.source.site(a.request)])
+      return {
+        fonts,
+        actual: await run(a.doc, fonts, digest, site),
+        forced: await run({ ...a.doc, og: { ...og, mode: 'generated' } }, fonts, digest, site),
+      }
+    })
+    if (forced.kind !== 'generated') return { kind: 'none' }
+    const { bytes } = await d.gate.run(() => draw(forced, fonts))
+    const mode = ogMode(a.doc)
+    return {
+      kind: 'png',
+      bytes,
+      warnings: {
+        missing: forced.missing,
+        overBudget: bytes.byteLength > PREVIEW_BUDGET_BYTES,
+        customIneligible: mode === 'custom' && actual.kind === 'generated',
+        customTooSmall: actual.kind === 'own' && ((actual.image.width ?? 0) < 600 || (actual.image.height ?? 0) < 315),
+        modeOff: mode === 'off',
+      },
+    }
+  }
+
   async function serve(request: Request, rc: RouteContext, previewing: boolean): Promise<Response> {
     const p = await rc.params // decoded by Next: never decode again
     // `:id` paths carry the key as `params.id`; `:slug` paths as `params.slug`.
@@ -373,5 +425,5 @@ export function createCardHandler(d: HandlerDeps): CardHandler {
       return unavailable()
     }
   }
-  return { GET, resolve }
+  return { GET, resolve, preview }
 }
