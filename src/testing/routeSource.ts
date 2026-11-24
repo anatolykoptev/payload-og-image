@@ -84,9 +84,11 @@ function afterParen(toks: Tok[], open: number): number {
   return -1
 }
 
-/** Names bound in a `{ a, b: c, ...}` destructuring pattern starting at `open` (the property names; renames are returned as the property). */
-function patternKeys(toks: Tok[], open: number): { keys: string[]; end: number } {
-  const keys: string[] = []
+/** One entry of a `{ a, b: c, ...}` destructuring pattern starting at `open`: the property read and the local name it binds. */
+type PatternEntry = { key: string; local: string }
+
+function patternEntries(toks: Tok[], open: number): { entries: PatternEntry[]; end: number } {
+  const entries: PatternEntry[] = []
   let depth = 0
   let k = open
   for (; k < toks.length; k++) {
@@ -94,19 +96,35 @@ function patternKeys(toks: Tok[], open: number): { keys: string[]; end: number }
     else if (isP(toks[k], '}')) {
       depth -= 1
       if (depth === 0) break
-    } else if (depth === 1 && isId(toks[k]) && (isP(toks[k - 1], '{') || isP(toks[k - 1], ',')) && !isP(toks[k + 1], ':'))
-      keys.push((toks[k] as Tok).v)
-    else if (
-      depth === 1 &&
-      isId(toks[k]) &&
-      (isP(toks[k - 1], '{') || isP(toks[k - 1], ',')) &&
-      isP(toks[k + 1], ':') &&
-      isId(toks[k + 2], (toks[k] as Tok).v)
-    ) {
-      keys.push((toks[k] as Tok).v) // GET: GET
+    } else if (depth === 1 && isId(toks[k]) && (isP(toks[k - 1], '{') || isP(toks[k - 1], ','))) {
+      const key = (toks[k] as Tok).v
+      if (!isP(toks[k + 1], ':'))
+        entries.push({ key, local: key }) // GET
+      else if (isId(toks[k + 2])) entries.push({ key, local: (toks[k + 2] as Tok).v }) // GET: handler
     }
   }
-  return { keys, end: k + 1 }
+  return { entries, end: k + 1 }
+}
+
+/**
+ * The index of the `=` of a declaration whose binding ends at `k`, stepping over a type annotation (`const GET: Handler = ...`,
+ * `const { GET }: { GET: Handler } = ...`). The `=` of an arrow type (`=>`) is not the assignment. -1: no initialiser.
+ */
+function assignAt(toks: Tok[], k: number): number {
+  if (isP(toks[k], '=')) return isP(toks[k + 1], '=') || isP(toks[k + 1], '>') ? -1 : k
+  if (!isP(toks[k], ':')) return -1
+  let depth = 0
+  for (let j = k + 1; j < toks.length; j++) {
+    const t = toks[j]
+    if (isP(t, '(') || isP(t, '[') || isP(t, '{') || isP(t, '<')) depth += 1
+    else if (isP(t, ')') || isP(t, ']') || isP(t, '}') || isP(t, '>')) depth -= 1
+    else if (isP(t, '=') && isP(toks[j + 1], '>'))
+      j += 1 // an arrow type
+    else if (isP(t, '=') && depth === 0) return j
+    else if (isP(t, ';') && depth <= 0) return -1
+    if (depth < 0) return -1
+  }
+  return -1
 }
 
 export type RouteAnalysis = { exportsGetFromCreateOgRoute: boolean }
@@ -133,43 +151,72 @@ export function analyzeRouteSource(source: string): RouteAnalysis {
 
   // names holding the result of a call: `const route = createOgRoute(...)`
   const routes = new Set<string>()
-  // names holding GET taken from a call's result: `const { GET } = createOgRoute(...)` / `= route`
+  // local names holding GET taken from a call's result: `const { GET } = createOgRoute(...)`, `const handler = route.GET`
   const getNames = new Set<string>()
+
+  /** What the expression at `r` is: a createOgRoute() result, its GET, or neither. */
+  const valueAt = (r: number): 'route' | 'get' | undefined => {
+    if (isCall(r)) {
+      const e = callEnd(r)
+      if (e > 0 && isP(toks[e], '.') && isId(toks[e + 1], 'GET') && !isP(toks[e + 2], '.') && !isP(toks[e + 2], '(')) return 'get'
+      return e > 0 && isP(toks[e], '.') ? undefined : 'route'
+    }
+    if (!isId(toks[r])) return undefined
+    const name = (toks[r] as Tok).v
+    if (routes.has(name)) {
+      if (!isP(toks[r + 1], '.')) return 'route'
+      return isId(toks[r + 2], 'GET') && !isP(toks[r + 3], '.') && !isP(toks[r + 3], '(') ? 'get' : undefined
+    }
+    return getNames.has(name) && !isP(toks[r + 1], '.') && !isP(toks[r + 1], '(') ? 'get' : undefined
+  }
+
   let exported = false
   for (let k = 0; k < toks.length; k++) {
     const isDecl = isId(toks[k], 'const') || isId(toks[k], 'let') || isId(toks[k], 'var')
-    const exportedDecl = isDecl && isId(toks[k - 1], 'export')
     if (!isDecl) continue
-    // const <id> = createOgRoute(...)
-    if (isId(toks[k + 1]) && isP(toks[k + 2], '=') && isCall(k + 3)) routes.add((toks[k + 1] as Tok).v)
-    // const { ... GET ... } = createOgRoute(...)   or   = <route>
+    const exportedDecl = isId(toks[k - 1], 'export')
     if (isP(toks[k + 1], '{')) {
-      const { keys, end } = patternKeys(toks, k + 1)
-      const rhsIsRoute =
-        isP(toks[end], '=') &&
-        (isCall(end + 1) || (isId(toks[end + 1]) && routes.has((toks[end + 1] as Tok).v) && !isP(toks[end + 2], '.')))
-      if (rhsIsRoute && keys.includes('GET')) {
-        if (exportedDecl) exported = true
-        else getNames.add('GET')
+      // const { ... GET ... } [: T] = createOgRoute(...)   or   = <route>
+      const { entries, end } = patternEntries(toks, k + 1)
+      const eq = assignAt(toks, end)
+      if (eq < 0 || valueAt(eq + 1) !== 'route') continue
+      for (const e of entries) {
+        if (e.key !== 'GET') continue
+        if (exportedDecl && e.local === 'GET') exported = true
+        else getNames.add(e.local)
+      }
+    } else if (isId(toks[k + 1])) {
+      // const <id> [: T] = createOgRoute(...)   |   = createOgRoute(...).GET   |   = <route>.GET   |   = <a name holding GET>
+      const name = (toks[k + 1] as Tok).v
+      const eq = assignAt(toks, k + 2)
+      if (eq < 0) continue
+      const kind = valueAt(eq + 1)
+      if (kind === 'route') routes.add(name)
+      else if (kind === 'get') {
+        if (exportedDecl && name === 'GET') exported = true
+        else getNames.add(name)
       }
     }
-    // export const GET = createOgRoute(...).GET   |   = <route>.GET
-    if (exportedDecl && isId(toks[k + 1], 'GET') && isP(toks[k + 2], '=')) {
-      if (isCall(k + 3)) {
-        const e = callEnd(k + 3)
-        if (e > 0 && isP(toks[e], '.') && isId(toks[e + 1], 'GET')) exported = true
-      } else if (isId(toks[k + 3]) && routes.has((toks[k + 3] as Tok).v) && isP(toks[k + 4], '.') && isId(toks[k + 5], 'GET'))
-        exported = true
-    }
   }
-  // export { GET }  where GET came out of a route
-  if (!exported && getNames.has('GET')) {
-    for (let k = 0; k < toks.length; k++) {
+  // export { GET }  /  export { handler as GET }  where the local name holds a route's GET (not `export { x } from '...'`)
+  if (!exported) {
+    for (let k = 0; k < toks.length && !exported; k++) {
       if (!(isId(toks[k], 'export') && isP(toks[k + 1], '{'))) continue
-      for (let j = k + 2; j < toks.length && !isP(toks[j], '}'); j++) {
-        if (isId(toks[j], 'GET') && !isId(toks[j - 1], 'as') && !isP(toks[j + 1], ':') && !isId(toks[j + 1], 'as')) exported = true
+      let j = k + 2
+      for (; j < toks.length && !isP(toks[j], '}'); j++) {
+        if (!isId(toks[j]) || !(isP(toks[j - 1], '{') || isP(toks[j - 1], ','))) continue
+        const local = (toks[j] as Tok).v
+        const as = isId(toks[j + 1], 'as') && isId(toks[j + 2]) ? (toks[j + 2] as Tok).v : local
+        if (as === 'GET' && getNames.has(local)) exported = !isId(toks[afterBrace(toks, j)], 'from')
       }
     }
   }
   return { exportsGetFromCreateOgRoute: exported }
+}
+
+/** Index of the token after the `}` that closes the export list `j` is inside. */
+function afterBrace(toks: Tok[], j: number): number {
+  let k = j
+  while (k < toks.length && !isP(toks[k], '}')) k += 1
+  return k + 1
 }
