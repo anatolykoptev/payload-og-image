@@ -14,7 +14,9 @@ type FindArgs = Parameters<Payload['find']>[0]
 export function buildFind(payload: Payload, name: string, target: Target, key: { slug: string } | { id: string | number }): FindArgs {
   const collection = target.collection ?? name
   const slugField = target.slugField ?? 'slug'
-  const hasDrafts = Boolean(payload.collections?.[collection as never]?.config?.versions?.drafts)
+  // Indexed loosely: a consumer's generated types narrow the collection keys, and this library must compile against any of them.
+  const known = payload.collections as unknown as Record<string, { config?: { versions?: { drafts?: unknown } } } | undefined>
+  const hasDrafts = Boolean(known?.[collection]?.config?.versions?.drafts)
   const match = 'slug' in key ? { [slugField]: { equals: key.slug } } : { id: { equals: key.id } }
   return {
     collection,
