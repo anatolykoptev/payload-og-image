@@ -2,6 +2,7 @@
  * - index.ts:4  import the runtime from the plugin (the main entry then reaches next/*, sharp, the renderer) -> "the main entry reaches no next/*, sharp, payload value import or renderer module" RED
  * - state.ts:2  import sharp from state.ts -> same test RED
  * - endpoints.ts  import the runtime statically (not inside the handler) -> "the one lazy edge ..." and the static test RED
+ * - routeSource.ts:1  `import ts from 'typescript'` statically in the testing entry -> "no entry imports the TypeScript compiler" RED
  * - endpoints.ts  a second lazy import -> "the one lazy edge ..." RED */
 import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
@@ -39,6 +40,15 @@ describe('entry points load in the Payload CLI (outside Next)', () => {
     const { files, bare } = graph('exports/index.ts', { dynamic: false })
     expect(bare.filter((b) => /^(next|sharp|payload|react)(\/|$)/.test(b))).toEqual([])
     expect(files.filter((f) => /^(render|next)\//.test(f) || f.endsWith('runtime.ts') || f.endsWith('handler.ts'))).toEqual([])
+  })
+  it('no entry imports the TypeScript compiler: the testing entry loads it on demand, the others never', () => {
+    // `typescript` is an optional peer of payload-og-image/testing only; a static import would break every project without it.
+    for (const entry of ['exports/index.ts', 'exports/next.ts', 'exports/client.ts', 'exports/testing.ts'])
+      expect(
+        graph(entry).bare.filter((b) => /^(@typescript\/|typescript(\/|$))/.test(b)),
+        entry,
+      ).toEqual([])
+    expect(graph('exports/testing.ts').files).toContain('testing/routeSource.ts')
   })
   it('the one lazy edge from the main entry to the runtime is the preview endpoint handler, inside the request function', () => {
     const lazy: string[] = []

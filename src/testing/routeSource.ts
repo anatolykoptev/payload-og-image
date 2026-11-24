@@ -1,222 +1,189 @@
 /**
- * A small tokenizer and structural matcher for a Next route file: does it export `GET` as the value of a `createOgRoute()` call
- * imported from `payload-og-image/next`? Comments and strings are tokens of their own, so a mention in either never counts, and
- * `export const GET = () => ...` next to an unused `createOgRoute()` call does not either. It is not a full parser: it
- * recognises the shapes a card route is written in.
+ * Does a Next route file export `GET` as the GET of a `createOgRoute()` call imported from `payload-og-image/next`? The file is
+ * parsed with the TypeScript compiler API (syntax only, no type checking) and `GET` is resolved through the module's own
+ * declarations, so a comment or a string never counts, a name declared twice is not guessed at, and an export list is read as
+ * an export list. Only `createOgRoute(...)`, its `.GET`, and names that hold either are credited: any other expression
+ * (`cond ? card : other`, a call of `route.GET`) is not.
+ *
+ * The compiler is an optional peer: the main entry never loads it, this module does so on the first call.
  */
+import { createRequire } from 'node:module'
+import type * as TS from '@typescript/typescript6'
 
-type Tok = { t: 'id' | 'str' | 'tpl' | 'p'; v: string }
+type Ts = typeof TS
 
-function tokenize(src: string): Tok[] {
-  const toks: Tok[] = []
-  let i = 0
-  const n = src.length
-  const skipTemplate = () => {
-    // at the opening backtick; leaves i after the closing one, skipping `${ ... }` (which may nest strings and templates)
-    i += 1
-    while (i < n) {
-      const c = src[i]
-      if (c === '\\') i += 2
-      else if (c === '`') {
-        i += 1
-        return
-      } else if (c === '$' && src[i + 1] === '{') {
-        i += 2
-        let depth = 1
-        while (i < n && depth > 0) {
-          const d = src[i]
-          if (d === '`') skipTemplate()
-          else if (d === '"' || d === "'") skipString(d)
-          else {
-            if (d === '{') depth += 1
-            else if (d === '}') depth -= 1
-            i += 1
-          }
-        }
-      } else i += 1
-    }
-  }
-  const skipString = (quote: string) => {
-    i += 1
-    let value = ''
-    while (i < n && src[i] !== quote) {
-      if (src[i] === '\\') i += 1
-      value += src[i] ?? ''
-      i += 1
-    }
-    i += 1
-    return value
-  }
-  while (i < n) {
-    const c = src[i] as string
-    if (/\s/.test(c)) i += 1
-    else if (c === '/' && src[i + 1] === '/') while (i < n && src[i] !== '\n') i += 1
-    else if (c === '/' && src[i + 1] === '*') {
-      const end = src.indexOf('*/', i + 2)
-      i = end < 0 ? n : end + 2
-    } else if (c === '"' || c === "'") toks.push({ t: 'str', v: skipString(c) })
-    else if (c === '`') {
-      skipTemplate()
-      toks.push({ t: 'tpl', v: '' })
-    } else if (/[A-Za-z_$]/.test(c)) {
-      let j = i + 1
-      while (j < n && /[\w$]/.test(src[j] as string)) j += 1
-      toks.push({ t: 'id', v: src.slice(i, j) })
-      i = j
-    } else {
-      toks.push({ t: 'p', v: c })
-      i += 1
-    }
-  }
-  return toks
-}
-
-const isP = (t: Tok | undefined, v: string) => t?.t === 'p' && t.v === v
-const isId = (t: Tok | undefined, v?: string) => t?.t === 'id' && (v === undefined || t.v === v)
-
-/** Index of the token after the `)` that closes the `(` at `open`. */
-function afterParen(toks: Tok[], open: number): number {
-  let depth = 0
-  for (let k = open; k < toks.length; k++) {
-    if (isP(toks[k], '(')) depth += 1
-    else if (isP(toks[k], ')') && --depth === 0) return k + 1
-  }
-  return -1
-}
-
-/** One entry of a `{ a, b: c, ...}` destructuring pattern starting at `open`: the property read and the local name it binds. */
-type PatternEntry = { key: string; local: string }
-
-function patternEntries(toks: Tok[], open: number): { entries: PatternEntry[]; end: number } {
-  const entries: PatternEntry[] = []
-  let depth = 0
-  let k = open
-  for (; k < toks.length; k++) {
-    if (isP(toks[k], '{')) depth += 1
-    else if (isP(toks[k], '}')) {
-      depth -= 1
-      if (depth === 0) break
-    } else if (depth === 1 && isId(toks[k]) && (isP(toks[k - 1], '{') || isP(toks[k - 1], ','))) {
-      const key = (toks[k] as Tok).v
-      if (!isP(toks[k + 1], ':'))
-        entries.push({ key, local: key }) // GET
-      else if (isId(toks[k + 2])) entries.push({ key, local: (toks[k + 2] as Tok).v }) // GET: handler
-    }
-  }
-  return { entries, end: k + 1 }
-}
+/** In order of preference. TypeScript 7 ships no in-process compiler API (its main entry exports a version only), so it is skipped. */
+const COMPILERS = ['typescript', '@typescript/typescript6'] as const
 
 /**
- * The index of the `=` of a declaration whose binding ends at `k`, stepping over a type annotation (`const GET: Handler = ...`,
- * `const { GET }: { GET: Handler } = ...`). The `=` of an arrow type (`=>`) is not the assignment. -1: no initialiser.
+ * The TypeScript compiler API, from the first of `typescript` (5 or 6) or `@typescript/typescript6` that has it. `load` is
+ * `require` unless a test substitutes it. Throws an Error that says what to install when neither does.
  */
-function assignAt(toks: Tok[], k: number): number {
-  if (isP(toks[k], '=')) return isP(toks[k + 1], '=') || isP(toks[k + 1], '>') ? -1 : k
-  if (!isP(toks[k], ':')) return -1
-  let depth = 0
-  for (let j = k + 1; j < toks.length; j++) {
-    const t = toks[j]
-    if (isP(t, '(') || isP(t, '[') || isP(t, '{') || isP(t, '<')) depth += 1
-    else if (isP(t, ')') || isP(t, ']') || isP(t, '}') || isP(t, '>')) depth -= 1
-    else if (isP(t, '=') && isP(toks[j + 1], '>'))
-      j += 1 // an arrow type
-    else if (isP(t, '=') && depth === 0) return j
-    else if (isP(t, ';') && depth <= 0) return -1
-    if (depth < 0) return -1
+export function loadTypescript(load: (id: string) => unknown = createRequire(import.meta.url)): Ts {
+  const notes: string[] = []
+  for (const id of COMPILERS) {
+    let found: unknown
+    try {
+      found = load(id)
+    } catch {
+      continue
+    }
+    if (typeof (found as Partial<Ts> | undefined)?.createSourceFile === 'function') return found as Ts
+    notes.push(
+      `${id} ${String((found as { version?: unknown } | undefined)?.version ?? '')}`.trim() + ' has no compiler API (TypeScript 7)',
+    )
   }
-  return -1
+  throw new Error(
+    `payload-og-image/testing reads route files with the TypeScript compiler API, and none is installed${notes.length > 0 ? ` (${notes.join('; ')})` : ''}. ` +
+      'Add `typescript` (5 or 6) as a dev dependency or, on TypeScript 7, `@typescript/typescript6`.',
+  )
 }
+
+let loaded: Ts | undefined
+const defaultTs = () => {
+  loaded ??= loadTypescript()
+  return loaded
+}
+
+const FACTORY_MODULE = 'payload-og-image/next'
+const FACTORY = 'createOgRoute'
+
+/** What a module-level name holds. */
+type Binding =
+  | { kind: 'import'; from: string; imported: string; typeOnly: boolean }
+  | { kind: 'variable'; node: TS.VariableDeclaration | TS.BindingElement }
+  | { kind: 'other' }
+
+/** What an expression is: the result of a `createOgRoute()` call, the GET handler of one, or neither. */
+type Kind = 'route' | 'get' | undefined
 
 export type RouteAnalysis = { exportsGetFromCreateOgRoute: boolean }
 
-export function analyzeRouteSource(source: string): RouteAnalysis {
-  const toks = tokenize(source)
-  // import { createOgRoute [as x] } from 'payload-og-image/next'
-  const locals = new Set<string>()
-  for (let k = 0; k < toks.length; k++) {
-    if (!isId(toks[k], 'import') || !isP(toks[k + 1], '{')) continue
-    let j = k + 2
-    const names: string[] = []
-    for (; j < toks.length && !isP(toks[j], '}'); j++) {
-      if (isId(toks[j], 'createOgRoute'))
-        names.push(isId(toks[j + 1], 'as') && isId(toks[j + 2]) ? (toks[j + 2] as Tok).v : 'createOgRoute')
-    }
-    if (isId(toks[j + 1], 'from') && toks[j + 2]?.t === 'str' && toks[j + 2]?.v === 'payload-og-image/next')
-      for (const nme of names) locals.add(nme)
+/** `fileName` picks the script kind from its extension (`.ts`, `.tsx`, `.js`, `.mjs`). */
+export function analyzeRouteSource(source: string, fileName = 'route.ts', ts: Ts = defaultTs()): RouteAnalysis {
+  const file = ts.createSourceFile(fileName, source, ts.ScriptTarget.Latest, true)
+
+  // The module scope: every name a top-level statement declares. A name declared more than once is ambiguous and never credited.
+  const bindings = new Map<string, Binding[]>()
+  const bind = (name: string, b: Binding) => {
+    const list = bindings.get(name)
+    if (list) list.push(b)
+    else bindings.set(name, [b])
   }
-  if (locals.size === 0) return { exportsGetFromCreateOgRoute: false }
-
-  const isCall = (k: number) => isId(toks[k]) && locals.has((toks[k] as Tok).v) && isP(toks[k + 1], '(')
-  const callEnd = (k: number) => afterParen(toks, k + 1)
-
-  // names holding the result of a call: `const route = createOgRoute(...)`
-  const routes = new Set<string>()
-  // local names holding GET taken from a call's result: `const { GET } = createOgRoute(...)`, `const handler = route.GET`
-  const getNames = new Set<string>()
-
-  /** What the expression at `r` is: a createOgRoute() result, its GET, or neither. */
-  const valueAt = (r: number): 'route' | 'get' | undefined => {
-    if (isCall(r)) {
-      const e = callEnd(r)
-      if (e > 0 && isP(toks[e], '.') && isId(toks[e + 1], 'GET') && !isP(toks[e + 2], '.') && !isP(toks[e + 2], '(')) return 'get'
-      return e > 0 && isP(toks[e], '.') ? undefined : 'route'
+  const bindPattern = (name: TS.BindingName, owner: TS.VariableDeclaration | TS.BindingElement, top: boolean) => {
+    if (ts.isIdentifier(name)) return bind(name.text, top ? { kind: 'variable', node: owner } : { kind: 'other' })
+    for (const el of name.elements) if (ts.isBindingElement(el)) bindPattern(el.name, el, ts.isObjectBindingPattern(name))
+  }
+  const exported = (node: TS.Node) =>
+    (ts.canHaveModifiers(node) ? ts.getModifiers(node) : undefined)?.some((m) => m.kind === ts.SyntaxKind.ExportKeyword)
+  for (const st of file.statements) {
+    if (ts.isImportDeclaration(st)) {
+      const clause = st.importClause
+      const from = ts.isStringLiteralLike(st.moduleSpecifier) ? st.moduleSpecifier.text : ''
+      if (clause?.name) bind(clause.name.text, { kind: 'other' })
+      const named = clause?.namedBindings
+      if (named && ts.isNamespaceImport(named)) bind(named.name.text, { kind: 'other' })
+      else if (named)
+        for (const el of named.elements)
+          bind(el.name.text, {
+            kind: 'import',
+            from,
+            imported: (el.propertyName ?? el.name).text,
+            typeOnly: clause.isTypeOnly || el.isTypeOnly,
+          })
+    } else if (ts.isVariableStatement(st)) {
+      for (const decl of st.declarationList.declarations) bindPattern(decl.name, decl, true)
+    } else if ((ts.isFunctionDeclaration(st) || ts.isClassDeclaration(st) || ts.isEnumDeclaration(st)) && st.name) {
+      bind(st.name.text, { kind: 'other' })
     }
-    if (!isId(toks[r])) return undefined
-    const name = (toks[r] as Tok).v
-    if (routes.has(name)) {
-      if (!isP(toks[r + 1], '.')) return 'route'
-      return isId(toks[r + 2], 'GET') && !isP(toks[r + 3], '.') && !isP(toks[r + 3], '(') ? 'get' : undefined
-    }
-    return getNames.has(name) && !isP(toks[r + 1], '.') && !isP(toks[r + 1], '(') ? 'get' : undefined
   }
 
-  let exported = false
-  for (let k = 0; k < toks.length; k++) {
-    const isDecl = isId(toks[k], 'const') || isId(toks[k], 'let') || isId(toks[k], 'var')
-    if (!isDecl) continue
-    const exportedDecl = isId(toks[k - 1], 'export')
-    if (isP(toks[k + 1], '{')) {
-      // const { ... GET ... } [: T] = createOgRoute(...)   or   = <route>
-      const { entries, end } = patternEntries(toks, k + 1)
-      const eq = assignAt(toks, end)
-      if (eq < 0 || valueAt(eq + 1) !== 'route') continue
-      for (const e of entries) {
-        if (e.key !== 'GET') continue
-        if (exportedDecl && e.local === 'GET') exported = true
-        else getNames.add(e.local)
+  const unwrap = (e: TS.Expression): TS.Expression => {
+    let cur = e
+    while (
+      ts.isParenthesizedExpression(cur) ||
+      ts.isAsExpression(cur) ||
+      ts.isSatisfiesExpression(cur) ||
+      ts.isNonNullExpression(cur) ||
+      ts.isTypeAssertionExpression(cur)
+    )
+      cur = cur.expression
+    return cur
+  }
+  const isFactory = (name: string) => {
+    const list = bindings.get(name)
+    const b = list?.length === 1 ? list[0] : undefined
+    return b?.kind === 'import' && !b.typeOnly && b.from === FACTORY_MODULE && b.imported === FACTORY
+  }
+
+  const memo = new Map<TS.Node, Kind>()
+  const classify = (expr: TS.Expression): Kind => {
+    const e = unwrap(expr)
+    if (ts.isCallExpression(e)) return ts.isIdentifier(e.expression) && isFactory(e.expression.text) ? 'route' : undefined
+    if (ts.isPropertyAccessExpression(e)) return e.name.text === 'GET' && classify(e.expression) === 'route' ? 'get' : undefined
+    if (ts.isElementAccessExpression(e))
+      return ts.isStringLiteralLike(e.argumentExpression) && e.argumentExpression.text === 'GET' && classify(e.expression) === 'route'
+        ? 'get'
+        : undefined
+    return ts.isIdentifier(e) ? classifyName(e.text) : undefined
+  }
+  const classifyName = (name: string): Kind => {
+    const list = bindings.get(name)
+    const b = list?.length === 1 ? list[0] : undefined
+    return b?.kind === 'variable' ? classifyDeclaration(b.node) : undefined
+  }
+  const classifyDeclaration = (node: TS.VariableDeclaration | TS.BindingElement): Kind => {
+    if (memo.has(node)) return memo.get(node)
+    memo.set(node, undefined) // a name defined through itself is nothing
+    let kind: Kind
+    if (ts.isVariableDeclaration(node)) {
+      // No initialiser (`declare const GET: Handler`, `let GET: Handler`): nothing is held.
+      kind = node.initializer ? classify(node.initializer) : undefined
+    } else {
+      // `const { GET } = <route>` / `const { GET: card } = <route>`: one level of an object pattern, no default, no rest.
+      const decl = node.parent.parent
+      const key = node.propertyName ?? node.name
+      if (
+        ts.isObjectBindingPattern(node.parent) &&
+        ts.isVariableDeclaration(decl) &&
+        decl.initializer &&
+        !node.initializer &&
+        !node.dotDotDotToken &&
+        (ts.isIdentifier(key) || ts.isStringLiteralLike(key)) &&
+        key.text === 'GET' &&
+        classify(decl.initializer) === 'route'
+      )
+        kind = 'get'
+    }
+    memo.set(node, kind)
+    return kind
+  }
+
+  const holdsGet = (local: string) => classifyName(local) === 'get'
+  let exportsGet = false
+  for (const st of file.statements) {
+    if (ts.isVariableStatement(st) && exported(st)) {
+      // `export const A = x, GET = y`, `export const { GET } = route`: every binding is an export under its own name.
+      for (const decl of st.declarationList.declarations) {
+        const names: string[] = []
+        const collect = (n: TS.BindingName) => {
+          if (ts.isIdentifier(n)) names.push(n.text)
+          else for (const el of n.elements) if (ts.isBindingElement(el)) collect(el.name)
+        }
+        collect(decl.name)
+        if (names.includes('GET') && holdsGet('GET')) exportsGet = true
       }
-    } else if (isId(toks[k + 1])) {
-      // const <id> [: T] = createOgRoute(...)   |   = createOgRoute(...).GET   |   = <route>.GET   |   = <a name holding GET>
-      const name = (toks[k + 1] as Tok).v
-      const eq = assignAt(toks, k + 2)
-      if (eq < 0) continue
-      const kind = valueAt(eq + 1)
-      if (kind === 'route') routes.add(name)
-      else if (kind === 'get') {
-        if (exportedDecl && name === 'GET') exported = true
-        else getNames.add(name)
-      }
+    } else if (
+      ts.isExportDeclaration(st) &&
+      !st.moduleSpecifier &&
+      !st.isTypeOnly &&
+      st.exportClause &&
+      ts.isNamedExports(st.exportClause)
+    ) {
+      // `export { GET }`, `export { handler as GET }`; `export { GET } from './x'` has a specifier and is another module's.
+      for (const el of st.exportClause.elements)
+        if (!el.isTypeOnly && el.name.text === 'GET' && holdsGet((el.propertyName ?? el.name).text)) exportsGet = true
     }
   }
-  // export { GET }  /  export { handler as GET }  where the local name holds a route's GET (not `export { x } from '...'`)
-  if (!exported) {
-    for (let k = 0; k < toks.length && !exported; k++) {
-      if (!(isId(toks[k], 'export') && isP(toks[k + 1], '{'))) continue
-      let j = k + 2
-      for (; j < toks.length && !isP(toks[j], '}'); j++) {
-        if (!isId(toks[j]) || !(isP(toks[j - 1], '{') || isP(toks[j - 1], ','))) continue
-        const local = (toks[j] as Tok).v
-        const as = isId(toks[j + 1], 'as') && isId(toks[j + 2]) ? (toks[j + 2] as Tok).v : local
-        if (as === 'GET' && getNames.has(local)) exported = !isId(toks[afterBrace(toks, j)], 'from')
-      }
-    }
-  }
-  return { exportsGetFromCreateOgRoute: exported }
-}
-
-/** Index of the token after the `}` that closes the export list `j` is inside. */
-function afterBrace(toks: Tok[], j: number): number {
-  let k = j
-  while (k < toks.length && !isP(toks[k], '}')) k += 1
-  return k + 1
+  return { exportsGetFromCreateOgRoute: exportsGet }
 }

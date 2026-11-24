@@ -68,6 +68,16 @@ const imagesOf = (m: Metadata) => {
   return list as Array<{ url?: string | URL; width?: number; height?: number; type?: string; alt?: string }>
 }
 
+/** Every url in the twitter card's `images` (strings, URLs or descriptors). */
+const twitterUrlsOf = (m: Metadata) => {
+  const t = (m.twitter as { images?: unknown } | null | undefined)?.images
+  const list = Array.isArray(t) ? t : t ? [t] : []
+  return list.map((i) => ({
+    list: 'twitter image',
+    url: String(typeof i === 'object' && i !== null && !(i instanceof URL) ? (i as { url?: unknown }).url : i),
+  }))
+}
+
 export function ogKit(rt: TestRuntime) {
   const urlOf = (p: Params) => `${rt.serverUrl}/og/${encodeURIComponent(p.kind ?? '')}/${encodeURIComponent(p.slug ?? '')}/card.png`
   const call = (
@@ -106,12 +116,15 @@ export function ogKit(rt: TestRuntime) {
         const image = imagesOf(meta)[0]
         if (!image?.url) fail('everyRouteHasOwnCard', `${route.path} advertises no og:image`)
         const url = String(image?.url)
-        if (!/^https?:\/\//.test(url)) fail('everyRouteHasOwnCard', `${route.path}: image url "${url}" is not absolute`)
-        if (url.startsWith('http://') && !a.allowHttpImages)
-          fail(
-            'everyRouteHasOwnCard',
-            `${route.path}: image url "${url}" is not https (crawlers expect an https og:image; allowHttpImages: true admits http for a local dev server)`,
-          )
+        // The scheme rule holds for every image in both lists: a crawler may pick any of them, not only the first.
+        for (const u of [...imagesOf(meta).map((i) => ({ list: 'image', url: String(i.url) })), ...twitterUrlsOf(meta)]) {
+          if (!/^https?:\/\//.test(u.url)) fail('everyRouteHasOwnCard', `${route.path}: ${u.list} url "${u.url}" is not absolute`)
+          if (u.url.startsWith('http://') && !a.allowHttpImages)
+            fail(
+              'everyRouteHasOwnCard',
+              `${route.path}: ${u.list} url "${u.url}" is not https (crawlers expect an https og:image; allowHttpImages: true admits http for a local dev server)`,
+            )
+        }
         for (const k of ['width', 'height'] as const)
           if (!(Number(image?.[k]) > 0)) fail('everyRouteHasOwnCard', `${route.path}: og:image has no ${k}`)
         if (!image?.type) fail('everyRouteHasOwnCard', `${route.path}: og:image has no type`)
@@ -182,9 +195,9 @@ export function ogKit(rt: TestRuntime) {
           .map((seg) => seg.replace(/^\[\.\.\.(.+)\]$/, ':$1').replace(/^\[(.+)\]$/, ':$1'))
           .join('/')}`
       // A card route exports, as GET, the GET of a `createOgRoute()` call imported from payload-og-image/next (parsed, not grepped).
-      const isCardRoute = (source: string) => analyzeRouteSource(source).exportsGetFromCreateOgRoute
+      const isCardRoute = (source: string, file: string) => analyzeRouteSource(source, file).exportsGetFromCreateOgRoute
       const routes = new Map<string, string>()
-      for (const f of files) if (isCardRoute(await readFile(f, 'utf8'))) routes.set(fromFile(f), f)
+      for (const f of files) if (isCardRoute(await readFile(f, 'utf8'), f)) routes.set(fromFile(f), f)
       const configured = new Map<string, string>()
       for (const [n, t] of Object.entries(rt.options.targets)) configured.set(t.path, `target "${n}"`)
       for (const [n, s] of Object.entries(rt.options.static ?? {})) configured.set(s.path, `static card "${n}"`)

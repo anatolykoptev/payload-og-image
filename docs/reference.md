@@ -203,8 +203,13 @@ immutable, a client-chosen version stored, a HEAD that is not GET's twin, a card
 declares, a template that draws something the URL does not cover. The test runtime runs the production draft logic over an in-memory drafts collection, so give `draftNeverCached` a
 document that exists only as a draft (`draftOnly`): the public and a draft-mode visitor without an editor must get a 404,
 and an editor's credential (a user of the first editor collection) the draft. `routesMatchPaths` reads your route files
-and counts one only when the `GET` it exports is the one `createOgRoute()` returned; a mention in a comment or a string
-does not count. `everyRouteHasOwnCard` requires an `https` image URL, as the crawlers document it; pass `allowHttpImages: true` for a site that is only ever served on plain HTTP, such as a local dev server. See [`dev/tests/og.spec.ts`](https://github.com/anatolykoptev/payload-og-image/blob/main/dev/tests/og.spec.ts).
+and counts one only when the `GET` it exports is the one `createOgRoute()` returned, resolved through the file's own
+declarations; a mention in a comment or a string, a name shadowed in a helper, a `GET` re-exported from another module or
+built from a compound expression does not count. It parses with the TypeScript compiler API (syntax only, no type
+checking), so `payload-og-image/testing` has an optional peer: `typescript` 5 or 6, or `@typescript/typescript6` on
+TypeScript 7, whose own package has no in-process API. Without one it throws and says what to install; the other entries
+never load the compiler. `everyRouteHasOwnCard` requires an `https` image URL for every image in the `og:image` and
+`twitter:image` lists, as the crawlers document it; pass `allowHttpImages: true` for a site that is only ever served on plain HTTP, such as a local dev server. See [`dev/tests/og.spec.ts`](https://github.com/anatolykoptev/payload-og-image/blob/main/dev/tests/og.spec.ts).
 
 `og-parity --old <dir> --new <dir>` compares two directories of rendered cards (`<card>.png` plus
 `<card>.layout.json`) pixel for pixel, for a migration that must not change a card.
