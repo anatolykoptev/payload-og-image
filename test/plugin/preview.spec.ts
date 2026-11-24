@@ -12,6 +12,8 @@
  * - endpoints.ts  list every missing character -> "hundreds of undrawable characters ..." RED
  * - endpoints.ts  let a throwing access.create propagate -> "a create access that throws is a 403" RED
  * - handler.ts  no placeholder slug -> "a new document with no slug yet still gets a preview" RED; resolve the card twice -> "the card is resolved once per preview" RED
+ * - endpoints.ts  an {id, url, label} row treated as an upload (no second upload signal) -> "an {id, url} object is upload-shaped ..." RED (the links row)
+ * - handler.ts  emit `render` for a preview draw -> "a preview draw emits no render event" RED
  * - endpoints.ts  `{id, url}` not upload-shaped -> "an {id, url} object is upload-shaped ..." RED
  * - handler.ts:281  render outside `d.gate` -> "8: the gate is full -> 503 with retry-after" RED
  * - handler.ts:277  resolve the doc as it is (not forced to `generated`) -> "6: mode off still shows the would-be generated card" RED
@@ -308,6 +310,11 @@ describe('POST /api/payload-og-image/preview', () => {
     expect(getSpy).not.toHaveBeenCalled()
     expect((await call('ed1@x.test', { collection: 'posts', doc: { title: 'Brand new', slug: '  ' } })).status).toBe(200)
   })
+  it('a preview draw emits no render event (the counters stay about served cards)', async () => {
+    const before = state.events.counters().render ?? 0
+    expect((await call('ed1@x.test', { collection: 'posts', id: ids.plain, doc: {} })).status).toBe(200)
+    expect(state.events.counters().render ?? 0).toBe(before)
+  })
   it('the card is resolved once per preview whatever the mode (props() runs once)', async () => {
     for (const id of [ids.plain, ids.off, ids.custom]) {
       const before = seenDocs.length
@@ -321,14 +328,16 @@ describe('POST /api/payload-og-image/preview', () => {
       collection: 'posts',
       id: ids.plain,
       doc: {
-        extra: { id: 7, url: 'https://x.test/a.png' },
-        other: { id: { id: 1 }, url: '/y' },
+        extra: { id: 7, url: 'https://x.test/a.png', width: 10, height: 5 },
+        other: { id: { id: 1 }, url: '/y', updatedAt: 'u' },
+        links: [{ id: 3, url: 'https://example.com/a', label: 'A' }],
         link: { url: 'https://example.com/page', label: 'Go' },
       },
     })
     const doc = seenDocs.slice(before).at(-1) as Record<string, any>
     expect(doc.extra).toBe(7)
     expect(doc.other).toBeUndefined()
+    expect(doc.links).toEqual([{ id: 3, url: 'https://example.com/a', label: 'A' }]) // an ordinary row with an id and a url is kept
     expect(doc.link).toEqual({ url: 'https://example.com/page', label: 'Go' })
   })
   it('an upload-shaped value with a plain id becomes that id (and the hero, an id, draws nothing)', async () => {

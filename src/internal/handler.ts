@@ -185,12 +185,14 @@ export function createCardHandler(d: HandlerDeps): CardHandler {
     }
   }
 
-  async function draw(card: GeneratedCard, fonts: LoadedFont[]) {
+  async function draw(card: GeneratedCard, fonts: LoadedFont[], o: { quiet?: boolean } = {}) {
     const t0 = Date.now()
     // After the store miss and inside the gate: a cache hit pays for none of this.
     const hero = card.hero ? await d.heroLoader(card.hero, card.template.heroBox ?? card.size, { collection: card.heroCollection }) : null
     const bytes = await d.renderer.render(card.template.render(card.props, ctxFor(fonts, hero)), { ...card.size, fonts })
-    d.events.emit({ name: 'render', kind: card.key.kind, slug: card.key.slug, v: card.v, ms: Date.now() - t0, bytes: bytes.byteLength })
+    // A preview draw is not a render of a real card: no `render` event, so the counters stay about served cards.
+    if (!o.quiet)
+      d.events.emit({ name: 'render', kind: card.key.kind, slug: card.key.slug, v: card.v, ms: Date.now() - t0, bytes: bytes.byteLength })
     return { bytes, downgraded: card.hero != null && hero == null }
   }
 
@@ -298,7 +300,7 @@ export function createCardHandler(d: HandlerDeps): CardHandler {
       return { fonts, actual, forced }
     })
     if (forced.kind !== 'generated') return { kind: 'none' }
-    const { bytes } = await d.gate.run(() => draw(forced, fonts))
+    const { bytes } = await d.gate.run(() => draw(forced, fonts, { quiet: true }))
     return {
       kind: 'png',
       bytes,

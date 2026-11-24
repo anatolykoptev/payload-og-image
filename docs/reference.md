@@ -109,7 +109,7 @@ whether by the `fields` option or by hand). Its rules:
 - with an `id`, the document must be readable by that user as a draft (`overrideAccess: false`), else 403; without an
   `id`, the collection's `access.create` must pass;
 - only then is the editor's unsaved form merged over the saved draft. Anything in the form that looks like an upload
-  (it has a `filename`, or a `url` and a `mimeType`) is reduced to its plain id or dropped; the known upload fields are
+  (it has a `filename`, or a `url` with a `mimeType`, or a `url` and an `id` with a size or date field) is reduced to its plain id or dropped; the known upload fields are
   read again with the user's own access, never taken from the request. The body is capped at 256 KB even without a length;
 - the card is drawn through the render gate and returned as a PNG with `Cache-Control: no-store`. It never touches the
   memo or the store. A full gate answers 503 with `Retry-After`.
