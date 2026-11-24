@@ -117,6 +117,13 @@ whether by the `fields` option or by hand). Its rules:
 The picture is always the card `generated` would draw, whatever the mode, so an editor sees what Off or Custom would fall
 back to. The warnings travel in the `x-og-warnings` header (ASCII JSON).
 
+### Force new image
+
+The group holds a hidden number `og.nonce` (default 0), changed by the preview's "Force new image" button, which adds 1.
+It is part of the card's version, so a new value is a new card URL: LinkedIn, Facebook and Telegram fetch the card again.
+A nonce of 0 (or none) is exactly the 0.1 version, so no existing URL changes. The field is a column: run
+`payload migrate:create` after upgrading, as for the rest of the group.
+
 ## Related documents
 
 The plugin reads your document at depth 0, whatever `defaultPopulate` or `select` say: a relation arrives as its bare

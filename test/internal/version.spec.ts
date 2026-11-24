@@ -3,6 +3,7 @@
  * - version.ts:75  drop `i.host`                                         -> "changes with host (domain move)" RED
  * - version.ts:75  drop `i.fontsDigest`                                  -> "changes with fonts (a face file swapped)" RED
  * - version.ts:75  hash other constants than '', 'og', 0                 -> "hashes the 0.2 slots as constants" RED
+ * - version.ts:93  nonce slot `(i.nonce ?? 0) + 1` (default no longer the 0.1 value) -> "golden value pins the format", "hashes the 0.2 slots ...", "nonce 0 or absent hashes exactly as 0.1" RED
  * - version.ts:70  heroTag uses only updatedAt (no id)                   -> "a different upload with the same updatedAt" RED
  * - version.ts:19  canonicalJson stops sorting keys                      -> "independent of key order" RED
  * - version.ts:14  drop the toJSON branch                                -> "does not collapse Date props" RED
@@ -65,6 +66,12 @@ describe('cardVersion', () => {
       .digest('hex')
       .slice(0, 12)
     expect(cardVersion(base)).toBe(expected)
+  })
+  it('nonce 0 or absent hashes exactly as 0.1; any other nonce is a new version', () => {
+    expect(cardVersion({ ...base, nonce: 0 })).toBe(cardVersion(base))
+    expect(cardVersion({ ...base, nonce: 0 })).toMatchInlineSnapshot(`"db1903285d83"`) // the 0.1 golden value, unchanged
+    expect(cardVersion({ ...base, nonce: 1 })).not.toBe(cardVersion(base))
+    expect(cardVersion({ ...base, nonce: 1 })).not.toBe(cardVersion({ ...base, nonce: 2 }))
   })
   it('golden value pins the format', () => expect(cardVersion(base)).toMatchInlineSnapshot(`"db1903285d83"`))
 })

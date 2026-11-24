@@ -11,6 +11,8 @@
  * - endpoints.ts  read the body with req.json() / no byte cap -> "a chunked body with no length is capped too -> 413" RED
  * - endpoints.ts  list every missing character -> "hundreds of undrawable characters ..." RED
  * - endpoints.ts  let a throwing access.create propagate -> "a create access that throws is a 403" RED
+ * - handler.ts  no placeholder slug -> "a new document with no slug yet still gets a preview" RED; resolve the card twice -> "the card is resolved once per preview" RED
+ * - endpoints.ts  `{id, url}` not upload-shaped -> "an {id, url} object is upload-shaped ..." RED
  * - handler.ts:281  render outside `d.gate` -> "8: the gate is full -> 503 with retry-after" RED
  * - handler.ts:277  resolve the doc as it is (not forced to `generated`) -> "6: mode off still shows the would-be generated card" RED
  * - handler.ts  touch the memo or the store from preview() -> "4: ... never touched" RED */
@@ -298,6 +300,36 @@ describe('POST /api/payload-og-image/preview', () => {
     const doc: Record<string, any> = { meta: { image: { filename: 'secret.png', id: { filename: 'secret.png' }, url: '/x' } } }
     await populateUploads(payload, 'posts', doc, users['ed1@x.test'])
     expect(doc.meta.image).toBeNull()
+  })
+  it('a new document with no slug yet still gets a preview (a placeholder slug, for drawing only)', async () => {
+    const r = await call('ed1@x.test', { collection: 'posts', doc: { title: 'Brand new' } })
+    expect(r.status).toBe(200)
+    expect(putSpy).not.toHaveBeenCalled()
+    expect(getSpy).not.toHaveBeenCalled()
+    expect((await call('ed1@x.test', { collection: 'posts', doc: { title: 'Brand new', slug: '  ' } })).status).toBe(200)
+  })
+  it('the card is resolved once per preview whatever the mode (props() runs once)', async () => {
+    for (const id of [ids.plain, ids.off, ids.custom]) {
+      const before = seenDocs.length
+      expect((await call('ed1@x.test', { collection: 'posts', id, doc: {} })).status).toBe(200)
+      expect(seenDocs.length - before).toBe(1)
+    }
+  })
+  it('an {id, url} object is upload-shaped (a plain id or nothing); a bare {url} such as a link is kept', async () => {
+    const before = seenDocs.length
+    await call('ed1@x.test', {
+      collection: 'posts',
+      id: ids.plain,
+      doc: {
+        extra: { id: 7, url: 'https://x.test/a.png' },
+        other: { id: { id: 1 }, url: '/y' },
+        link: { url: 'https://example.com/page', label: 'Go' },
+      },
+    })
+    const doc = seenDocs.slice(before).at(-1) as Record<string, any>
+    expect(doc.extra).toBe(7)
+    expect(doc.other).toBeUndefined()
+    expect(doc.link).toEqual({ url: 'https://example.com/page', label: 'Go' })
   })
   it('an upload-shaped value with a plain id becomes that id (and the hero, an id, draws nothing)', async () => {
     const before = seenDocs.length

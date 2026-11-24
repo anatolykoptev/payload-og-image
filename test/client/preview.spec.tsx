@@ -4,14 +4,18 @@
  * - OgPreviewField.tsx:86  never abort the previous request -> "a change aborts the previous request" RED
  * - OgPreviewField.tsx:74  never revoke the old blob URL -> "revokes the previous blob URL" RED
  * - OgPreviewField.tsx  drop the warnings from the loading state -> "keeps the last warnings visible ..." RED
+ * - OgPreviewField.tsx  Force new image: no dispatch / not +1 / no setModified -> "Force new image sets og.nonce ..." RED
  * - OgPreviewField.tsx:62  retry a 503 more than once -> "a second 503 in a row is not retried again" RED; not at all -> "a 503 shows Busy, retrying ..." RED */
 import { act, cleanup, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 let fields: Record<string, unknown> = { v: 0 }
-const getData = vi.fn(() => ({ title: 'Hello' }))
+let data: Record<string, unknown> = { title: 'Hello' }
+const getData = vi.fn(() => data)
+const dispatchFields = vi.fn()
+const setModified = vi.fn()
 vi.mock('@payloadcms/ui', () => ({
-  useForm: () => ({ getData }),
+  useForm: () => ({ getData, dispatchFields, setModified }),
   useAllFormFields: () => [fields, vi.fn()],
   useDocumentInfo: () => ({ id: 42, collectionSlug: 'posts' }),
   useConfig: () => ({ config: { routes: { api: '/api' }, serverURL: '' } }),
@@ -34,6 +38,9 @@ const el = () => <OgPreviewField {...({} as any)} />
 beforeEach(() => {
   vi.useFakeTimers()
   fields = { v: 0 }
+  data = { title: 'Hello' }
+  dispatchFields.mockClear()
+  setModified.mockClear()
   fetchMock = vi.fn(async () => png())
   vi.stubGlobal('fetch', fetchMock)
   let n = 0
@@ -107,7 +114,7 @@ describe('OgPreviewField', () => {
     render(el())
     await tick(800)
     for (const t of [
-      'This page shows no share image: mode is Off',
+      'No card of its own: the site default image applies',
       'The custom image cannot be shared (SVG or no size on record)',
       'The custom image is smaller than 600x315',
       'Card is over 300 KB',
@@ -161,5 +168,16 @@ describe('OgPreviewField', () => {
     render(el())
     await tick(800)
     expect(screen.getByText('500 characters cannot be drawn: a b …')).toBeTruthy()
+  })
+  it('Force new image sets og.nonce to the next number and marks the form modified', async () => {
+    render(el())
+    await tick(800)
+    expect(screen.getByText('Gives the card a new address so LinkedIn, Facebook and Telegram fetch it again.')).toBeTruthy()
+    await act(async () => screen.getByRole('button', { name: 'Force new image' }).click())
+    expect(dispatchFields).toHaveBeenCalledWith({ type: 'UPDATE', path: 'og.nonce', value: 1 })
+    expect(setModified).toHaveBeenCalledWith(true)
+    data = { title: 'Hello', og: { nonce: 4 } }
+    await act(async () => screen.getByRole('button', { name: 'Force new image' }).click())
+    expect(dispatchFields).toHaveBeenLastCalledWith({ type: 'UPDATE', path: 'og.nonce', value: 5 })
   })
 })

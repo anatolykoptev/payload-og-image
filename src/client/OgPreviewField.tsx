@@ -24,7 +24,7 @@ const RETRY_MS = 5000
 /** Warnings in plain words, for an editor. */
 function sayWarnings(w: Warnings): string[] {
   const out: string[] = []
-  if (w.modeOff) out.push('This page shows no share image: mode is Off')
+  if (w.modeOff) out.push('No card of its own: the site default image applies')
   if (w.customIneligible) out.push('The custom image cannot be shared (SVG or no size on record)')
   if (w.customTooSmall) out.push('The custom image is smaller than 600x315')
   const count = Math.max(w.missingCount ?? 0, w.missing.length)
@@ -40,7 +40,7 @@ function sayWarnings(w: Warnings): string[] {
  * (503) is retried once after 5 s. The previous request is aborted and the previous blob URL revoked.
  */
 export const OgPreviewField: UIFieldClientComponent = () => {
-  const { getData } = useForm()
+  const { getData, dispatchFields, setModified } = useForm()
   const [fields] = useAllFormFields()
   const { id, collectionSlug } = useDocumentInfo()
   const {
@@ -102,6 +102,14 @@ export const OgPreviewField: UIFieldClientComponent = () => {
     [],
   )
 
+  /** A new nonce is a new card URL, so LinkedIn, Facebook and Telegram fetch the card again. Saved with the document. */
+  const forceNewImage = () => {
+    const current = (getData() as { og?: { nonce?: unknown } }).og?.nonce
+    const value = (typeof current === 'number' && Number.isSafeInteger(current) && current > 0 ? current : 0) + 1
+    dispatchFields({ type: 'UPDATE', path: 'og.nonce', value })
+    setModified(true)
+  }
+
   const src = 'src' in state ? state.src : undefined
   const warnings = 'warnings' in state ? state.warnings : []
   return (
@@ -119,6 +127,12 @@ export const OgPreviewField: UIFieldClientComponent = () => {
       {state.status === 'loading' && !src ? <div>Drawing the card…</div> : null}
       {state.status === 'busy' ? <div>Busy, retrying</div> : null}
       {state.status === 'error' ? <div>{state.message}</div> : null}
+      <button type="button" className="btn btn--style-secondary btn--size-small" onClick={forceNewImage} style={{ marginTop: 8 }}>
+        Force new image
+      </button>
+      <div style={{ opacity: 0.7, fontSize: 12, marginTop: 4 }}>
+        Gives the card a new address so LinkedIn, Facebook and Telegram fetch it again.
+      </div>
       {warnings.map((w) => (
         <div key={w} style={{ color: 'var(--theme-warning-600, #b45309)', marginTop: 4 }}>
           {w}

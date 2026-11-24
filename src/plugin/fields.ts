@@ -42,6 +42,13 @@ const group = (position: 'sidebar' | undefined): Field =>
         admin: { description: 'A second line on the generated card, where the template draws one.' },
       },
       {
+        // Bumped by the preview's "Force new image" button: part of the card's version, so a bump is a new URL.
+        name: 'nonce',
+        type: 'number',
+        defaultValue: 0,
+        admin: { hidden: true },
+      },
+      {
         name: 'preview',
         type: 'ui',
         admin: { components: { Field: 'payload-og-image/client#OgPreviewField' } },
