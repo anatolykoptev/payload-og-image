@@ -74,7 +74,13 @@ export function defineTemplate<P extends PropsModel>(t: Omit<Template<P>, 'size'
   return { ...t, size }
 }
 
-export type ResolverArgs<D> = { doc: D; site: SiteInfo }
+/**
+ * A related document for a resolver: published only and access-respecting (the draft, for an authenticated editor previewing).
+ * Null when it does not exist or may not be read. Relations on `doc` are never populated for you (depth 0): ask for what you draw.
+ */
+export type RelatedFn = (collection: string, id: string | number) => Promise<Record<string, any> | null>
+
+export type ResolverArgs<D> = { doc: D; site: SiteInfo; related: RelatedFn }
 
 export type Target<D = any, P = any> = {
   /** Route path of the card; must contain `:slug` or `:id`, and may contain `:kind`. */
@@ -91,8 +97,8 @@ export type Target<D = any, P = any> = {
   heroCollection?: string
   /** Candidate uploads shared as they are, in order, before a card is generated. */
   share?: (a: ResolverArgs<D>) => unknown[]
+  /** Fields to read (the slug field and the share-image field are always added). Omit it to read every field. */
   select?: Record<string, true>
-  depth?: number
 }
 
 export function defineTarget<D, P>(t: Target<D, P>): Target<D, P> {
