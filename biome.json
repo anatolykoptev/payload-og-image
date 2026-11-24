@@ -3,5 +3,5 @@
   "files": { "includes": ["**", "!dist", "!etc", "!dev/app", "!dev/payload-types.ts", "!**/*.tsbuildinfo", "!temp"] },
   "formatter": { "indentStyle": "space", "indentWidth": 2, "lineWidth": 140 },
   "javascript": { "formatter": { "quoteStyle": "single", "semicolons": "asNeeded", "trailingCommas": "all" } },
-  "linter": { "enabled": true, "rules": { "recommended": true } }
+  "linter": { "enabled": true, "rules": { "preset": "recommended" } }
 }
