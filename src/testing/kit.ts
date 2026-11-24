@@ -2,8 +2,10 @@ import { readdir, readFile } from 'node:fs/promises'
 import path from 'node:path'
 import type { Metadata } from 'next'
 import sharp from 'sharp'
+import { drawElement, templateContext } from '../internal/draw.js'
 import { missingGlyphs } from '../internal/fonts.js'
 import { CACHE, type RouteContext } from '../internal/handler.js'
+import { nextOgRenderer } from '../render/nextOg.js'
 import { analyzeRouteSource } from './routeSource.js'
 import type { TestRuntime } from './runtime.js'
 
@@ -476,6 +478,33 @@ export function ogKit(rt: TestRuntime) {
         for (const sample of a.samples) {
           const missing = missingGlyphs(fonts, stack, sample)
           if (missing.length > 0) fail('glyphCoverage', `stack "${name}" cannot draw ${JSON.stringify(missing.join(''))} of "${sample}"`)
+        }
+      }
+    },
+
+    /**
+     * Every registered template is drawn once with the real renderer, from the props given for its id, and must give a PNG of its
+     * declared size. A template bug that only the renderer sees (a `div` with several children and no `display: flex`, a style
+     * satori refuses) fails here, in CI, and not as a `render_error` and a five-minute fallback card at the first crawler request.
+     * The hero is absent (`ctx.hero` is null); the props are used as given.
+     */
+    async templatesRender(a: { props: Record<string, Record<string, unknown>> }): Promise<void> {
+      const { fonts } = await loadFonts(rt)
+      const renderer = nextOgRenderer()
+      for (const template of rt.options.templates) {
+        if (!Object.hasOwn(a.props, template.id))
+          fail('templatesRender', `no props given for template "${template.id}" (give an entry for every template id)`)
+        try {
+          const el = template.render(
+            a.props[template.id] as never,
+            templateContext({ host: new URL(rt.serverUrl).host, fonts, stacks: rt.options.stacks, hero: null }),
+          )
+          const { bytes } = await drawElement(renderer, el, { ...template.size, fonts })
+          const m = await sharp(bytes).metadata()
+          if (m.format !== 'png' || m.width !== template.size.width || m.height !== template.size.height)
+            throw new Error(`drew a ${m.format} of ${m.width}x${m.height}, not a PNG of ${template.size.width}x${template.size.height}`)
+        } catch (error) {
+          fail('templatesRender', `template "${template.id}" cannot be drawn: ${String((error as Error)?.message ?? error)}`)
         }
       }
     },
