@@ -31,7 +31,16 @@ jobs:
     if: ${{ needs.release-please.outputs.release_created == 'true' }}
     runs-on: ubuntu-24.04-arm
     steps:
+      # Build the tagged revision, not whatever commit triggered this run: release-please can tag a
+      # newer release merge than the push that started the workflow, and a manual dispatch can start
+      # from any branch.
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.release-please.outputs.tag_name }}
+      - name: The tag matches package.json
+        env:
+          TAG: ${{ needs.release-please.outputs.tag_name }}
+        run: test "$TAG" = "v$(node -p "require('./package.json').version")"
       - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v7
         with:

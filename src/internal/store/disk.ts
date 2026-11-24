@@ -2,6 +2,7 @@ import { randomBytes } from 'node:crypto'
 import { constants } from 'node:fs'
 import { access, mkdir, open, readdir, readFile, rename, stat, statfs, unlink, writeFile } from 'node:fs/promises'
 import path from 'node:path'
+import { safeCall } from '../events.js'
 import type { CardStore, OnEvent } from '../types.js'
 import { isCompletePng } from './png.js'
 
@@ -44,17 +45,12 @@ const noop = () => undefined
 export function diskStore(o: DiskStoreOptions): DiskStore {
   const { dir, maxFiles = 2000, maxBytes = 100 * 1024 * 1024, keepPerPage = 2, pruneEveryMs = 60_000 } = o
   const emit: OnEvent = (e) => {
-    try {
-      o.onEvent?.(e)
-    } catch {
-      // a throwing sink must not break serving
-    }
+    if (o.onEvent) safeCall(o.onEvent, e)
   }
   let off = false
   let skippedOnce = false
   let ready: Promise<boolean> | undefined
   let lastPrune = 0
-  let queued = 0
   let tail: Promise<void> = Promise.resolve()
 
   const disable = (error: unknown) => {
@@ -151,17 +147,24 @@ export function diskStore(o: DiskStoreOptions): DiskStore {
     }
   }
 
+  // Off the request path: never awaited, throttled. Also after a failed write: a full disk is exactly
+  // when deleting old cards helps.
+  const schedulePrune = () => {
+    if (Date.now() - lastPrune >= pruneEveryMs) {
+      lastPrune = Date.now()
+      setImmediate(() => void store.prune()).unref()
+    }
+  }
+
   const store: DiskStore = {
     dir,
     get enabled() {
       return !off
     },
     prune() {
-      queued += 1
+      // Runs queue behind each other, so an explicit call waits for one already running.
       const run = tail.then(doPrune).catch(noop)
-      tail = run.finally(() => {
-        queued -= 1
-      })
+      tail = run
       lastPrune = Date.now()
       return run
     },
@@ -205,14 +208,13 @@ export function diskStore(o: DiskStoreOptions): DiskStore {
       } catch (error) {
         await unlink(tmp).catch(noop)
         if (PERMANENT.has(code(error) ?? '')) disable(error)
-        else skipOnce(error)
+        else {
+          skipOnce(error)
+          schedulePrune()
+        }
         return
       }
-      // Off the request path: never awaited, throttled.
-      if (queued === 0 && Date.now() - lastPrune >= pruneEveryMs) {
-        lastPrune = Date.now()
-        setImmediate(() => void store.prune()).unref()
-      }
+      schedulePrune()
     },
   }
   return store

@@ -1,7 +1,7 @@
 /** Mutation table (production line -> the test that goes RED). Silent-failure surface: an unbounded queue is OOM, not an error.
- * - gate.ts:31     drop the `waiting.length >= queue` shed check        -> "sheds the call past the queue" RED
- * - gate.ts:25  release() always decrements `active` (no hand-over)   -> "hands the slot over without dipping" RED
- * - gate.ts:36  run the release only on success (no `finally`)        -> "a throwing job frees its slot" RED */
+ * - gate.ts:31  drop the shed check -> "sheds the call past the queue and returns to zero after release" RED
+ * - gate.ts:25  release() always decrements `active` (no hand-over) -> "hands the slot over without dipping below the concurrency" RED
+ * - gate.ts:36  run the release only on success (no `finally`) -> "a throwing job frees its slot" RED */
 import { describe, expect, it } from 'vitest'
 import { createGate, ShedError } from '../../src/internal/gate.js'
 

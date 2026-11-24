@@ -1,8 +1,7 @@
 /** Mutation table (production line -> the test that goes RED). Silent-failure surface: a torn PNG served as immutable.
- * - png.ts:24     drop the CRC comparison                          -> "rejects a flipped byte inside a chunk (CRC)" RED
- * - png.ts:19  drop the `end > b.length` bounds check            -> "rejects a chunk length pointing past the end (a later chunk)" RED
- * - png.ts:25     drop `end === b.length` (accept trailing bytes)   -> "rejects trailing bytes after IEND" RED
- */
+ * - png.ts:25  drop the CRC comparison -> "rejects a flipped byte inside a chunk (CRC)" RED
+ * - png.ts:20  drop the bounds check -> "rejects a chunk length pointing past the end (a later chunk)" RED
+ * - png.ts:27  drop `end === b.length` -> "rejects trailing bytes after IEND" RED; drop `sawData` -> "rejects a file with IHDR and IEND but no image data" RED */
 import sharp from 'sharp'
 import { describe, expect, it } from 'vitest'
 import { isCompletePng } from '../../../src/internal/store/png.js'
@@ -43,6 +42,11 @@ describe('isCompletePng', () => {
     const longer = new Uint8Array(b.length + 4)
     longer.set(b)
     expect(isCompletePng(longer)).toBe(false)
+  })
+  it('rejects a file with IHDR and IEND but no image data', async () => {
+    const b = await real()
+    const noData = new Uint8Array([...b.subarray(0, 33), ...b.subarray(b.length - 12)]) // signature + IHDR, then IEND
+    expect(isCompletePng(noData)).toBe(false)
   })
   it('rejects empty input and a bare signature', () => {
     expect(isCompletePng(new Uint8Array())).toBe(false)
