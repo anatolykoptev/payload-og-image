@@ -7,7 +7,7 @@ import { buildKindIndex } from '../internal/resolve.js'
 import { CUSTOM_KEY, createState } from '../internal/state.js'
 import type { OnEvent, SiteInfo } from '../internal/types.js'
 import type { StaticCard, Target, Template } from '../template.js'
-import { withPreviewEndpoint } from './endpoints.js'
+import { withEndpoints } from './endpoints.js'
 import { type OgFieldsOption, targetsCarryOg, withOgFields } from './fields.js'
 
 export { type OgDocFields, type OgFieldsOption, ogFields } from './fields.js'
@@ -160,8 +160,9 @@ function validate(o: OgImagePluginOptions, config: Config): string {
 }
 
 /**
- * The Payload plugin. Schema-neutral unless `fields.enabled`: it then adds the `og` group and nothing else (no collections, endpoints or jobs). It stores its state in
- * `config.custom`, hooks `afterChange` on the site globals, and checks fonts and the store when Payload starts.
+ * The Payload plugin. Schema-neutral unless `fields.enabled`: it then adds the `og` group and nothing else (no collections or jobs).
+ * It adds up to two endpoints (none when `disabled`): the admin-only `GET /payload-og-image/stats` always, and
+ * `POST /payload-og-image/preview` when a target collection carries the `og` group. It stores its state in `config.custom`, hooks `afterChange` on the site globals, and checks fonts and the store when Payload starts.
  */
 export function ogImagePlugin(o: OgImagePluginOptions): (config: Config) => Config {
   return (config) => {
@@ -174,7 +175,7 @@ export function ogImagePlugin(o: OgImagePluginOptions): (config: Config) => Conf
     const previousOnInit = config.onInit
     const withFields = withOgFields(config, o.targets, o.fields)
     // The preview endpoint rides with the `og` group: wherever a target collection carries it, however it got there.
-    const withEndpoint = withPreviewEndpoint(withFields, state, targetsCarryOg(withFields, o.targets))
+    const withEndpoint = withEndpoints(withFields, state, targetsCarryOg(withFields, o.targets))
     return {
       ...withEndpoint,
       ...(config.globals ? { globals } : {}),

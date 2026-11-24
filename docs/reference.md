@@ -51,7 +51,7 @@ an editor, and `site()` is told which user it is serving (`site({ payload, draft
 
 Set `fields: { enabled: true }` on `ogImagePlugin` and each target's collection gets a group `og` with three
 fields: `mode`, `headline` and `subtitle`. It is off by default, and with it off the schema is exactly what it
-was without the option. The plugin only adds fields: it never adds a collection, an endpoint or a job.
+was without the option. The plugin only adds fields: it never adds a collection or a job. Its endpoints are listed under [Endpoints](#endpoints).
 
 ```ts
 ogImagePlugin({ /* ... */, fields: { enabled: true } }) // the group sits in the sidebar
@@ -124,6 +124,27 @@ It is part of the card's version, so a new value is a new card URL: LinkedIn, Fa
 A nonce of 0 (or none) is exactly the 0.1 version, so no existing URL changes. The field is a column: run
 `payload migrate:create` after upgrading, as for the rest of the group.
 
+## Endpoints
+
+The plugin adds up to two endpoints to your Payload config, after your own, and none when `disabled` is true:
+
+- `GET /api/payload-og-image/stats`: always.
+- `POST /api/payload-og-image/preview`: only when a target collection carries the top-level `og` group, whether by the
+  `fields` option or by hand.
+
+It adds no collection, job or hook other than the `afterChange` hook on `siteGlobals`.
+
+## Stats
+
+`GET /api/payload-og-image/stats` (always registered, unless `disabled`) tells an admin how the plugin is running:
+`{ counters, gate: { active, waiting }, memo: { size, bytes }, store: { kind, enabled, dir? } }`. `counters` has one number
+per event name (`render`, `hit_memo`, `shed`, ...), counted in this process since it started; `dir` is the disk store's
+folder and is given only for a disk store. Only a user of the admin user collection whose collection's `access.admin`
+passes gets an answer; anyone else, an anonymous request included, gets 403. `access.admin` must return exactly `true`: a
+truthy value, an error or a missing function is a refusal. For a disk store, `dir` (an absolute path on your server) is shown
+to every admin who may read the answer. The answer is `no-store` and holds nothing else
+(no config value, key or file name).
+
 ## Related documents
 
 The plugin reads your document at depth 0, whatever `defaultPopulate` or `select` say: a relation arrives as its bare
@@ -190,8 +211,7 @@ does not count. `everyRouteHasOwnCard` requires an `https` image URL, as the cra
 
 ## Not implemented
 
-A force-new-image nonce, a stats endpoint,
-pre-warming, locales, JPEG/WebP output, size variants, local emoji, another renderer, object-storage stores.
+Pre-warming, locales, JPEG/WebP output, size variants, local emoji, another renderer, object-storage stores.
 The version and URL formats already reserve the slots, so adding them later changes no existing URL.
 
 ## Threat model

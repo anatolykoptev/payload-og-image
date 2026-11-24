@@ -37,6 +37,7 @@ const baseConfig = (): Config =>
     ],
   }) as Config
 const apply = (o: OgImagePluginOptions, c: Config = baseConfig()) => ogImagePlugin(o)(c)
+const preview = (c: Config) => (c.endpoints ?? []).filter((e) => e.path === '/payload-og-image/preview')
 const fieldsOf = (c: Config, slug: string) => (c.collections ?? []).find((x) => x.slug === slug)?.fields as any[]
 
 describe('ogFields()', () => {
@@ -154,24 +155,28 @@ describe('fields option', () => {
     expect((c.collections ?? []).map((x) => x.slug)).toEqual((before.collections ?? []).map((x) => x.slug))
     expect(c.globals).toBeUndefined()
     expect(c.jobs).toBeUndefined()
-    expect((c.endpoints ?? []).map((e) => `${e.method} ${e.path}`)).toEqual(['post /payload-og-image/preview'])
+    expect((c.endpoints ?? []).map((e) => `${e.method} ${e.path}`)).toEqual([
+      'get /payload-og-image/stats',
+      'post /payload-og-image/preview',
+    ])
   })
   it('the preview endpoint is added wherever a target collection carries og: by option or by hand; otherwise none', () => {
-    expect(apply(options()).endpoints).toBeUndefined()
-    expect(apply(options({ fields: { enabled: false } })).endpoints).toBeUndefined()
+    expect(preview(apply(options()))).toHaveLength(0)
+    expect(preview(apply(options({ fields: { enabled: false } })))).toHaveLength(0)
     const hand = baseConfig()
     ;(hand.collections as any[])[0].fields.push(...ogFields())
-    expect(apply(options(), hand).endpoints).toHaveLength(1)
-    expect(apply(options({ fields: { enabled: true }, disabled: true })).endpoints).toBeUndefined()
+    expect(preview(apply(options(), hand))).toHaveLength(1)
+    expect(apply(options({ fields: { enabled: true }, disabled: true })).endpoints).toBeUndefined() // disabled: no endpoint at all
     const other = baseConfig()
     ;(other.collections as any[])[1].fields.push(...ogFields()) // a collection that is no target
-    expect(apply(options(), other).endpoints).toBeUndefined()
+    expect(preview(apply(options(), other))).toHaveLength(0)
   })
   it("keeps the host's own endpoints and puts ours after them", () => {
     const cfg = baseConfig()
     cfg.endpoints = [{ path: '/mine', method: 'get', handler: async () => new Response('x') }]
     expect((apply(options({ fields: { enabled: true } }), cfg).endpoints ?? []).map((e) => e.path)).toEqual([
       '/mine',
+      '/payload-og-image/stats',
       '/payload-og-image/preview',
     ])
   })
