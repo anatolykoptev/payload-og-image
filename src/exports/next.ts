@@ -1,3 +1,5 @@
+export type { RouteContext } from '../internal/handler.js'
+export type { OgMetadataArgs } from '../next/metadata.js'
 export { ogMetadata } from '../next/metadata.js'
 export { createOgRoute } from '../next/route.js'
 export { withHead } from '../next/withHead.js'

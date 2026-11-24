@@ -157,6 +157,7 @@ export interface Post {
   id: number;
   title: string;
   slug?: string | null;
+  heroImage?: (number | null) | Media;
   updatedAt: string;
   createdAt: string;
   _status?: ('draft' | 'published') | null;
@@ -287,6 +288,7 @@ export interface UsersSelect<T extends boolean = true> {
 export interface PostsSelect<T extends boolean = true> {
   title?: T;
   slug?: T;
+  heroImage?: T;
   updatedAt?: T;
   createdAt?: T;
   _status?: T;

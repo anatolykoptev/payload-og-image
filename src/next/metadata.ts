@@ -3,8 +3,9 @@ import type { SanitizedConfig } from 'payload'
 import type { ResolvedCard } from '../internal/resolve.js'
 import { getRuntime } from '../internal/runtime.js'
 
-type Cfg = { config: Promise<SanitizedConfig> | SanitizedConfig }
-type Args = (Cfg & { target: string; doc: { id: string | number } | null | undefined }) | (Cfg & { static: string })
+export type OgMetadataArgs =
+  | { config: Promise<SanitizedConfig> | SanitizedConfig; target: string; doc: { id: string | number } | null | undefined }
+  | { config: Promise<SanitizedConfig> | SanitizedConfig; static: string }
 
 /** `openGraph.images` and `twitter` for a resolved card: one image, in both vocabularies, so X and every other unfurler agree. */
 export function descriptorOf(card: ResolvedCard): Pick<Metadata, 'openGraph' | 'twitter'> {
@@ -24,7 +25,7 @@ export function descriptorOf(card: ResolvedCard): Pick<Metadata, 'openGraph' | '
  * card the route serves. In production a failure is an event and `{}`, never a broken page; in development and
  * test it throws.
  */
-export async function ogMetadata(a: Args): Promise<Pick<Metadata, 'openGraph' | 'twitter'>> {
+export async function ogMetadata(a: OgMetadataArgs): Promise<Pick<Metadata, 'openGraph' | 'twitter'>> {
   let rt: Awaited<ReturnType<typeof getRuntime>> | undefined
   try {
     if ('static' in a) {
