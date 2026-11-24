@@ -9,7 +9,9 @@
  * - index.ts:159  always throw, even in production -> "in production it logs through the event sink instead of throwing" RED
  * - index.ts:135  run the self-test when disabled -> "7: disabled keeps the config valid and runs no start-up checks" RED
  * - index.ts:99  accept a relative store dir -> "refuses a relative store dir" RED
- * - index.ts:104  accept a crawler sample outside (0, 1] -> "refuses a crawler sample of 0 / above 1 / NaN" RED */
+ * - index.ts:104  accept a crawler sample outside (0, 1] -> "refuses a crawler sample of 0 / above 1 / NaN" RED
+ * - index.ts:112  accept `editors` naming a collection that is not an auth collection -> "refuses editors naming a non-auth collection" RED
+ * - index.ts:109  skip validating `admission` -> "refuses a bad admission gate" RED */
 import { readFile } from 'node:fs/promises'
 import type { Config } from 'payload'
 import { describe, expect, it, vi } from 'vitest'
@@ -121,6 +123,8 @@ describe('ogImagePlugin: config transform', () => {
     ['both stores', { store: { dir: '/x', memory: true } as never }, /exactly one of/],
     ['a relative store dir', { store: { dir: 'cards' } }, /absolute path/],
     ['a bad gate', { gate: { concurrency: 0 } }, /gate concurrency/],
+    ['a bad admission gate', { admission: { queue: -1 } }, /gate queue/],
+    ['editors naming a non-auth collection', { editors: ['posts'] }, /editors names "posts", which is not an auth collection/],
     ['a crawler sample of 0', { crawlerEvents: { sample: 0 } }, /crawlerEvents\.sample/],
     ['a crawler sample above 1', { crawlerEvents: { sample: 2 } }, /crawlerEvents\.sample/],
     ['a NaN crawler sample', { crawlerEvents: { sample: Number.NaN } }, /crawlerEvents\.sample/],

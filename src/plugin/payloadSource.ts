@@ -45,6 +45,19 @@ function withoutStatus(args: FindArgs): FindArgs {
 }
 
 /**
+ * A published read must never surface a draft: related documents populated by `depth` are read without a published
+ * filter, so any populated document that is not published (it carries `_status`) is replaced by its bare id. The root
+ * document is already filtered by the query.
+ */
+export function withoutDraftRelations<T>(value: T, isRoot = true): T {
+  if (Array.isArray(value)) return value.map((v) => withoutDraftRelations(v, false)) as T
+  if (value === null || typeof value !== 'object') return value
+  const obj = value as Record<string, unknown>
+  if (!isRoot && typeof obj._status === 'string' && obj._status !== 'published') return (obj.id ?? null) as T
+  return Object.fromEntries(Object.entries(obj).map(([k, v]) => [k, withoutDraftRelations(v, false)])) as T
+}
+
+/**
  * Documents for the handler, from Payload. Published reads are `draft: false` AND `overrideAccess: false` (the
  * first means "published only" only together with the second). A draft is returned only to an authenticated
  * editor, and draft site data likewise.
@@ -56,18 +69,33 @@ export function payloadSource(payload: Payload, state: OgState, cachedSite: () =
     return o.targets[name] as Target
   }
   const first = async (args: FindArgs) => ((await payload.find(args)).docs[0] ?? null) as Record<string, any> | null
+  const firstPublished = async (args: FindArgs) => {
+    const doc = await first(args)
+    return doc ? withoutDraftRelations(doc) : null
+  }
+  // Editors: users of the admin user collection (or the configured auth collections), nobody else.
+  const editorCollections = new Set(o.editors ?? [payload.config?.admin?.user ?? 'users'])
   const editor = async (request: Request) => {
     try {
-      return (await payload.auth({ headers: request.headers })).user ?? null
+      const user = (await payload.auth({ headers: request.headers })).user as { collection?: string } | null
+      return user && typeof user.collection === 'string' && editorCollections.has(user.collection) ? user : null
     } catch {
       return null
     }
   }
   return {
     published: (name, slug) =>
-      first({ ...buildFind(payload, name, targetOf(name), { slug }, o.seoImage?.path), draft: false, overrideAccess: false } as FindArgs),
+      firstPublished({
+        ...buildFind(payload, name, targetOf(name), { slug }, o.seoImage?.path),
+        draft: false,
+        overrideAccess: false,
+      } as FindArgs),
     publishedById: (name, id) =>
-      first({ ...buildFind(payload, name, targetOf(name), { id }, o.seoImage?.path), draft: false, overrideAccess: false } as FindArgs),
+      firstPublished({
+        ...buildFind(payload, name, targetOf(name), { id }, o.seoImage?.path),
+        draft: false,
+        overrideAccess: false,
+      } as FindArgs),
     async draft(name, key, request) {
       const user = await editor(request)
       if (!user) return null
@@ -76,12 +104,14 @@ export function payloadSource(payload: Payload, state: OgState, cachedSite: () =
         name,
         targetOf(name),
         key.slug !== undefined ? { slug: key.slug } : { id: key.id as string | number },
+        o.seoImage?.path,
       )
       return first({ ...withoutStatus(found), draft: true, overrideAccess: false, user } as FindArgs)
     },
     async site(request) {
       // Draft site data only for an authenticated editor: a draft-mode cookie alone must not draw draft text.
-      if (request && (await editor(request))) return await o.site({ payload, draft: true })
+      const user = request ? await editor(request) : null
+      if (user) return await o.site({ payload, draft: true, user })
       return cachedSite()
     },
   }
