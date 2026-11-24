@@ -1,20 +1,24 @@
 /** Mutation table (production line -> the test that goes RED). Silent-failure surface: a draft cached, a stale or request-chosen version stored, a degraded card pinned.
- * - handler.ts:205  delete the draft branch -> "6", "7", "7b", "16", "20" RED
- * - handler.ts:225  store keyed by the request ?v -> "3: a stale ?v is served short, stored under the CURRENT v" RED
- * - handler.ts:212  immutable without the `current` check -> "3" RED
- * - handler.ts:223  decide the downgrade inside the memo closure (store and memoise it) -> "17" RED
- * - handler.ts:217  call heroLoader before store.get -> "4: a store hit renders nothing and loads no hero" RED
- * - handler.ts:260  fail open when the draft check throws -> "20" RED
- * - handler.ts:155  memoise the fallback in draft mode -> "21" RED
- * - handler.ts:70  match If-None-Match only as one whole tag -> "13" RED
- * - handler.ts:165  no slug length cap -> "24: an over-long or missing slug is a 404 before any lookup" RED
- * - handler.ts:269  let a pre-card error escape GET (rethrow) -> "19", "19b" RED
- * - handler.ts:110  ctx stack lookup without the `default` rule -> "22" RED
- * - handler.ts:178  always pass the request to site() -> "18" RED
- * - handler.ts:182  ask for a draft on a normal request -> "2" (draft not called) RED
- * - handler.ts:247  drop the shed branch -> "8" (shed event) RED
- * - handler.ts:170  (equivalent mutant) `urlKind in kindIndex`: the later `Object.hasOwn(d.targets, ...)` guard still answers 404 -> "15b"
- * - handler.ts:149  fallback keeps unsupported glyphs in the site name -> "10b: the fallback drops site-name characters no font draws" RED */
+ * - handler.ts:204  delete the draft branch -> "6", "7", "7b", "16", "20" RED
+ * - handler.ts:224  store keyed by the request ?v -> "3: a stale ?v is served short, stored under the CURRENT v" RED
+ * - handler.ts:211  immutable without the `current` check -> "3" RED
+ * - handler.ts:222  decide the downgrade inside the memo closure (store and memoise it) -> "17" RED
+ * - handler.ts:216  call heroLoader before store.get -> "4: a store hit renders nothing and loads no hero" RED
+ * - handler.ts:258  fail open when the draft check throws -> "20" RED
+ * - handler.ts:152  memoise the fallback in draft mode -> "21" RED
+ * - handler.ts:67  match If-None-Match only as one whole tag -> "13" RED
+ * - handler.ts:163  no slug length cap -> "24: an over-long or missing slug is a 404 before any lookup" RED
+ * - handler.ts:267  let a pre-card error escape GET (rethrow) -> "19", "19b" RED
+ * - handler.ts:107  ctx stack lookup without the `default` rule -> "22" RED
+ * - handler.ts:177  always pass the request to site() -> "18" RED
+ * - handler.ts:181  ask for a draft on a normal request -> "2" (draft not called) RED
+ * - handler.ts:245  drop the shed branch -> "8" (shed event) RED
+ * - handler.ts:169  (equivalent mutant) `urlKind in kindIndex`: the later `Object.hasOwn(d.targets, ...)` guard still answers 404 -> "15b"
+ * - handler.ts:146  fallback keeps unsupported glyphs in the site name -> "10b: the fallback drops site-name characters no font draws" RED
+ * - handler.ts:237  give a downgraded card the real etag -> "26: a downgraded (hero-less) card carries no etag" RED
+ * - handler.ts:161  ignore `params.id` -> "27: an :id route (params.id, no slug) is served" RED
+ * - handler.ts:240  emit a hit/render event for a fresh render too -> "28: a fresh render is counted once" RED
+ * - handler.ts:166  let a static card answer on a pinned route -> "29: a route pinned to a target never answers for a static card" RED */
 import { describe, expect, it, vi } from 'vitest'
 import { createGate } from '../../src/internal/gate.js'
 import { CACHE, createCardHandler } from '../../src/internal/handler.js'
@@ -382,6 +386,60 @@ describe('card handler', () => {
     expect((await h.GET(req('/x'), ctx('a'.repeat(257)))).status).toBe(404)
     expect((await h.GET(req('/x'), { params: Promise.resolve({ kind: 'posts' }) })).status).toBe(404)
     expect(published).not.toHaveBeenCalled()
+  })
+  it('26: a downgraded (hero-less) card carries no etag, so a cache cannot later revalidate it into a 304 that pins it as the current card', async () => {
+    const { h } = setup({ heroLoader: async () => null })
+    const v = vOf(await setup().h.GET(req('/og/posts/h/card.png'), ctx('h')))
+    const r = await h.GET(req(`/og/posts/h/card.png?v=${v}`), ctx('h'))
+    expect([r.status, r.headers.get('x-og-cache'), r.headers.get('etag')]).toEqual([200, 'downgraded', null])
+  })
+  it('27: an :id route (params.id, no slug) is served', async () => {
+    const targets = {
+      posts: defineTarget<any, any>({
+        path: '/cards/:id.png',
+        slugField: 'id',
+        template: 'post',
+        props: ({ doc }: any) => ({ title: doc.title, label: '' }),
+      }),
+    }
+    const { h } = setup({
+      targets,
+      fixedTarget: 'posts',
+      source: {
+        published: async (_t: string, key: string) => (key === '1' ? { id: 1, title: 'Hi' } : null),
+        publishedById: async () => null,
+        draft: async () => null,
+        site: async () => ({ name: 'S' }),
+      },
+    })
+    expect((await h.GET(req('/cards/1.png'), { params: Promise.resolve({ id: '1' }) })).status).toBe(200)
+  })
+  it('28: a fresh render is counted once; only hits add their own event', async () => {
+    const { h, events } = setup()
+    await h.GET(req('/og/posts/a/card.png'), ctx('a'))
+    await h.GET(req('/og/posts/a/card.png'), ctx('a'))
+    expect(names(events).filter((n) => n === 'render')).toHaveLength(1)
+    expect(names(events).filter((n) => n === 'hit_memo')).toHaveLength(1)
+  })
+  it('29: a route pinned to a target never answers for a static card', async () => {
+    const staticCard = {
+      path: '/og/index/blog/card.png',
+      kind: 'posts',
+      slug: 'a',
+      template: 'post',
+      props: () => ({ title: 'STATIC', label: '' }),
+    }
+    const targets = {
+      posts: defineTarget<any, any>({
+        path: '/og/:kind/:slug/card.png',
+        kind: 'article',
+        template: 'post',
+        props: ({ doc }: any) => ({ title: doc.title, label: '' }),
+      }),
+    }
+    const { h, renderer } = setup({ targets, statics: { s: staticCard }, fixedTarget: 'posts' })
+    await h.GET(req('/x/a/og.png'), { params: Promise.resolve({ slug: 'a' }) })
+    expect((renderer.render.mock.calls[0] as any)[0].props.children).toBe('Published A')
   })
   it('25: a hostile slug never reaches an event field', async () => {
     const { h, events } = setup()
