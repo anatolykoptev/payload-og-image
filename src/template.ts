@@ -64,6 +64,9 @@ export type Target<D = any, P = any> = {
 export function defineTarget<D, P>(t: Target<D, P>): Target<D, P> {
   if (typeof t.path !== 'string' || !t.path.startsWith('/'))
     throw new Error(`payload-og-image: target path "${String(t.path)}" must start with "/"`)
+  if (/[?#]/.test(t.path)) {
+    throw new Error(`payload-og-image: target path "${t.path}" must be a pathname only (no query or fragment): the card URL appends ?v=`)
+  }
   if (!/:(slug|id)\b/.test(t.path)) {
     throw new Error(`payload-og-image: target path "${t.path}" has no :slug or :id, so every document would share one card URL`)
   }

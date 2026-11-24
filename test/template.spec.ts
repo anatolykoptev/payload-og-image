@@ -1,6 +1,7 @@
 /** Mutation table (production line -> the test that goes RED). Silent-failure surface: a path without a key makes every document share one card URL.
- * - template.ts:67  drop the :slug/:id check in defineTarget -> "a target path without :slug or :id throws" RED
- * - template.ts:70  drop the kind check -> same test (its kind assertions) RED
+ * - template.ts:67  accept a query/fragment in the path -> "a target path with a query or a fragment throws" RED
+ * - template.ts:70  drop the :slug/:id check -> "a target path without :slug or :id throws" RED
+ * - template.ts:73  drop the kind check -> same test (its kind assertions) RED
  * - template.ts:39  skip the size validation -> "an invalid size or a blank id throws" RED */
 import { describe, expect, it } from 'vitest'
 import { defineTarget, defineTemplate } from '../src/template.js'
@@ -24,6 +25,11 @@ describe('defineTarget', () => {
     const t = { path: '/og/:kind/:slug/card.png', template: 'post', props }
     expect(defineTarget(t)).toBe(t)
     expect(defineTarget({ path: '/cards/:id.png', template: 'post', props }).path).toBe('/cards/:id.png')
+  })
+  it('a target path with a query or a fragment throws (the card URL appends ?v=)', () => {
+    expect(() => defineTarget({ path: '/og/:slug.png?x=1', template: 'post', props })).toThrow(/pathname only/)
+    expect(() => defineTarget({ path: '/og/:slug.png#frag', template: 'post', props })).toThrow(/pathname only/)
+    expect(() => defineTarget({ path: '/og/#/:slug.png', template: 'post', props })).toThrow(/pathname only/)
   })
   it('a target path without :slug or :id throws', () => {
     expect(() => defineTarget({ path: '/og/card.png', template: 'post', props })).toThrow(/no :slug or :id/)

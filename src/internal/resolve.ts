@@ -3,7 +3,7 @@ import type { Target, Template } from '../template.js'
 import { firstShareImage, type ShareImage, shareImageOf } from './eligible.js'
 import { type LoadedFont, type Stacks, stripMissing } from './fonts.js'
 import type { CardKey, SiteInfo, Size, Upload } from './types.js'
-import { canonicalJson, cardVersion, pageId } from './version.js'
+import { canonicalJson, cardVersion, normalizeProps, pageId } from './version.js'
 
 export type GeneratedCard = {
   kind: 'generated'
@@ -128,14 +128,18 @@ export async function resolveCard(i: ResolveInput): Promise<ResolvedCard> {
       `payload-og-image: target "${i.targetName}" props() must return a plain object, got ${given === null ? 'null' : typeof given}`,
     )
   }
-  const props: Record<string, any> = { ...given }
+  // The normalized value is what is hashed AND what the template receives: one model, no divergence.
+  const props = normalizeProps(given, `${i.targetName}.props`) as Record<string, any>
   const missing: string[] = []
   for (const field of template.textFields ?? []) {
     if (typeof props[field] !== 'string') continue
+    // The field's mapped stack, else the stack named like the field, else the one explicit `default` stack.
     const stackName = template.stacks?.[field] ?? field
-    const stack = i.stacks[stackName] ?? Object.values(i.stacks)[0]
+    const stack = i.stacks[stackName] ?? i.stacks.default
     if (!stack || stack.length === 0) {
-      throw new Error(`payload-og-image: template "${template.id}" field "${field}" has no font stack (looked for "${stackName}")`)
+      throw new Error(
+        `payload-og-image: template "${template.id}" field "${field}" has no font stack (looked for "${stackName}", then "default")`,
+      )
     }
     const s = stripMissing(i.fonts, stack, props[field])
     // Stripping leaves holes ("a 🚀 b" -> "a  b"): close them. Text that lost nothing is left exactly as given.

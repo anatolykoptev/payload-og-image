@@ -1,19 +1,21 @@
 /** Mutation table (production line -> the test that goes RED). Silent-failure surface: a wrong card advertised, a stale URL, a colliding key.
  * - resolve.ts:116  drop `!sameUpload(seo, rawHero)` -> "3: an editor image that is the hero itself does not override the card" RED
  * - resolve.ts:116  drop the `isDeliberate` check -> "7: isDeliberate returning false is not shared" RED
- * - resolve.ts:119  ignore `target.share()` -> "6: share() returning an eligible photo is shared as is" RED; call it eagerly -> "does not call share() when the editor image already wins" RED
- * - resolve.ts:140  skip stripMissing -> "10: a title with an emoji ..." RED
- * - resolve.ts:145  skip `template.required` -> "9: a blank title advertises nothing" RED
+ * - resolve.ts:119  ignore `target.share()` -> "6: share() ..." RED; call it eagerly -> "does not call share() when the editor image already wins" RED
+ * - resolve.ts:144  skip stripMissing -> "10: a title with an emoji ..." RED
+ * - resolve.ts:149  skip `template.required` -> "9: a blank title advertises nothing" RED
  * - resolve.ts:114  hash the raw hero object -> "a hero without a file is no part of the version" RED
- * - resolve.ts:156  leave `host` out of the version -> "the host is part of the version" RED
- * - resolve.ts:155  leave the stacks out of the version -> "reordering a font stack is a new version" RED
+ * - resolve.ts:160  leave `host` out of the version -> "the host is part of the version" RED
+ * - resolve.ts:159  leave the stacks out of the version -> "reordering a font stack is a new version" RED
  * - resolve.ts:126  accept any props() result -> "props() must return a plain object" RED
+ * - resolve.ts:132  spread the raw props instead of normalizing -> "props with a Map or a class instance throw naming the field" / "the template receives the normalized props that were hashed" RED
+ * - resolve.ts:138  fall back to the first declared stack -> "an unmapped text field uses the explicit default stack" RED
  * - resolve.ts:71  allow `.`/`..` as a slug -> "a slug that is a dot segment cannot key a route" RED
- * - resolve.ts:147  use the raw slug even when blank -> "a blank slug falls back to the id" RED
+ * - resolve.ts:151  use the raw slug even when blank -> "a blank slug falls back to the id" RED
  * - resolve.ts:90  no encodeURIComponent -> "11: cardPath encodes the key" RED
- * - resolve.ts:96  plain-object index -> "a target named like an Object.prototype member is not a duplicate of itself" RED
+ * - resolve.ts:96  plain-object index -> "a target named like an Object.prototype member ..." RED
  * - resolve.ts:100  allow two targets with one kind -> "12: buildKindIndex throws on a duplicate kind" RED
- * - resolve.ts:137  fall back to an empty stack silently -> "a text field with no font stack throws" RED */
+ * - resolve.ts:139  fall back to an empty stack silently -> "a text field with no font stack throws" RED */
 import { describe, expect, it, vi } from 'vitest'
 import { buildKindIndex, cardPath, resolveCard } from '../../src/internal/resolve.js'
 import { defineTarget, defineTemplate } from '../../src/template.js'
@@ -190,6 +192,54 @@ describe('resolveCard', () => {
     const b = await generated({ doc, stacks: { title: ['Archivo', 'Inter'] } })
     expect(b.v).not.toBe(a.v)
     expect((await generated({ doc, stacks: { title: ['Inter', 'Archivo'] } })).v).toBe(a.v)
+  })
+  it('props with a Map or a class instance throw naming the field; two Maps can no longer share a version', async () => {
+    for (const [field, bad] of [
+      ['meta', new Map([['a', 1]])],
+      ['tags', new Set(['x'])],
+      ['money', new (class Money {})()],
+    ] as const) {
+      const target = defineTarget<any, any>({ ...posts, props: () => ({ title: 'A', label: 'Blog', [field]: bad }) })
+      await expect(resolveCard({ ...(await base()), target, doc: { id: 1, slug: 'a', title: 'A' } })).rejects.toThrow(
+        new RegExp(`posts\\.props\\.${field} is a`),
+      )
+    }
+  })
+  it('the template receives the normalized props that were hashed (a Date becomes its ISO string)', async () => {
+    const when = new Date('2026-03-04T05:06:07Z')
+    const target = defineTarget<any, any>({
+      ...posts,
+      props: ({ doc }) => ({ title: doc.title, label: 'Blog', when, nested: { n: 1, skip: undefined } }),
+    })
+    const r = await generated({ target, doc: { id: 1, slug: 'a', title: 'A' } })
+    expect(r.props.when).toBe('2026-03-04T05:06:07.000Z')
+    expect(r.props.nested).toEqual({ n: 1 })
+    const later = await generated({
+      target: defineTarget<any, any>({
+        ...posts,
+        props: () => ({ title: 'A', label: 'Blog', when: new Date('2027-01-01T00:00:00Z'), nested: { n: 1 } }),
+      }),
+      doc: { id: 1, slug: 'a', title: 'A' },
+    })
+    expect(later.v).not.toBe(r.v)
+  })
+  it('an unmapped text field uses the explicit default stack, never the first stack declared', async () => {
+    const unmapped = defineTemplate<{ title: string; label: string; site: string }>({
+      id: 'u',
+      revision: '1',
+      textFields: ['title'],
+      render: () => null as never,
+    })
+    const target = defineTarget<any, any>({ ...posts, template: 'u' })
+    const templates = new Map([['u', unmapped]])
+    const args = { ...(await base()), target, templates, doc: { id: 1, slug: 'a', title: 'Привет' } }
+    // No stack named "title", no "default": throws although other stacks exist.
+    await expect(resolveCard({ ...args, stacks: { other: ['Archivo'] } })).rejects.toThrow(
+      /no font stack \(looked for "title", then "default"\)/,
+    )
+    // With "default" (Inter draws Cyrillic) nothing is stripped; the first-declared Archivo would have stripped it all.
+    const r = await resolveCard({ ...args, stacks: { other: ['Archivo'], default: ['Inter'] } })
+    expect(r).toMatchObject({ kind: 'generated', missing: [] })
   })
   it('props() must return a plain object', async () => {
     for (const bad of [new Date(0), null, [1], 'x']) {
