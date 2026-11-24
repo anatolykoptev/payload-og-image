@@ -303,7 +303,12 @@ describe('payloadSource against a real Payload', () => {
     const labelOf = async (slug: string) => {
       const seen: string[] = []
       const rt = buildRuntime({ ...state, options: { ...state.options, targets, templates: [post2] } } as OgState, payload, {
-        renderer: { render: async (el: any) => (seen.push(JSON.stringify(el)), tinyPng()) },
+        renderer: {
+          render: async (el: any) => {
+            seen.push(JSON.stringify(el))
+            return tinyPng()
+          },
+        },
         isDraftRequest: async () => false,
       })
       await rt.handler().GET(new Request(`https://x.test/og/posts/${slug}/card.png`), { params: Promise.resolve({ kind: 'posts', slug }) })
