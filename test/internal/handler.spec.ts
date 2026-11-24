@@ -21,7 +21,8 @@
  * - handler.ts:168  let a static card answer on a pinned route -> "29: a route pinned to a target never answers for a static card" RED
  * - handler.ts:181  run the document lookup outside the admission gate -> "31: lookups before admission are bounded" RED
  * - handler.ts:251  answer 304 before the bytes exist (early return) -> "30: a revalidation is answered 304 only when the current bytes are available" RED
- * - handler.ts:138  do not tell the hero loader which upload collection to read -> "32: the hero loader is told which upload collection the hero belongs to" RED */
+ * - handler.ts:138  do not tell the hero loader which upload collection to read -> "32: the hero loader is told which upload collection the hero belongs to" RED
+ * - handler.ts:183  Promise.all instead of allSettled (a fonts failure frees the admission slot while the site read runs) -> "33: the admission slot is held until BOTH the fonts and the site read have settled" RED */
 import { describe, expect, it, vi } from 'vitest'
 import { createGate } from '../../src/internal/gate.js'
 import { CACHE, createCardHandler } from '../../src/internal/handler.js'
@@ -504,6 +505,36 @@ describe('card handler', () => {
     const { h, heroLoader } = setup({ targets })
     await h.GET(req('/og/posts/h/card.png'), ctx('h'))
     expect((heroLoader.mock.calls[0] as unknown[])[2]).toEqual({ collection: 'media' })
+  })
+  it('33: the admission slot is held until BOTH the fonts and the site read have settled (a fonts failure cannot free it while a database read goes on)', async () => {
+    let release!: () => void
+    const siteHeld = new Promise<void>((r) => {
+      release = r
+    })
+    const site = vi.fn(async () => {
+      await siteHeld
+      return { name: 'S' }
+    })
+    const source = {
+      published: async (_t: string, s: string) => ({ id: 1, slug: s, title: s }),
+      publishedById: async () => null,
+      draft: async () => null,
+      site,
+    }
+    const { h } = setup({
+      source,
+      fonts: async () => Promise.reject(new Error('fonts down')),
+      admission: createGate({ concurrency: 1, queue: 0 }),
+    })
+    const first = h.GET(req('/og/posts/a/card.png'), ctx('a'))
+    await tick()
+    await tick()
+    // fonts already rejected, the site read is still running: the only slot must still be taken
+    const second = await h.GET(req('/og/posts/b/card.png'), ctx('b'))
+    expect([second.status, second.headers.get('cache-control')]).toEqual([503, 'no-store'])
+    expect(site).toHaveBeenCalledTimes(1) // the second request never reached the database
+    release()
+    expect((await first).status).toBe(503)
   })
   it('25: a hostile slug never reaches an event field', async () => {
     const { h, events } = setup()
