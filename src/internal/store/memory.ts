@@ -8,8 +8,9 @@ export function memoryStore({ maxBytes = 16 * 1024 * 1024 }: { maxBytes?: number
     async get(pageId, v) {
       return entries.get(`${pageId}|${v}`) ?? null
     },
-    async put(pageId, v, data) {
-      if (data.byteLength > maxBytes) return // one card larger than the whole budget is never kept
+    async put(pageId, v, view) {
+      if (view.byteLength === 0 || view.byteLength > maxBytes) return // nothing, or larger than the whole budget: never kept
+      const data = new Uint8Array(view) // an exact copy: a view would pin its whole backing buffer and share mutations
       const key = `${pageId}|${v}`
       const old = entries.get(key)
       if (old) bytes -= old.byteLength

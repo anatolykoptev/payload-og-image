@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto'
 import { constants } from 'node:fs'
-import { access, mkdir, open, readdir, readFile, rename, stat, statfs, unlink, writeFile } from 'node:fs/promises'
+import { access, lstat, mkdir, open, readdir, realpath, rename, statfs, unlink, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { safeCall } from '../events.js'
 import type { CardStore, OnEvent } from '../types.js'
@@ -30,6 +30,8 @@ const PERMANENT = new Set(['EACCES', 'EPERM', 'EROFS', 'ENOTDIR'])
 
 const code = (e: unknown) => (e as NodeJS.ErrnoException | undefined)?.code
 const noop = () => undefined
+/** Open without following a symlink planted at a cache-shaped name (absent on Windows, where it is 0). */
+const O_NOFOLLOW = constants.O_NOFOLLOW ?? 0
 
 /**
  * Rendered cards on disk, one file per version: `<pageId>-<v>.png`. A file is never stale for its name,
@@ -47,6 +49,8 @@ export function diskStore(o: DiskStoreOptions): DiskStore {
   const emit: OnEvent = (e) => {
     if (o.onEvent) safeCall(o.onEvent, e)
   }
+  /** The real path of `dir`, set at boot. Every file operation goes through it. */
+  let root = dir
   let off = false
   let skippedOnce = false
   let ready: Promise<boolean> | undefined
@@ -67,13 +71,20 @@ export function diskStore(o: DiskStoreOptions): DiskStore {
   const boot = async (): Promise<boolean> => {
     try {
       await mkdir(dir, { recursive: true })
-      await access(dir, constants.W_OK)
+      // The root itself must not be a symlink (a link planted there would redirect every read and delete).
+      // Parent components may be (macOS temp dirs are), so the real path is resolved once and used from here on.
+      if ((await lstat(dir)).isSymbolicLink()) {
+        disable(Object.assign(new Error(`${dir} is a symbolic link`), { code: 'ESYMLINKROOT' }))
+        return false
+      }
+      root = await realpath(dir)
+      await access(root, constants.W_OK)
     } catch (error) {
       disable(error)
       return false
     }
     try {
-      const fs = await statfs(dir)
+      const fs = await statfs(root)
       const free = Number(fs.bavail) * Number(fs.bsize)
       if (free < maxBytes) emit({ name: 'store_write_skipped', detail: { reason: 'low_free_space', free, maxBytes } })
     } catch {
@@ -88,7 +99,7 @@ export function diskStore(o: DiskStoreOptions): DiskStore {
 
   const fsyncDir = async () => {
     try {
-      const h = await open(dir, 'r')
+      const h = await open(root, 'r')
       try {
         await h.sync()
       } finally {
@@ -102,7 +113,7 @@ export function diskStore(o: DiskStoreOptions): DiskStore {
   const doPrune = async () => {
     let names: string[]
     try {
-      names = await readdir(dir)
+      names = await readdir(root)
     } catch {
       return
     }
@@ -111,20 +122,24 @@ export function diskStore(o: DiskStoreOptions): DiskStore {
         const isCard = CARD_FILE.exec(name)
         if (!isCard && !TEMP_FILE.test(name)) return null
         try {
-          const s = await stat(path.join(dir, name))
-          return { name, page: isCard?.[1] ?? '', temp: !isCard, mtime: s.mtimeMs, size: s.size }
+          // lstat: a symlink, directory or other non-regular file at a cache-shaped name is foreign, never counted or deleted.
+          const s = await lstat(path.join(root, name))
+          if (!s.isFile()) return null
+          return { name, page: isCard?.[1] ?? '', temp: !isCard, mtime: s.mtimeMs, size: s.size, ino: s.ino }
         } catch {
           return null // removed by another process meanwhile
         }
       }),
     )
     const files = stats.filter((f): f is NonNullable<typeof f> => f !== null)
-    const drop = async (name: string) => void (await unlink(path.join(dir, name)).catch(noop))
+    // Delete only the file that was observed: if the name now holds something else (replaced meanwhile), leave it.
+    const drop = (f: { name: string; mtime: number; size: number; ino: number }) =>
+      dropIfSame(path.join(root, f.name), { ino: f.ino, mtimeMs: f.mtime, size: f.size })
 
     const now = Date.now()
     const liveTemps = []
     for (const f of files.filter((f) => f.temp)) {
-      if (now - f.mtime > TEMP_TTL_MS) await drop(f.name)
+      if (now - f.mtime > TEMP_TTL_MS) await drop(f)
       else liveTemps.push(f)
     }
     // Newest first; the name breaks mtime ties so the order is deterministic.
@@ -134,14 +149,14 @@ export function diskStore(o: DiskStoreOptions): DiskStore {
     for (const c of cards) {
       const n = (perPage.get(c.page) ?? 0) + 1
       perPage.set(c.page, n)
-      if (n > keepPerPage) await drop(c.name)
+      if (n > keepPerPage) await drop(c)
       else kept.push(c)
     }
     let count = kept.length + liveTemps.length
     let bytes = kept.reduce((s, f) => s + f.size, 0) + liveTemps.reduce((s, f) => s + f.size, 0)
     for (let i = kept.length - 1; i >= 0 && (count > maxFiles || bytes > maxBytes); i--) {
       const f = kept[i] as (typeof kept)[number]
-      await drop(f.name)
+      await drop(f)
       count -= 1
       bytes -= f.size
     }
@@ -154,6 +169,12 @@ export function diskStore(o: DiskStoreOptions): DiskStore {
       lastPrune = Date.now()
       setImmediate(() => void store.prune()).unref()
     }
+  }
+
+  /** Unlink `file` only if it is still the regular file that was observed (same inode, mtime and size). */
+  const dropIfSame = async (file: string, seen: { ino: number; mtimeMs: number; size: number }) => {
+    const cur = await lstat(file).catch(() => null)
+    if (cur?.isFile() && cur.ino === seen.ino && cur.mtimeMs === seen.mtimeMs && cur.size === seen.size) await unlink(file).catch(noop)
   }
 
   const store: DiskStore = {
@@ -170,17 +191,38 @@ export function diskStore(o: DiskStoreOptions): DiskStore {
     },
     async get(pageId, v) {
       if (!PAGE_ID.test(pageId) || !VERSION.test(v) || !(await usable())) return null
-      const file = path.join(dir, `${pageId}-${v}.png`)
-      let buf: Buffer
+      const file = path.join(root, `${pageId}-${v}.png`)
+      let handle: Awaited<ReturnType<typeof open>>
       try {
-        buf = await readFile(file)
+        // O_NOFOLLOW: a symlink at a cache-shaped name fails to open (ELOOP), and is left alone.
+        handle = await open(file, constants.O_RDONLY | O_NOFOLLOW)
       } catch {
         return null
       }
-      const bytes = new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength)
+      let bytes: Uint8Array
+      let seen: { ino: number; mtimeMs: number; size: number }
+      try {
+        const st = await handle.stat()
+        // Not a regular file (a fifo, a device): foreign, never read and never deleted.
+        if (!st.isFile()) return null
+        seen = st
+        if (st.size > maxBytes) {
+          // Larger than the whole cache budget cannot be one of our cards: drop it, allocate nothing.
+          await dropIfSame(file, seen)
+          emit({ name: 'store_corrupt', v, bytes: st.size, detail: { reason: 'oversized' } })
+          return null
+        }
+        const buf = Buffer.alloc(st.size)
+        const { bytesRead } = await handle.read(buf, 0, st.size, 0)
+        bytes = new Uint8Array(buf.buffer, buf.byteOffset, bytesRead)
+      } catch {
+        return null
+      } finally {
+        await handle.close().catch(noop)
+      }
       if (isCompletePng(bytes)) return bytes
       // A file cut short by a host crash is not a card: drop it so the next request draws it again.
-      await unlink(file).catch(noop)
+      await dropIfSame(file, seen)
       emit({ name: 'store_corrupt', v, bytes: bytes.byteLength })
       return null
     },
@@ -190,10 +232,10 @@ export function diskStore(o: DiskStoreOptions): DiskStore {
         emit({ name: 'store_write_skipped', v, bytes: bytes.byteLength, detail: { reason: 'not_a_complete_png' } })
         return
       }
-      const target = path.join(dir, `${pageId}-${v}.png`)
+      const target = path.join(root, `${pageId}-${v}.png`)
       const tmp = `${target}.${process.pid}.${randomBytes(4).toString('hex')}.tmp`
       const write = async () => {
-        await writeFile(tmp, bytes, { flush: true })
+        await writeFile(tmp, bytes, { flush: true, flag: 'wx' })
         await rename(tmp, target)
         await fsyncDir()
       }
@@ -202,7 +244,7 @@ export function diskStore(o: DiskStoreOptions): DiskStore {
           await write()
         } catch (error) {
           if (code(error) !== 'ENOENT') throw error
-          await mkdir(dir, { recursive: true }) // the directory vanished after boot: recreate once and retry
+          await mkdir(root, { recursive: true }) // the directory vanished after boot: recreate once and retry
           await write()
         }
       } catch (error) {
