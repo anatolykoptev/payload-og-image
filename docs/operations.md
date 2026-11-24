@@ -32,8 +32,9 @@ never cached, so crawlers retry.
 **A platform still shows the old image.** Compare the `v` in the page's `og:image` with the `etag` the card
 route answers for the same URL (they must be equal), then ask the platform to re-scrape (LinkedIn Post
 Inspector, Facebook Sharing Debugger). A platform caches by full URL, so a card that changed has a new URL;
-if it did not change when you expected, something the template draws is not in its props. Until a force-new-image
-option exists, bump the template's `revision`.
+if it did not change when you expected, something the template draws is not in its props. If the page itself still
+advertises the old `v`, it is a cached page: see [reference](reference.md#pages-that-next-caches). To give a card a new
+URL on purpose, use the admin's "Force new image" (or bump the template's `revision` for every card).
 
 **The store is writable but not on the volume.** The store checks that its directory exists and is writable. It cannot tell a mounted volume from a folder inside the container, so a missing mount gives no `store_disabled` event: cards then vanish with every container recreate. Confirm the mount in your compose file (and `df` on the path) when you deploy.
 
@@ -69,4 +70,4 @@ Next 16.4.6, both `next dev` and a production build under `next start` answer a 
 `transfer-encoding: chunked` and a HEAD with neither header, with or without `accept-encoding: identity`. Next's route
 response writer strips `content-length`, `content-encoding` and `transfer-encoding` from a route handler's response, so
 nothing the handler can set changes it. Crawlers read chunked bodies; if you need a length on the wire, let a reverse
-proxy buffer the response. Re-measure after a Next upgrade (`next build dev && next start dev`, then `curl -I` a card).
+proxy buffer the response. Re-measure after a Next upgrade: CI does it on every push (`node scripts/probe-dev-server.mjs` builds the dev app, serves it with `next start` and checks a card's GET and HEAD headers, a stale `?v`, an unknown slug, HEAD on a REST upload and a cached page's `og:image` after an edit), and `curl -I` a card shows the framing by hand.

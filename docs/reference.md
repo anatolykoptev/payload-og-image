@@ -27,6 +27,13 @@ A card answer carries `etag: "<v>"` and `x-og-cache` (`render`, `memo`, `store` 
 into the current version; a 304 carries the `etag`, `cache-control`, `content-type` and `x-og-cache` and is sent only once the current card is in hand. The request's `?v=` only picks the header; it is never a key, and the version is always derived
 on the server.
 
+A stale `?v` is not an error: the route answers it with the **current** bytes and the one-hour header, because the version
+is derived on the server and the request's `?v` only picks the header. The old URL therefore never shows the old card
+again, but a platform that fetched the card under it earlier keeps those bytes until it re-scrapes the page (it caches
+by full URL, and the page now advertises the new one). A CDN in front of the route must keep the query string in its
+cache key: the current-`v` answer is `immutable` for a year, any other `?v` is not, and a cache that drops the query
+would hand one answer to every `?v`.
+
 Draft mode is never cached, never stored, and shows draft text only to an authenticated editor. An HTTP cache
 that already holds a card for the same URL may serve it during a preview without asking the app; preview with a
 fresh URL (`?preview=1`) if you need to be sure.
@@ -40,6 +47,40 @@ fresh URL (`?preview=1`) if you need to be sure.
 - A collection with drafts must allow public reads of published documents, because the plugin reads with
   `overrideAccess: false`:
   `read: ({ req: { user } }) => (user ? true : { _status: { equals: 'published' } })`.
+
+## Pages that Next caches
+
+`ogMetadata` runs when Next renders the page. A page Next keeps (measured: a route with `generateStaticParams`) is
+rendered once and serves the same `og:image`, `?v` included, until it is revalidated. Editing a title changes the card's
+URL, not the cached page that links to it, so a crawler reading the page finds the old URL (measured in the dev app,
+Next 16.4.6: a dynamic-segment page without `generateStaticParams` is rendered on every request and has no such problem).
+Two ways out:
+
+- **Render on every request**: `export const dynamic = 'force-dynamic'` on the page, as the dev app's `posts/[slug]` does.
+- **Revalidate on save**: tag what the page reads and expire the tag from an `afterChange` hook. `ogTag(collection, key)` and
+  `OG_SITE_TAG` from `payload-og-image/next` only name the tags, so the page and the hook agree (`key` is anything both
+  know: the slug, the id).
+
+```ts
+// page: what it reads carries the tag
+const bySlug = (slug: string) => unstable_cache(() => find(slug), ['post', slug], { tags: [ogTag('posts', slug), OG_SITE_TAG] })()
+
+// collection hook
+import { revalidateTag } from 'next/cache.js' // `.js`: plain-Node ESM (the Payload CLI) cannot resolve the bare `next/cache`
+export const revalidatePost: CollectionAfterChangeHook = ({ doc, previousDoc, req }) => {
+  if (req.context.disableRevalidate) return doc // scripts outside Next (a seed) have no cache to talk to
+  if (doc._status !== 'published' && previousDoc?._status !== 'published') return doc // never published: no public page
+  for (const slug of new Set([doc.slug, previousDoc?.slug])) if (slug) revalidateTag(ogTag('posts', slug), { expire: 0 })
+  return doc
+}
+// a global that `site()` reads (the business name on every card): revalidateTag(OG_SITE_TAG, { expire: 0 })
+```
+
+Use `{ expire: 0 }`, not `'max'`: `'max'` serves the stale page to the next visitor, and the next visitor after a save is
+often the crawler. Without a tagged read, `revalidatePath('/posts/<slug>')` does the same for one page. The plugin's own
+`afterChange` on `siteGlobals` only drops its per-process `site()` cache; it never touches Next's page cache. A vitest suite
+has no Next page cache, so the proof is over HTTP: `scripts/probe-dev-server.mjs` (run in CI after the build) edits a post
+of the dev app's cached page `/cached/[slug]` and requires the page to advertise a new card URL at once.
 
 ## Who counts as an editor
 
@@ -183,11 +224,23 @@ context (`.dockerignore`: the same path). Without a writable volume the store sw
 
 `store: { memory: true }` keeps cards in memory only (tests, serverless).
 
+The plugin targets the Node.js runtime: it draws with `sharp` and `fontkit` and its disk store uses `node:fs`. The edge
+runtime is not supported. A serverless platform (no volume that outlives an instance) needs `store: { memory: true }`, so
+every cold instance draws its cards again; that setup is untested.
+
 ## Crawlers
 
 Link-preview crawlers need an absolute https image URL, no redirect, a 1200x630 image, and `Allow` for the
 card path in `robots.txt`. They send HEAD first, so the card route answers HEAD. See
 [crawlers](crawlers.md).
+
+```txt
+# robots.txt: the card path is the `path` of your targets (`/og/:kind/:slug/card.png` in the examples)
+User-agent: *
+Allow: /og/
+```
+
+Do not `Disallow` it: the crawler fetches the image as its own URL, whatever the page allows.
 
 ## HEAD for Payload REST
 
@@ -201,7 +254,10 @@ export const HEAD = withHead(GET)
 ```
 
 `withHead` is a stopgap: remove it when Payload REST answers HEAD for GET endpoints. Do not use it on the card
-route, where `HEAD = GET` is enough.
+route, where `HEAD = GET` is enough. `ogKit(rt).restHeadParity({ module, url })` checks it: it calls your REST route
+module with a GET and a HEAD for an upload that exists (`url`, absolute, under `/api` unless you pass `apiRoute`) and
+fails when the HEAD answers another status or other headers than the GET. A module with no `HEAD` export is called as Next
+calls it, with the GET and the request's method set to HEAD, which is the case Payload answers 404.
 
 ## Testing your site
 
@@ -214,9 +270,13 @@ and an editor's credential (a user of the first editor collection) the draft. `r
 and counts one only when the `GET` it exports is the one `createOgRoute()` returned, resolved through the file's own
 declarations; a mention in a comment or a string, a name shadowed in a helper, a `GET` re-exported from another module or
 built from a compound expression does not count. It parses with the TypeScript compiler API (syntax only, no type
-checking), so `payload-og-image/testing` has an optional peer: `typescript` 5 or 6, or `@typescript/typescript6` on
-TypeScript 7, whose own package has no in-process API. Without one it throws and says what to install; the other entries
-never load the compiler. `everyRouteHasOwnCard` requires an `https` image URL for every image in the `og:image` and
+checking), so `payload-og-image/testing` has an optional peer: `typescript` 5, 6 or 7, but TypeScript 7 has no in-process
+API, so on it the compiler comes from `@typescript/typescript6`, which the plugin falls back to. The project's own
+packages are looked up first (from the working directory the tests run in), then the plugin's, so a linked or
+workspace-symlinked copy of the plugin still finds yours. Without a compiler it throws and says what to install; the other entries
+never load the compiler. Limits of the reading: a name declared twice at the top level is never credited; a `GET` that is
+`let` and reassigned later is not modelled (declare it `const`); `import * as og from 'payload-og-image/next'` with
+`og.createOgRoute(...)` is understood, and `export * from` is not followed. `everyRouteHasOwnCard` requires an `https` image URL for every image in the `og:image` and
 `twitter:image` lists, as the crawlers document it; pass `allowHttpImages: true` for a site that is only ever served on plain HTTP, such as a local dev server. See [`dev/tests/og.spec.ts`](https://github.com/anatolykoptev/payload-og-image/blob/main/dev/tests/og.spec.ts).
 
 `og-parity --old <dir> --new <dir>` compares two directories of rendered cards (`<card>.png` plus
