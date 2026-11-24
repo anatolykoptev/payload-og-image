@@ -1,17 +1,25 @@
 /** Mutation table (production line -> the test that goes RED). Each check must pass on a correct setup and fail on a site module the test breaks by hand.
- * - kit.ts:90  accept a page with no og:image -> "everyRouteHasOwnCard > rejects a metadata function that returns no image" RED
- * - kit.ts:112  do not require the advertised card to be immutable -> "rejects a card URL carrying ?v=wrong: it answers 1h, not immutable" RED
- * - kit.ts:103  allow two routes to share one card -> "rejects two routes sharing one card unless allowShared" RED
- * - kit.ts:96  accept an image with no alt -> same test RED
- * - kit.ts:157  never report a path/route mismatch -> "routesMatchPaths > rejects a route file ... naming both" RED
- * - kit.ts:231  ignore a HEAD status that differs -> "headParity > rejects a HEAD that answers a different status" RED
- * - kit.ts:237  ignore header differences -> "rejects a route module whose HEAD answers an empty 200" RED
- * - kit.ts:287  accept bytes that changed under an unchanged URL -> "versionCoversEverythingDrawn > rejects a template that draws module-level state" RED
- * - kit.ts:212  accept a queue that never sheds -> "queueSheds rejects a route that hides the shedding" RED
- * - kit.ts:169  accept a cacheable draft answer -> "draftNeverCached rejects a route that makes draft answers cacheable" RED
- * - kit.ts:249  accept an immutable stale version -> "staleVersionShort rejects a route that serves every version immutable" RED
- * - kit.ts:335  ignore the byte budget -> "sizeBudget rejects a card over the budget" RED
- * - kit.ts:325  ignore missing glyphs -> "glyphCoverage passes ... and rejects an emoji" RED */
+ * - kit.ts:91  accept a page with no og:image -> "everyRouteHasOwnCard > rejects a metadata function that returns no image" RED
+ * - kit.ts:118  do not require the advertised card to be immutable -> "rejects a card URL carrying ?v=wrong: it answers 1h, not immutable" RED
+ * - kit.ts:104  allow two routes to share one card -> "rejects two routes sharing one card unless allowShared" RED
+ * - kit.ts:97  accept an image with no alt -> same test RED
+ * - kit.ts:167  never report a path/route mismatch -> "routesMatchPaths > rejects a route file ... naming both" RED
+ * - kit.ts:247  ignore a HEAD status that differs -> "headParity > rejects a HEAD that answers a different status" RED
+ * - kit.ts:253  ignore header differences -> "rejects a route module whose HEAD answers an empty 200" RED
+ * - kit.ts:306  accept bytes that changed under an unchanged URL -> "versionCoversEverythingDrawn > rejects a template that draws module-level state" RED
+ * - kit.ts:222  accept a queue that never sheds -> "queueSheds rejects a route that hides the shedding" RED
+ * - kit.ts:179  accept a cacheable draft answer -> "draftNeverCached rejects a route that makes draft answers cacheable" RED
+ * - kit.ts:265  accept an immutable stale version -> "staleVersionShort rejects a route that serves every version immutable" RED
+ * - kit.ts:361  ignore the byte budget -> "sizeBudget rejects a card over the budget" RED
+ * - kit.ts:344  ignore missing glyphs -> "glyphCoverage passes ... and rejects an emoji" RED
+ * - kit.ts:353  measure sizes on the stub renderer -> "sizeBudget > passes within budget on the real renderer, and refuses to measure the stub renderer" RED
+ * - kit.ts:359  count an error answer as a card -> "sizeBudget > does not count an error answer as a card" RED
+ * - kit.ts:152  route files must equal configured paths literally -> "routesMatchPaths: a templated route file serves literal static-card paths" RED
+ * - kit.ts:42  a static card's params from the URL only -> "the kit fetches a static card at a literal path of its own" RED
+ * - kit.ts:109  wave a versioned URL at an unowned path through as an editor image -> "everyRouteHasOwnCard: a versioned URL at a path no card route owns" RED
+ * - kit.ts:224  accept any positive shed count -> "queueSheds exact admission" RED
+ * - runtime.ts:86  bypass the cached site() in the test runtime -> "the test runtime serves the CACHED site()" RED
+ * - kit.ts:278  (requestVersionNeverStored probes run cold: covered by the dev spec's `request v never stored`, which goes RED when the handler stores under the request's ?v) */
 import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
@@ -195,13 +203,28 @@ describe('the request-level checks pass on a correct site', () => {
     await kit.staleVersionShort({ module, params: p('a') })
     await kit.requestVersionNeverStored({ module, params: p('a') })
     await kit.downgradeNotStored({ module, params: p('hero-missing-file') })
-    await kit.sizeBudget({ module, params: [p('a'), p('hero')], maxBytes: 100_000 })
     await kit.queueSheds({ module, paramsFor: (i) => p(`cold-${i}`) })
   })
   it('glyphCoverage passes for text the stacks draw and rejects an emoji, naming the stack', async () => {
     const rt = installTestRuntime(options(), docs())
     await ogKit(rt).glyphCoverage({ samples: ['Привет, «мир» — №1', 'Plain text'] })
     await reject(ogKit(rt).glyphCoverage({ samples: ['Hi 🚀'] }), /stack "default" cannot draw "🚀"/)
+  })
+})
+
+describe('sizeBudget', () => {
+  it('passes within budget on the real renderer, and refuses to measure the stub renderer', async () => {
+    const real = installTestRuntime(options(), docs(), { renderer: 'real' })
+    const a = site(real)
+    await a.kit.sizeBudget({ module: a.module, params: [p('a'), p('hero')], maxBytes: 100_000 })
+    const stub = installTestRuntime(options(), docs())
+    const b = site(stub)
+    await reject(b.kit.sizeBudget({ module: b.module, params: [p('a')], maxBytes: 100_000 }), /stub renderer, whose cards are 8x8 pixels/)
+  })
+  it('does not count an error answer as a card', async () => {
+    const rt = installTestRuntime(options(), docs(), { renderer: 'real' })
+    const { module, kit } = site(rt)
+    await reject(kit.sizeBudget({ module, params: [p('no-such-post')], maxBytes: 100_000 }), /answered 404, not a card/)
   })
 })
 
@@ -251,7 +274,7 @@ describe("checks that catch a site breaking the plugin's guarantees", () => {
     await reject(kit.staleVersionShort({ module: broken, params: p('a') }), /a stale \?v answered/)
   })
   it('sizeBudget rejects a card over the budget', async () => {
-    const rt = installTestRuntime(options(), docs())
+    const rt = installTestRuntime(options(), docs(), { renderer: 'real' })
     const { module, kit } = site(rt)
     await reject(kit.sizeBudget({ module, params: [p('a')], maxBytes: 10 }), /over the budget of 10/)
   })
@@ -268,6 +291,98 @@ const rewriteStatus = (module: { GET: (r: Request, c: any) => Promise<Response> 
     const res = await module.GET(r, c)
     return res.status === 503 ? new Response('ok') : res
   },
+})
+
+describe('checks tightened by review', () => {
+  it('routesMatchPaths: a templated route file serves literal static-card paths, and a static card is routable', async () => {
+    const statics = {
+      blog: {
+        path: '/og/index/blog/card.png',
+        kind: 'index',
+        slug: 'blog',
+        template: 'post',
+        props: () => ({ title: 'Blog', label: '', site: '' }),
+      },
+    }
+    const rt = installTestRuntime(options({ static: statics }), docs())
+    const app = await mkdtemp(path.join(os.tmpdir(), 'og-app-'))
+    await mkdir(path.join(app, '(f)/og/[kind]/[slug]/card.png'), { recursive: true })
+    await writeFile(path.join(app, '(f)/og/[kind]/[slug]/card.png/route.ts'), 'createOgRoute')
+    await ogKit(rt).routesMatchPaths({ appDir: app })
+    const { module, kit } = site(rt)
+    const meta = async () => ogMetadata({ config: {} as never, static: 'blog' })
+    await kit.everyRouteHasOwnCard({
+      routes: [{ path: '/blog', metadata: meta as never }],
+      cardRoute: () => ({ module, params: { kind: 'index', slug: 'blog' } }),
+    })
+  })
+  it('the kit fetches a static card at a literal path of its own: kind and slug come from the card, not the URL', async () => {
+    const statics = {
+      blog: {
+        path: '/static-cards/blog.png',
+        kind: 'index',
+        slug: 'blog',
+        template: 'post',
+        props: () => ({ title: 'Blog', label: '', site: '' }),
+      },
+    }
+    const rt = installTestRuntime(options({ static: statics }), docs())
+    const { kit } = site(rt)
+    await kit.versionCoversEverythingDrawn({
+      metadata: () => ogMetadata({ config: {} as never, static: 'blog' }),
+      mutate: [() => undefined],
+    })
+  })
+  it('everyRouteHasOwnCard: a versioned URL at a path no card route owns is not waved through as an editor image', async () => {
+    const rt = installTestRuntime(options(), docs())
+    const { module, kit } = site(rt)
+    const wrongPath = async () => ({
+      openGraph: {
+        images: [{ url: 'https://example.test/typo/a/card.png?v=0123456789ab', width: 1200, height: 630, type: 'image/png', alt: 'x' }],
+      },
+      twitter: { card: 'summary_large_image', images: [{ url: 'https://example.test/typo/a/card.png?v=0123456789ab' }] },
+    })
+    await reject(
+      kit.everyRouteHasOwnCard({ routes: [{ path: '/posts/a', metadata: wrongPath as never }], cardRoute: cardRoute(module) }),
+      /looks like a generated card but matches no configured card path/,
+    )
+  })
+  it('the test runtime serves the CACHED site(): a global missing from siteGlobals stays stale, as in the app', async () => {
+    const rt = installTestRuntime(options({ siteGlobals: [] }), docs(), { renderer: 'real' })
+    const { meta } = site(rt)
+    // The site name reaches the card through props; with no `siteGlobals` the cached site() is never dropped.
+    const before = String(((await meta(1)()).openGraph as any).images[0].url)
+    rt.setGlobal('site-settings', { name: 'Renamed again' })
+    expect(String(((await meta(1)()).openGraph as any).images[0].url)).toBe(before)
+  })
+  it('requestVersionNeverStored starts every probe cold (a later probe cannot hide behind a warm memo)', async () => {
+    const rt = installTestRuntime(options(), docs())
+    const { module, kit } = site(rt)
+    await kit.requestVersionNeverStored({ module, params: p('a') })
+    expect(rt.stored().length).toBeLessThanOrEqual(1) // the last probe's own cold render, under the current version
+  })
+})
+
+describe('queueSheds exact admission', () => {
+  it('rejects a queue that admits a different number than declared (one extra request shed)', async () => {
+    const rt = installTestRuntime(options({ gate: { concurrency: 2, queue: 30 } }), docs())
+    const { module, kit } = site(rt)
+    let turned = false
+    const stingy = {
+      GET: async (r: Request, c: any) => {
+        const res = await module.GET(r, c)
+        if (res.status === 200 && !turned) {
+          turned = true
+          return new Response(null, { status: 503, headers: { 'retry-after': '5', 'cache-control': 'no-store' } })
+        }
+        return res
+      },
+    }
+    await reject(
+      kit.queueSheds({ module: stingy, paramsFor: (i) => p(`cold-${i}`) }),
+      /expected exactly 3 .*the queue admits the wrong number/,
+    )
+  })
 })
 
 describe('versionCoversEverythingDrawn', () => {

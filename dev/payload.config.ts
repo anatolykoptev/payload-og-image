@@ -22,6 +22,7 @@ export default buildConfig({
       fields: [
         { name: 'title', type: 'text', required: true },
         { name: 'slug', type: 'text' },
+        { name: 'heroImage', type: 'upload', relationTo: 'media' },
       ],
     },
     { slug: 'media', fields: [], upload: { staticDir: path.resolve(dirname, 'media') } },

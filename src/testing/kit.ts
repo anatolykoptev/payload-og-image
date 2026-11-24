@@ -18,31 +18,32 @@ const bytesOf = async (r: Response) => new Uint8Array(await r.arrayBuffer())
 
 /** One regex per configured card path (`:kind`, `:slug`, `:id` become captures), to turn an advertised URL back into route params. */
 function patterns(rt: TestRuntime) {
-  const list: Array<{ regex: RegExp; names: string[]; target?: string }> = []
-  const add = (p: string, target?: string) => {
+  const list: Array<{ regex: RegExp; names: string[]; target?: string; fixed?: Params }> = []
+  const add = (p: string, target?: string, fixed?: Params) => {
     const names: string[] = []
     const source = p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/:(kind|slug|id)\b/g, (_, n: string) => {
       names.push(n)
       return '([^/]+)'
     })
     const regex = new RegExp(`^${source}$`)
-    list.push({ regex, names, target })
+    list.push({ regex, names, target, fixed })
   }
   for (const [name, t] of Object.entries(rt.options.targets)) add(t.path, name)
-  for (const s of Object.values(rt.options.static ?? {})) add(s.path)
+  for (const s of Object.values(rt.options.static ?? {})) add(s.path, undefined, { kind: s.kind, slug: s.slug })
   return list
 }
 
 /** The params the route would receive for an advertised card URL (decoded, as Next hands them over), or null if it is not a card URL. */
 function paramsOf(rt: TestRuntime, url: URL): { params: Params; fixedTarget?: string } | null {
-  for (const { regex, names, target } of patterns(rt)) {
+  for (const { regex, names, target, fixed } of patterns(rt)) {
     const m = regex.exec(url.pathname)
     if (!m) continue
-    const params: Params = {}
+    // A static card's path is a literal: its kind and slug come from the card, not from the URL.
+    const params: Params = { ...fixed }
     names.forEach((n, i) => {
       params[n === 'id' ? 'slug' : n] = decodeURIComponent(m[i + 1] as string)
     })
-    return { params, fixedTarget: names.includes('kind') ? undefined : target }
+    return { params, fixedTarget: fixed || names.includes('kind') ? undefined : target }
   }
   return null
 }
@@ -103,7 +104,12 @@ export function ogKit(rt: TestRuntime) {
         if (prior && !route.allowShared) fail('everyRouteHasOwnCard', `${route.path} shares its card ${url} with ${prior}`)
         seen.set(url, route.path)
         const u = new URL(url)
-        if (!paramsOf(rt, u)) continue // an editor's own image: shared as it is, nothing for the route to serve
+        if (!paramsOf(rt, u)) {
+          // A versioned URL (`?v=<12 hex>`) is a generated card's shape: it must match a configured path, not slip through as an editor's image.
+          if (/[?&]v=[0-9a-f]{12}(&|$)/.test(u.search))
+            fail('everyRouteHasOwnCard', `${route.path}: ${url} looks like a generated card but matches no configured card path`)
+          continue // an editor's own image: shared as it is, nothing for the route to serve
+        }
         const { module, params } = a.cardRoute(u)
         const res = await module.GET(new Request(url), ctx(params))
         if (res.status !== 200) fail('everyRouteHasOwnCard', `${route.path}: ${url} answers ${res.status}`)
@@ -141,15 +147,19 @@ export function ogKit(rt: TestRuntime) {
       const configured = new Map<string, string>()
       for (const [n, t] of Object.entries(rt.options.targets)) configured.set(t.path, `target "${n}"`)
       for (const [n, s] of Object.entries(rt.options.static ?? {})) configured.set(s.path, `static card "${n}"`)
+      // A route file path may be a template (`/og/:kind/:slug/card.png`) that serves several literal configured paths.
+      const asRegex = (route: string) => new RegExp(`^${route.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/:[A-Za-z]+/g, '[^/]+')}$`)
+      const servedBy = (configuredPath: string) => [...routes.keys()].some((r) => r === configuredPath || asRegex(r).test(configuredPath))
+      const declaredFor = (route: string) => [...configured.keys()].some((c) => c === route || asRegex(route).test(c))
       const problems: string[] = []
       for (const [p, who] of configured) {
-        if (!routes.has(p))
+        if (!servedBy(p))
           problems.push(
             `${who} declares ${p}, but no route file calling createOgRoute serves it (route files: ${[...routes.keys()].join(', ') || 'none'})`,
           )
       }
       for (const [p, f] of routes) {
-        if (!configured.has(p))
+        if (!declaredFor(p))
           problems.push(
             `the route file ${path.relative(a.appDir, f)} serves ${p}, which no target or static card declares (declared: ${[...configured.keys()].join(', ')})`,
           )
@@ -211,6 +221,12 @@ export function ogKit(rt: TestRuntime) {
       const ok = results.filter((r) => r.status === 200)
       if (shed.length === 0)
         fail('queueSheds', `${total} cold requests (gate ${concurrency}, queue ${queue}) and none was shed: the queue is unbounded`)
+      if (shed.length !== total - concurrency - queue) {
+        fail(
+          'queueSheds',
+          `${shed.length} of ${total} requests were shed, expected exactly ${total - concurrency - queue} (gate ${concurrency}, queue ${queue}): the queue admits the wrong number`,
+        )
+      }
       if (shed.some((r) => r.headers.get('retry-after') !== '5' || r.headers.get('cache-control') !== 'no-store'))
         fail('queueSheds', 'a shed answer lacks retry-after: 5 or is cacheable')
       if (ok.length < concurrency + queue)
@@ -258,16 +274,18 @@ export function ogKit(rt: TestRuntime) {
     /** The version the request names is never a store key: only server-derived versions are written. */
     async requestVersionNeverStored(a: { module: RouteModule; params: Params }): Promise<void> {
       rt.reset()
-      // Cold first: only a render that happens WITH a client-chosen ?v can store under it.
-      for (const v of ['abcdef012345', '0123456789ab', 'attacker0000', '../../etc'])
-        await (await call(a.module, a.params, { v })).arrayBuffer()
       const current = etagOf(await call(a.module, a.params))
-      const bad = rt.stored().filter((s) => s.v !== current)
-      if (bad.length > 0)
-        fail(
-          'requestVersionNeverStored',
-          `the store holds version(s) ${bad.map((b) => b.v).join(', ')} that the server never derived (current is ${current})`,
-        )
+      // Every probe starts cold: only a render that happens WITH a client-chosen ?v can store under it.
+      for (const v of ['abcdef012345', '0123456789ab', 'attacker0000', '../../etc']) {
+        rt.reset()
+        await (await call(a.module, a.params, { v })).arrayBuffer()
+        const bad = rt.stored().filter((s) => s.v !== current)
+        if (bad.length > 0)
+          fail(
+            'requestVersionNeverStored',
+            `?v=${v} made the store hold version(s) ${bad.map((b) => b.v).join(', ')} that the server never derived (current is ${current})`,
+          )
+      }
     },
 
     /** Whatever changes the card's bytes also changes the advertised URL. */
@@ -278,6 +296,7 @@ export function ogKit(rt: TestRuntime) {
         if (!url) return fail('versionCoversEverythingDrawn', 'the page advertises no image')
         rt.clearCaches() // a cold render of the CURRENT documents, not a cached one
         const res = await fetchCard(rt, url)
+        if (res.status !== 200) return fail('versionCoversEverythingDrawn', `${url} answered ${res.status}, not a card`)
         return { url, bytes: await bytesOf(res) }
       }
       let before = await snapshot()
@@ -331,7 +350,14 @@ export function ogKit(rt: TestRuntime) {
     async sizeBudget(a: { module: RouteModule; params: Params[]; maxBytes: number }): Promise<void> {
       rt.reset()
       for (const p of a.params) {
-        const size = (await bytesOf(await call(a.module, p))).byteLength
+        if (rt.rendererKind === 'stub')
+          fail(
+            'sizeBudget',
+            'the test runtime uses the stub renderer, whose cards are 8x8 pixels: install it with { renderer: "real" } to measure real sizes',
+          )
+        const res = await call(a.module, p)
+        if (res.status !== 200) fail('sizeBudget', `${JSON.stringify(p)} answered ${res.status}, not a card`)
+        const size = (await bytesOf(res)).byteLength
         if (size > a.maxBytes) fail('sizeBudget', `${JSON.stringify(p)} is ${size} bytes, over the budget of ${a.maxBytes}`)
       }
     },

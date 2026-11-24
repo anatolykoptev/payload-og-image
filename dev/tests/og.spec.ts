@@ -28,7 +28,8 @@ vi.mock('payload', async (orig) => ({
   }),
 }))
 
-const rt = installTestRuntime(ogOptions, docs)
+// The real renderer: a size budget measured on stub cards would say nothing.
+const rt = installTestRuntime(ogOptions, docs, { renderer: 'real' })
 const kit = ogKit(rt)
 const p = (slug: string) => ({ kind: 'posts', slug })
 const metaOf = (slug: string) => () => postMeta({ params: Promise.resolve({ slug }) })
