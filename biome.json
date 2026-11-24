@@ -28,7 +28,8 @@
         "src/internal/resolve.ts",
         "test/internal/resolve.spec.ts",
         "src/internal/handler.ts",
-        "test/internal/handler.spec.ts"
+        "test/internal/handler.spec.ts",
+        "test/render/render.spec.ts"
       ],
       "linter": {
         "rules": {
