@@ -31,7 +31,13 @@
  * - kit.ts:371  a requestVersionNeverStored with no write -> "requestVersionNeverStored fails when no probe wrote anything" RED
  * - kit.ts:417  (downgradeNotStored etag check) accept an etag on a downgraded card -> "downgradeNotStored rejects a downgraded card that carries an etag" RED
  * - kit.ts:330  ignore content-length in HEAD parity -> "headParity rejects a HEAD whose content-length differs from GET" RED
- * - kit.ts:458  measure a fallback body -> "sizeBudget refuses a fallback body" RED */
+ * - kit.ts:458  measure a fallback body -> "sizeBudget refuses a fallback body" RED
+ * - kit.ts:177  isCardRoute = a text search for `createOgRoute` -> "routesMatchPaths: a route file is a card route only if its exported GET is the one createOgRoute returned > rejects createOgRoute only in a comment" RED
+ * - runtime.ts:120  the editor credential authenticates as a hard-coded `users` -> "draftNeverCached: a never-published document > the editor credential belongs to the first configured editor collection" RED
+ * - runtime.ts:109  the fake find ignores `_status` -> "draftNeverCached: a never-published document > passes on the production source" RED (and dev spec "draft never cached" RED)
+ * - runtime.ts:107  the fake find answers an unsupported where clause instead of throwing -> "the fake find fails loudly on a where clause it cannot honour" RED
+ * - kit.ts:255 accept a 200 for a never-published document -> "rejects a route that serves a never-published document to the public" RED
+ * - payloadSource.ts:35 (production) drop the `_status: published` filter -> dev spec "draft never cached" RED ("a never-published document answered 200 for a public request") */
 import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
@@ -257,6 +263,90 @@ describe('headParity', () => {
       // biome-ignore lint/correctness/noComponentHookFactories: HEAD is a route-module export name, not a component
       kit.headParity({ module: { ...module, HEAD: async () => new Response(null, { status: 404 }) }, params: p('a') }),
       /HEAD answers 404, GET 200/,
+    )
+  })
+})
+
+describe('routesMatchPaths: a route file is a card route only if its exported GET is the one createOgRoute returned', () => {
+  const appWithSource = async (source: string) => {
+    const app = await mkdtemp(path.join(os.tmpdir(), 'og-app-'))
+    await mkdir(path.join(app, 'og/[kind]/[slug]/card.png'), { recursive: true })
+    await writeFile(path.join(app, 'og/[kind]/[slug]/card.png/route.ts'), source)
+    return app
+  }
+  const IMPORT = "import { createOgRoute } from 'payload-og-image/next'\n"
+  it.each([
+    ['a destructured export', `${IMPORT}export const { GET, HEAD } = createOgRoute({ config: {} as never })\n`],
+    ['route.GET', `${IMPORT}const route = createOgRoute({ config: {} as never })\nexport const GET = route.GET\n`],
+  ])('accepts %s', async (_, source) => {
+    await ogKit(installTestRuntime(options(), docs())).routesMatchPaths({ appDir: await appWithSource(source) })
+  })
+  it.each([
+    ['createOgRoute only in a comment', `${IMPORT}// createOgRoute({}).GET\nexport const GET = () => new Response()\n`],
+    ['createOgRoute only in a string', "export const GET = () => new Response('createOgRoute({}).GET payload-og-image/next')\n"],
+    [
+      'an unused createOgRoute call beside a hand-written GET',
+      `${IMPORT}const unused = createOgRoute({})\nexport const GET = () => new Response()\nexport const POST = unused.GET\n`,
+    ],
+  ])('rejects %s: the path has no card route', async (_, source) => {
+    await reject(
+      ogKit(installTestRuntime(options(), docs())).routesMatchPaths({ appDir: await appWithSource(source) }),
+      /no route file exporting GET through createOgRoute serves it/,
+    )
+  })
+})
+
+describe('draftNeverCached: a never-published document', () => {
+  const withDraftOnly = () => ({
+    ...docs(),
+    drafts: {
+      posts: [
+        { id: 1, slug: 'a', title: 'Alpha DRAFT' },
+        { id: 500, slug: 'unpublished', title: 'Not yet' },
+      ],
+    },
+  })
+  const run = (rt: ReturnType<typeof installTestRuntime>, module: any) =>
+    ogKit(rt).draftNeverCached({ module, params: p('a'), target: 'posts', slug: 'a', draftOnly: 'unpublished' })
+  it('passes on the production source: public and draft-mode visitors get 404, the editor gets the draft', async () => {
+    const rt = installTestRuntime(options(), withDraftOnly())
+    await run(rt, site(rt).module)
+  })
+  it('rejects a route that serves a never-published document to the public', async () => {
+    const rt = installTestRuntime(options(), withDraftOnly())
+    const { module } = site(rt)
+    // The site answers the hidden slug as if it were published: what dropping the production `_status` filter would do.
+    const asPublished = (r: Request) => module.GET(r, { params: Promise.resolve({ kind: 'posts', slug: 'a' }) })
+    const leaky = { GET: asPublished }
+    await reject(run(rt, leaky), /never-published document answered 200 for a public request/)
+  })
+  it('the editor credential belongs to the first configured editor collection, not a hard-coded one', async () => {
+    const rt = installTestRuntime(options({ editors: ['staff'] }), withDraftOnly())
+    await run(rt, site(rt).module)
+  })
+  it('the fake find fails loudly on a where clause it cannot honour instead of answering with documents', async () => {
+    let seen = ''
+    const rt = installTestRuntime(
+      options({
+        site: async ({ payload }) => {
+          try {
+            await payload.find({ collection: 'posts', where: { title: { contains: 'A' } } })
+          } catch (e) {
+            seen = (e as Error).message
+          }
+          return { name: 'Site' }
+        },
+      }),
+      docs(),
+    )
+    await site(rt).module.GET(new Request('https://example.test/og/posts/a/card.png'), { params: Promise.resolve(p('a')) })
+    expect(seen).toMatch(/unsupported where clause/)
+  })
+  it('rejects a draftOnly slug that is also published (the check would prove nothing)', async () => {
+    const rt = installTestRuntime(options(), withDraftOnly())
+    await reject(
+      ogKit(rt).draftNeverCached({ module: site(rt).module, params: p('a'), target: 'posts', slug: 'a', draftOnly: 'b' }),
+      /draftOnly "b" must exist in docs.drafts.posts and NOT in docs.published.posts/,
     )
   })
 })

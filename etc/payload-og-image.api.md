@@ -119,6 +119,9 @@ export type PropValue = string | number | boolean | null | undefined | readonly 
     [key: string]: PropValue;
 };
 
+// @public
+export type RelatedFn = (collection: string, id: string | number) => Promise<Record<string, any> | null>;
+
 // @public (undocumented)
 export type ResolverArgs<D> = {
     doc: D;
@@ -204,10 +207,6 @@ export type Upload = {
     focalY?: number | null;
     sizes?: Record<string, Partial<Upload> | undefined> | null;
 };
-
-// Warnings were encountered during analysis:
-//
-// dist/template.d.ts:60:5 - (ae-forgotten-export) The symbol "RelatedFn" needs to be exported by the entry point index.d.ts
 
 // (No @packageDocumentation comment for this package)
 

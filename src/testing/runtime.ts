@@ -83,32 +83,48 @@ export function installTestRuntime(options: OgImagePluginOptions, docs: KitDocs,
   const targetOfCollection = (collection: string) =>
     Object.entries(options.targets).find(([name, t]) => (t.collection ?? name) === collection)?.[0] ?? collection
 
-  // The parts of Payload the production source touches: auth, find (published/draft pools), collections, findGlobal.
+  const editorCollection = options.editors?.[0] ?? 'users'
+  const sameDoc = (a: Record<string, any>, b: Record<string, any>) => String(a.id) === String(b.id)
+  /**
+   * The main collection table as Payload holds it for a drafts-enabled collection: published documents (`_status: published`)
+   * and documents that were never published (`_status: draft`). `draft: true` reads the latest version, so a draft replaces its
+   * published document. Only the production query's own `where` decides what a public read may see.
+   */
+  const table = (name: string, latest: boolean) => {
+    const published = (docs.published[name] ?? []).map((d) => ({ ...d, _status: 'published' }))
+    const drafts = docs.drafts?.[name] ?? []
+    const main = [...published, ...drafts.filter((d) => !published.some((p) => sameDoc(p, d))).map((d) => ({ ...d, _status: 'draft' }))]
+    return latest
+      ? main.map((m) => ({ ...(drafts.find((d) => sameDoc(d, m)) ?? m), _status: drafts.some((d) => sameDoc(d, m)) ? 'draft' : m._status }))
+      : main
+  }
+  /** The `where` shapes the production source sends: `and`, and `equals` on one field. Anything else fails loudly. */
+  const matches = (where: any, doc: Record<string, any>): boolean => {
+    if (where && typeof where === 'object' && Array.isArray(where.and)) return where.and.every((w: unknown) => matches(w, doc))
+    const entries = Object.entries(where ?? {})
+    const [field, cond] = entries[0] as [string, any]
+    if (entries.length !== 1 || !cond || typeof cond !== 'object' || Object.keys(cond).join() !== 'equals') {
+      throw new Error(`payload-og-image test runtime: unsupported where clause ${JSON.stringify(where)}`)
+    }
+    return String(doc[field]) === String(cond.equals)
+  }
+
+  // The parts of Payload the production source touches: auth, find (the table above), collections, findGlobal.
   const fakePayload = {
-    config: { admin: { user: 'users' } },
+    config: { admin: { user: options.editors?.[0] ?? 'users' } },
     collections: Object.fromEntries(
       Object.entries(options.targets).map(([name, t]) => [t.collection ?? name, { config: { versions: { drafts: true } } }]),
     ),
     findGlobal: async ({ slug }: { slug: string }) => structuredClone(docs.globals?.[slug] ?? {}),
     auth: async ({ headers }: { headers: Headers }) => ({
-      user: headers.get('authorization') === EDITOR_AUTH ? { id: 1, collection: 'users' } : null,
+      user: headers.get('authorization') === EDITOR_AUTH ? { id: 1, collection: editorCollection } : null,
     }),
-    find: async (args: { collection: string; where: any; draft?: boolean }) => {
+    find: async (args: { collection: string; where: unknown; draft?: boolean }) => {
       const name = targetOfCollection(args.collection)
-      const slugField = options.targets[name]?.slugField ?? 'slug'
-      const clauses: any[] = args.where?.and ?? [args.where]
-      const key = clauses.find((c) => c && !('_status' in c))
-      const match = (d: Record<string, any>) => {
-        const [field, cond] = Object.entries(key)[0] as [string, { equals: unknown }]
-        return String(d[field === 'id' ? 'id' : slugField]) === String(cond.equals)
-      }
-      const pub = docs.published[name]?.find(match)
-      const dr = args.draft === true ? docs.drafts?.[name]?.find(match) : undefined
-      const found = dr ?? pub
-      return { docs: found ? [structuredClone({ ...found, _status: dr ? 'draft' : 'published' })] : [] }
+      const found = table(name, args.draft === true).filter((d) => matches(args.where, d))
+      return { docs: found.slice(0, 1).map((d) => structuredClone(d)) }
     },
   } as unknown as Payload
-
   const inner: Renderer =
     o.renderer === 'real'
       ? nextOgRenderer()

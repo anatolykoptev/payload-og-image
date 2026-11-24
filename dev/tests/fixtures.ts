@@ -15,6 +15,12 @@ export const docs: KitDocs = {
       ...Array.from({ length: 60 }, (_, i) => ({ id: 100 + i, slug: `cold-${i}`, title: `Cold ${i}` })),
     ],
   },
-  drafts: { posts: [{ id: 1, slug: 'a', title: 'Alpha, a draft' }] },
+  drafts: {
+    posts: [
+      { id: 1, slug: 'a', title: 'Alpha, a draft' },
+      // never published: it exists in the collection as a draft only
+      { id: 500, slug: 'unpublished', title: 'Not published yet' },
+    ],
+  },
   globals: { 'site-settings': { businessName: 'Dev Site' } },
 }

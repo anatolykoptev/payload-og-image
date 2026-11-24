@@ -6,7 +6,8 @@
  * - version.ts:83  drop props from the hashed array -> "version covers everything drawn" RED (the plan row "drop fontsDigest" cannot be RED here: the stub renderer draws no fonts; the unit test for fontsDigest is in version.spec)
  * - runtime.ts+metadata.ts:149  resolve from the doc the page passed (depth 0, hero a bare id) instead of re-reading -> "every indexable route has its own card" RED
  * - gate.ts:33  never throw ShedError -> "queue sheds" RED
- * - handler.ts:269  immutable for every version -> "stale v is short" RED */
+ * - handler.ts:269  immutable for every version -> "stale v is short" RED
+ * - payloadSource.ts:35  drop the `_status: published` filter from the published read -> "draft never cached" RED (a never-published post answers 200 to the public) */
 
 import { installTestRuntime, ogKit } from 'payload-og-image/testing'
 import { describe, it, vi } from 'vitest'
@@ -48,7 +49,8 @@ describe('dev app share cards', () => {
       }),
     }))
   it('configured paths match route files', () => kit.routesMatchPaths({ appDir: new URL('../app', import.meta.url).pathname }))
-  it('draft never cached', () => kit.draftNeverCached({ module: cardRoute, params: p('a'), target: 'posts', slug: 'a' }))
+  it('draft never cached', () =>
+    kit.draftNeverCached({ module: cardRoute, params: p('a'), target: 'posts', slug: 'a', draftOnly: 'unpublished' }))
   it('store hit skips render', () => kit.storeHitSkipsRender({ module: cardRoute, params: p('hero') }))
   it('queue sheds', () => kit.queueSheds({ module: cardRoute, paramsFor: (i) => p(`cold-${i}`) }))
   it('HEAD parity', () => kit.headParity({ module: cardRoute, params: p('a') }))
