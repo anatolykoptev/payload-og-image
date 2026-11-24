@@ -1,8 +1,7 @@
 import type { ReactElement } from 'react'
 import type { StaticCard, Target, Template, TemplateContext } from '../template.js'
 import { coveringFamily, fitText, type LoadedFont, type Stacks, stripMissing } from './fonts.js'
-import type { Gate } from './gate.js'
-import { ShedError } from './gate.js'
+import { createGate, type Gate, ShedError } from './gate.js'
 import type { Memo } from './memo.js'
 
 import { buildKindIndex, type GeneratedCard, MAX_SLUG, type ResolvedCard, type ResolveInput, resolveCard } from './resolve.js'
@@ -21,7 +20,7 @@ export type DocSource = {
    */
   site(request?: Request): Promise<SiteInfo>
 }
-export type HeroLoader = (hero: Upload, box: Size) => Promise<string | null>
+export type HeroLoader = (hero: Upload, box: Size, o?: { collection?: string }) => Promise<string | null>
 export type Renderer = { render(el: ReactElement, o: { width: number; height: number; fonts: LoadedFont[] }): Promise<Uint8Array> }
 export type HandlerDeps = {
   targets: Record<string, Target>
@@ -44,6 +43,8 @@ export type HandlerDeps = {
   fallback: Template<{ site: string }>
   /** Handed to a static card's `props`. */
   payload?: () => Promise<unknown>
+  /** Bounds the work done before a card is looked up in the memo or store (database reads, resolution). Default 16 + 128. */
+  admission?: Gate
 }
 export type RouteContext = { params: Promise<Record<string, string | undefined>> }
 
@@ -106,6 +107,7 @@ export function createCardHandler(d: HandlerDeps): CardHandler {
     statics.set(key, card)
   }
 
+  const admission = d.admission ?? createGate({ concurrency: 16, queue: 128 })
   const respond = (status: number, cache: string, extra: Record<string, string> = {}, body?: Uint8Array) =>
     new Response(body ? new Uint8Array(body) : null, {
       status,
@@ -148,7 +150,7 @@ export function createCardHandler(d: HandlerDeps): CardHandler {
   async function draw(card: GeneratedCard, fonts: LoadedFont[]) {
     const t0 = Date.now()
     // After the store miss and inside the gate: a cache hit pays for none of this.
-    const hero = card.hero ? await d.heroLoader(card.hero, card.template.heroBox ?? card.size) : null
+    const hero = card.hero ? await d.heroLoader(card.hero, card.template.heroBox ?? card.size, { collection: card.heroCollection }) : null
     const bytes = await d.renderer.render(card.template.render(card.props, ctxFor(fonts, hero)), { ...card.size, fonts })
     d.events.emit({ name: 'render', kind: card.key.kind, slug: card.key.slug, v: card.v, ms: Date.now() - t0, bytes: bytes.byteLength })
     return { bytes, downgraded: card.hero != null && hero == null }
@@ -227,23 +229,30 @@ export function createCardHandler(d: HandlerDeps): CardHandler {
         : undefined
     if (!target) return notFound()
 
-    const [{ fonts, digest }, site] = await Promise.all([d.fonts(), d.source.site(previewing ? request : undefined)])
-    // A draft-mode request must not reach the published-only memo/store paths, even if a lookup below fails.
-    const doc = staticCard
-      ? { slug }
-      : ((previewing ? await d.source.draft(targetName as string, { slug }, request) : null) ??
-        (await d.source.published(targetName as string, slug)))
-    if (!doc) return notFound()
+    // Pre-admission work (fonts, site, the document lookup, resolution) is bounded by its own small gate, separate from
+    // the render gate: a burst of distinct slugs cannot open unbounded database reads before anything is shed.
+    const prepared = await admission.run(async () => {
+      const [{ fonts, digest }, site] = await Promise.all([d.fonts(), d.source.site(previewing ? request : undefined)])
+      // A draft-mode request must not reach the published-only memo/store paths, even if a lookup below fails.
+      const doc = staticCard
+        ? { slug }
+        : ((previewing ? await d.source.draft(targetName as string, { slug }, request) : null) ??
+          (await d.source.published(targetName as string, slug)))
+      if (!doc) return null
 
-    const card = await cardFor({
-      target,
-      targetName: targetName ?? (staticCard as StaticCard).kind,
-      doc,
-      site,
-      fonts,
-      digest,
-      isStatic: staticCard !== undefined,
+      const card = await cardFor({
+        target,
+        targetName: targetName ?? (staticCard as StaticCard).kind,
+        doc,
+        site,
+        fonts,
+        digest,
+        isStatic: staticCard !== undefined,
+      })
+      return { card, fonts, digest, site, doc }
     })
+    if (!prepared) return notFound()
+    const { card, fonts, digest, site } = prepared
     if (card.kind !== 'generated') return notFound()
     if (card.missing.length)
       d.events.emit({ name: 'glyph_missing', kind: card.key.kind, slug: card.key.slug, detail: { chars: card.missing } })
@@ -258,7 +267,6 @@ export function createCardHandler(d: HandlerDeps): CardHandler {
       const requested = new URL(request.url).searchParams.get('v') // only picks the cache header, never a key
       const current = requested === card.v
       const cache = current ? CACHE.immutable : CACHE.short
-      if (current && etagMatches(request.headers.get('if-none-match'), card.v)) return respond(304, cache, type)
       const served: { source: 'memo' | 'store' | 'render' | 'downgraded' } = { source: 'memo' }
       const bytes = await d.memo
         .get(`${card.pageId}|${card.v}`, async () => {
@@ -289,6 +297,11 @@ export function createCardHandler(d: HandlerDeps): CardHandler {
       if (served.source !== 'render') {
         d.events.emit({ name: served.source === 'memo' ? 'hit_memo' : 'hit_store', kind: card.key.kind, slug: card.key.slug, v: card.v })
       }
+      // A 304 only now: the current bytes exist (memo, store or a render that just succeeded), so a revalidation can never
+      // pin a card that would have been downgraded, replaced by the fallback or shed.
+      if (current && etagMatches(request.headers.get('if-none-match'), card.v)) {
+        return respond(304, cache, { ...type, 'x-og-cache': served.source })
+      }
       return respond(200, cache, { ...type, 'x-og-cache': served.source }, bytes)
     } catch (error) {
       if (error instanceof ShedError) {
@@ -314,6 +327,10 @@ export function createCardHandler(d: HandlerDeps): CardHandler {
       return await serve(request, rc, previewing)
     } catch (error) {
       // Before a card existed (params, fonts, site, lookup, resolve): nothing may escape, nothing is cached.
+      if (error instanceof ShedError) {
+        d.events.emit({ name: 'shed' })
+        return unavailable()
+      }
       d.events.emit({ name: 'render_error', detail: { message: errMessage(error) } })
       return unavailable()
     }

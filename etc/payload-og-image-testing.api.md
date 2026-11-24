@@ -79,6 +79,7 @@ export type OgImagePluginOptions = {
     site(a: {
         payload: Payload;
         draft?: boolean;
+        user?: unknown;
     }): Promise<SiteInfo> | SiteInfo;
     siteGlobals?: string[];
     fonts: FontSpec[];
@@ -98,6 +99,11 @@ export type OgImagePluginOptions = {
         concurrency?: number;
         queue?: number;
     };
+    admission?: {
+        concurrency?: number;
+        queue?: number;
+    };
+    editors?: string[];
     memo?: {
         maxBytes?: number;
     };
@@ -126,6 +132,7 @@ export function ogKit(rt: TestRuntime): {
             module: RouteModule;
             params: Params;
         };
+        uploadPaths?: string[];
     }): Promise<void>;
     routesMatchPaths(a: {
         appDir: string;
@@ -159,6 +166,10 @@ export function ogKit(rt: TestRuntime): {
     versionCoversEverythingDrawn(a: {
         metadata: () => Promise<Metadata>;
         mutate: Array<() => void>;
+        cardRoute?: (url: URL) => {
+            module: RouteModule;
+            params: Params;
+        };
     }): Promise<void>;
     downgradeNotStored(a: {
         module: RouteModule;
@@ -242,6 +253,7 @@ export type Target<D = any, P = any> = {
     template: string | ((a: ResolverArgs<D>) => string);
     props: (a: ResolverArgs<D>) => P | Promise<P>;
     hero?: (a: ResolverArgs<D>) => Upload | null | undefined;
+    heroCollection?: string;
     share?: (a: ResolverArgs<D>) => unknown[];
     select?: Record<string, true>;
     depth?: number;
@@ -280,12 +292,18 @@ export type TestRuntime = {
     setGlobal(slug: string, data: Record<string, any>): void;
     setDoc(target: string, doc: Record<string, any>): void;
     draftMode(on: boolean, editor?: boolean): void;
+    requestHeaders(): Record<string, string>;
     renders(): number;
     heroLoads(): number;
     stored(): Array<{
         pageId: string;
         v: string;
     }>;
+    storeReads(): number;
+    gateStats(): {
+        active: number;
+        waiting: number;
+    };
     clearMemo(): void;
     clearCaches(): void;
     reset(): void;

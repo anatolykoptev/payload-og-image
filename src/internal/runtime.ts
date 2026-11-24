@@ -66,11 +66,16 @@ export function buildRuntime(state: OgState, payload: Payload, over: RuntimeOver
   const heroLoader =
     over.heroLoader ??
     payloadHeroLoader({
-      staticDirs: async () =>
-        Object.values(payload.collections).flatMap((c) => {
+      // Only the hero's own upload collection (`Target.heroCollection`) is ever read; with none named, the one upload collection if
+      // there is exactly one, else nothing.
+      staticDirs: async (collection) => {
+        const uploads = Object.entries(payload.collections).flatMap(([slug, c]) => {
           const up = c.config.upload
-          return up && typeof up === 'object' && typeof up.staticDir === 'string' ? [up.staticDir] : []
-        }),
+          return up && typeof up === 'object' && typeof up.staticDir === 'string' ? [{ slug, dir: up.staticDir }] : []
+        })
+        const own = collection === undefined ? (uploads.length === 1 ? uploads : []) : uploads.filter((u) => u.slug === collection)
+        return own.map((u) => u.dir)
+      },
       allowedHosts: o.allowedImageHosts,
     })
   const isDraftRequest =
@@ -95,6 +100,7 @@ export function buildRuntime(state: OgState, payload: Payload, over: RuntimeOver
       renderer,
       heroLoader,
       gate: state.gate,
+      admission: state.admission,
       memo: state.memo,
       events: state.events,
       isDraftRequest,

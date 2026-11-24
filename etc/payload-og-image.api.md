@@ -61,6 +61,7 @@ export type OgImagePluginOptions = {
     site(a: {
         payload: Payload;
         draft?: boolean;
+        user?: unknown;
     }): Promise<SiteInfo> | SiteInfo;
     siteGlobals?: string[];
     fonts: FontSpec[];
@@ -80,6 +81,11 @@ export type OgImagePluginOptions = {
         concurrency?: number;
         queue?: number;
     };
+    admission?: {
+        concurrency?: number;
+        queue?: number;
+    };
+    editors?: string[];
     memo?: {
         maxBytes?: number;
     };
@@ -154,6 +160,7 @@ export type Target<D = any, P = any> = {
     template: string | ((a: ResolverArgs<D>) => string);
     props: (a: ResolverArgs<D>) => P | Promise<P>;
     hero?: (a: ResolverArgs<D>) => Upload | null | undefined;
+    heroCollection?: string;
     share?: (a: ResolverArgs<D>) => unknown[];
     select?: Record<string, true>;
     depth?: number;

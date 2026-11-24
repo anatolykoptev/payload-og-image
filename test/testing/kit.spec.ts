@@ -1,25 +1,37 @@
 /** Mutation table (production line -> the test that goes RED). Each check must pass on a correct setup and fail on a site module the test breaks by hand.
- * - kit.ts:91  accept a page with no og:image -> "everyRouteHasOwnCard > rejects a metadata function that returns no image" RED
- * - kit.ts:118  do not require the advertised card to be immutable -> "rejects a card URL carrying ?v=wrong: it answers 1h, not immutable" RED
- * - kit.ts:104  allow two routes to share one card -> "rejects two routes sharing one card unless allowShared" RED
- * - kit.ts:97  accept an image with no alt -> same test RED
- * - kit.ts:167  never report a path/route mismatch -> "routesMatchPaths > rejects a route file ... naming both" RED
- * - kit.ts:247  ignore a HEAD status that differs -> "headParity > rejects a HEAD that answers a different status" RED
- * - kit.ts:253  ignore header differences -> "rejects a route module whose HEAD answers an empty 200" RED
- * - kit.ts:306  accept bytes that changed under an unchanged URL -> "versionCoversEverythingDrawn > rejects a template that draws module-level state" RED
- * - kit.ts:222  accept a queue that never sheds -> "queueSheds rejects a route that hides the shedding" RED
- * - kit.ts:179  accept a cacheable draft answer -> "draftNeverCached rejects a route that makes draft answers cacheable" RED
- * - kit.ts:265  accept an immutable stale version -> "staleVersionShort rejects a route that serves every version immutable" RED
- * - kit.ts:361  ignore the byte budget -> "sizeBudget rejects a card over the budget" RED
- * - kit.ts:344  ignore missing glyphs -> "glyphCoverage passes ... and rejects an emoji" RED
- * - kit.ts:353  measure sizes on the stub renderer -> "sizeBudget > passes within budget on the real renderer, and refuses to measure the stub renderer" RED
- * - kit.ts:359  count an error answer as a card -> "sizeBudget > does not count an error answer as a card" RED
- * - kit.ts:152  route files must equal configured paths literally -> "routesMatchPaths: a templated route file serves literal static-card paths" RED
- * - kit.ts:42  a static card's params from the URL only -> "the kit fetches a static card at a literal path of its own" RED
- * - kit.ts:109  wave a versioned URL at an unowned path through as an editor image -> "everyRouteHasOwnCard: a versioned URL at a path no card route owns" RED
- * - kit.ts:224  accept any positive shed count -> "queueSheds exact admission" RED
- * - runtime.ts:86  bypass the cached site() in the test runtime -> "the test runtime serves the CACHED site()" RED
- * - kit.ts:278  (requestVersionNeverStored probes run cold: covered by the dev spec's `request v never stored`, which goes RED when the handler stores under the request's ?v) */
+ * - kit.ts:103  accept a page with no og:image -> "everyRouteHasOwnCard > rejects a metadata function that returns no image" RED
+ * - kit.ts:134  do not require the advertised card to be immutable -> "rejects a card URL carrying ?v=wrong: it answers 1h, not immutable" RED
+ * - kit.ts:116  allow two routes to share one card -> "rejects two routes sharing one card unless allowShared" RED
+ * - kit.ts:109  accept an image with no alt -> same test RED
+ * - kit.ts:206  never report a path/route mismatch -> "routesMatchPaths > rejects a route file ... naming both" RED
+ * - kit.ts:326  ignore a HEAD status that differs -> "headParity > rejects a HEAD that answers a different status" RED
+ * - kit.ts:332  ignore header differences -> "rejects a route module whose HEAD answers an empty 200" RED
+ * - kit.ts:397  accept bytes that changed under an unchanged URL -> "versionCoversEverythingDrawn > rejects a template that draws module-level state" RED
+ * - kit.ts:301  accept a queue that never sheds -> "queueSheds rejects a route that hides the shedding" RED
+ * - kit.ts:227  accept a cacheable draft answer -> "draftNeverCached rejects a route that makes draft answers cacheable" RED
+ * - kit.ts:344  accept an immutable stale version -> "staleVersionShort rejects a route that serves every version immutable" RED
+ * - kit.ts:460  ignore the byte budget -> "sizeBudget rejects a card over the budget" RED
+ * - kit.ts:440  ignore missing glyphs -> "glyphCoverage passes ... and rejects an emoji" RED
+ * - kit.ts:449  measure sizes on the stub renderer -> "sizeBudget > passes within budget on the real renderer, and refuses to measure the stub renderer" RED
+ * - kit.ts:455  count an error answer as a card -> "sizeBudget > does not count an error answer as a card" RED
+ * - kit.ts:191  route files must equal configured paths literally -> "routesMatchPaths: a templated route file serves literal static-card paths" RED
+ * - kit.ts:43  a static card's params from the URL only -> "the kit fetches a static card at a literal path of its own" RED
+ * - kit.ts:121  wave a versioned URL at an unowned path through as an editor image -> "everyRouteHasOwnCard: a versioned URL at a path no card route owns" RED
+ * - kit.ts:303  accept any positive shed count -> "queueSheds exact admission" RED
+ * - runtime.ts:164  bypass the cached site() in the test runtime -> "the test runtime serves the CACHED site()" RED
+ * - kit.ts:278  (requestVersionNeverStored probes run cold: covered by the dev spec's `request v never stored`, which goes RED when the handler stores under the request's ?v)
+ * - kit.ts:238  an editor in draft mode gets the published card -> dev spec "draft never cached" RED (mutation: draft() returns nothing)
+ * - kit.ts:240  a draft-mode visitor without an editor gets the draft -> "draftNeverCached: ... rejects a route that gives an anonymous draft-mode visitor the editor's draft" RED
+ * - kit.ts:242  a draft preview served from a memo -> dev spec "draft never cached" RED (mutation: memo in the draft branch)
+ * - kit.ts:244  a draft preview reads the store -> dev spec "draft never cached" RED (mutation: store.get in the draft branch)
+ * - kit.ts:245  a draft preview writes the store -> dev spec "draft never cached" RED (mutation: store.put in the draft branch)
+ * - kit.ts:146  accept a non-PNG body -> "everyRouteHasOwnCard: an unrecognised URL fails..." RED
+ * - kit.ts:126  accept an unrecognised image URL -> same test RED
+ * - kit.ts:148  ignore the advertised width/height -> same test RED
+ * - kit.ts:371  a requestVersionNeverStored with no write -> "requestVersionNeverStored fails when no probe wrote anything" RED
+ * - kit.ts:417  (downgradeNotStored etag check) accept an etag on a downgraded card -> "downgradeNotStored rejects a downgraded card that carries an etag" RED
+ * - kit.ts:330  ignore content-length in HEAD parity -> "headParity rejects a HEAD whose content-length differs from GET" RED
+ * - kit.ts:458  measure a fallback body -> "sizeBudget refuses a fallback body" RED */
 import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
@@ -307,7 +319,10 @@ describe('checks tightened by review', () => {
     const rt = installTestRuntime(options({ static: statics }), docs())
     const app = await mkdtemp(path.join(os.tmpdir(), 'og-app-'))
     await mkdir(path.join(app, '(f)/og/[kind]/[slug]/card.png'), { recursive: true })
-    await writeFile(path.join(app, '(f)/og/[kind]/[slug]/card.png/route.ts'), 'createOgRoute')
+    await writeFile(
+      path.join(app, '(f)/og/[kind]/[slug]/card.png/route.ts'),
+      "import { createOgRoute } from 'payload-og-image/next'\nexport const GET = createOgRoute({ config: {} as never }).GET\n",
+    )
     await ogKit(rt).routesMatchPaths({ appDir: app })
     const { module, kit } = site(rt)
     const meta = async () => ogMetadata({ config: {} as never, static: 'blog' })
@@ -382,6 +397,167 @@ describe('queueSheds exact admission', () => {
       kit.queueSheds({ module: stingy, paramsFor: (i) => p(`cold-${i}`) }),
       /expected exactly 3 .*the queue admits the wrong number/,
     )
+  })
+})
+
+describe('checks tightened after the second review', () => {
+  const passThrough = (
+    module: { GET: (r: Request, c: any) => Promise<Response> },
+    f: (res: Response, r: Request) => Response | Promise<Response>,
+  ) => ({
+    GET: async (r: Request, c: any) => f(await module.GET(r, c), r),
+  })
+  it('everyRouteHasOwnCard: a metadata call site that drops the version (the URL without ?v=) is rejected', async () => {
+    const rt = installTestRuntime(options(), docs())
+    const { module, kit, meta } = site(rt)
+    const dropsV = async () => {
+      const m = await meta(1)()
+      const image = (m.openGraph as any).images[0]
+      const url = String(image.url).split('?')[0]
+      return { openGraph: { images: [{ ...image, url }] }, twitter: { card: 'summary_large_image', images: [{ url }] } }
+    }
+    await reject(
+      kit.everyRouteHasOwnCard({ routes: [{ path: '/posts/a', metadata: dropsV as never }], cardRoute: cardRoute(module) }),
+      /answers 1h, not immutable/,
+    )
+  })
+  it('everyRouteHasOwnCard: an unrecognised URL fails, an upload path is accepted, and a card must decode at the advertised size', async () => {
+    const rt = installTestRuntime(options(), docs(), { renderer: 'real' })
+    const { module, kit, meta } = site(rt)
+    const img = (url: string) => async () => ({
+      openGraph: { images: [{ url, width: 1200, height: 630, type: 'image/jpeg', alt: 'x' }] },
+      twitter: { card: 'summary_large_image', images: [{ url }] },
+    })
+    await reject(
+      kit.everyRouteHasOwnCard({
+        routes: [{ path: '/p', metadata: img('https://example.test/somewhere/else.jpg') as never }],
+        cardRoute: cardRoute(module),
+      }),
+      /neither a configured card route nor an upload path/,
+    )
+    await kit.everyRouteHasOwnCard({
+      routes: [{ path: '/p', metadata: img('https://example.test/media/own.jpg') as never }],
+      cardRoute: cardRoute(module),
+    })
+    await kit.everyRouteHasOwnCard({ routes: [{ path: '/p', metadata: meta(1) }], cardRoute: cardRoute(module) }) // a real card: 1200x630, decodable
+    const garbage = passThrough(module, (res) => new Response('not a png', { status: 200, headers: res.headers }))
+    await reject(
+      kit.everyRouteHasOwnCard({ routes: [{ path: '/p', metadata: meta(1) }], cardRoute: cardRoute(garbage) }),
+      /does not serve a decodable image/,
+    )
+    const jpeg = passThrough(
+      module,
+      async (res) =>
+        new Response(
+          new Uint8Array(
+            await (await import('sharp'))
+              .default({ create: { width: 1200, height: 630, channels: 3, background: '#000' } })
+              .jpeg()
+              .toBuffer(),
+          ),
+          { status: 200, headers: res.headers },
+        ),
+    )
+    await reject(
+      kit.everyRouteHasOwnCard({ routes: [{ path: '/p', metadata: meta(1) }], cardRoute: cardRoute(jpeg) }),
+      /serves a jpeg, not a PNG/,
+    )
+    const smaller = passThrough(
+      module,
+      async (res) =>
+        new Response(
+          new Uint8Array(
+            await (await import('sharp'))
+              .default({ create: { width: 10, height: 10, channels: 3, background: '#000' } })
+              .png()
+              .toBuffer(),
+          ),
+          { status: 200, headers: res.headers },
+        ),
+    )
+    await reject(
+      kit.everyRouteHasOwnCard({ routes: [{ path: '/p', metadata: meta(1) }], cardRoute: cardRoute(smaller) }),
+      /is 10x10 but og:image says 1200x630/,
+    )
+  })
+  it("draftNeverCached: needs a draft fixture, and rejects a route that gives an anonymous draft-mode visitor the editor's draft", async () => {
+    const rt = installTestRuntime(options(), docs())
+    const { module, kit } = site(rt)
+    await reject(kit.draftNeverCached({ module, params: p('b'), target: 'posts', slug: 'b' }), /no draft fixture for posts\/b/)
+    // a site that forwards the editor credential to every draft-mode request
+    const leaky = { GET: (r: Request, c: any) => module.GET(new Request(r, { headers: { authorization: 'JWT kit-editor' } }), c) }
+    await reject(
+      kit.draftNeverCached({ module: leaky, params: p('a'), target: 'posts', slug: 'a' }),
+      /without an editor did not get the published card/,
+    )
+  })
+  it('routesMatchPaths: parameter names must match, a comment is not a route, and the file must export GET', async () => {
+    const rt = installTestRuntime(options(), docs())
+    const mk = async (rel: string, source: string) => {
+      const app = await mkdtemp(path.join(os.tmpdir(), 'og-app-'))
+      await mkdir(path.join(app, rel), { recursive: true })
+      await writeFile(path.join(app, rel, 'route.ts'), source)
+      return app
+    }
+    const good = "import { createOgRoute } from 'payload-og-image/next'\nexport const GET = createOgRoute({ config: {} as never }).GET\n"
+    await reject(
+      ogKit(rt).routesMatchPaths({ appDir: await mk('og/[kind]/[id]/card.png', good) }),
+      /declares \/og\/:kind\/:slug\/card\.png, but no route file/,
+    )
+    await reject(
+      ogKit(rt).routesMatchPaths({
+        appDir: await mk('og/[kind]/[slug]/card.png', '// createOgRoute({ config })\nexport const GET = () => new Response()\n'),
+      }),
+      /no route file exporting GET through createOgRoute/,
+    )
+    await reject(
+      ogKit(rt).routesMatchPaths({
+        appDir: await mk(
+          'og/[kind]/[slug]/card.png',
+          "import { createOgRoute } from 'payload-og-image/next'\nconst route = createOgRoute({ config: {} as never })\nexport const POST = route.GET\n",
+        ),
+      }),
+      /no route file exporting GET/,
+    )
+    await ogKit(rt).routesMatchPaths({ appDir: await mk('og/[kind]/[slug]/card.png', good) })
+  })
+  it('requestVersionNeverStored fails when no probe wrote anything (nothing would have been checked)', async () => {
+    const rt = installTestRuntime(options(), docs())
+    const { kit } = site(rt)
+    // biome-ignore lint/correctness/noComponentHookFactories: GET is a route-module export name, not a component
+    const never = { GET: async () => new Response('x', { status: 200, headers: { etag: '"aaaaaaaaaaaa"' } }) }
+    await reject(kit.requestVersionNeverStored({ module: never, params: p('a') }), /no probe caused a store write/)
+  })
+  it('downgradeNotStored rejects a downgraded card that carries an etag', async () => {
+    const rt = installTestRuntime(options(), docs())
+    const { module, kit } = site(rt)
+    const etagged = passThrough(module, (res) => {
+      const h = new Headers(res.headers)
+      h.set('etag', '"aaaaaaaaaaaa"')
+      return new Response(res.body, { status: res.status, headers: h })
+    })
+    await reject(kit.downgradeNotStored({ module: etagged, params: p('hero-missing-file') }), /carries an etag/)
+  })
+  it('headParity rejects a HEAD whose content-length differs from GET', async () => {
+    const rt = installTestRuntime(options(), docs())
+    const { module, kit } = site(rt)
+    const HEAD = async (r: Request, c: any) => {
+      const res = await module.GET(r, c)
+      const h = new Headers(res.headers)
+      h.set('content-length', '1')
+      return new Response(null, { status: res.status, headers: h })
+    }
+    await reject(kit.headParity({ module: { ...module, HEAD }, params: p('a') }), /header "content-length" differs/)
+  })
+  it('sizeBudget refuses a fallback body', async () => {
+    const rt = installTestRuntime(options(), docs(), { renderer: 'real' })
+    const { module, kit } = site(rt)
+    const fb = passThrough(module, (res) => {
+      const h = new Headers(res.headers)
+      h.set('x-og-cache', 'fallback')
+      return new Response(res.body, { status: res.status, headers: h })
+    })
+    await reject(kit.sizeBudget({ module: fb, params: [p('a')], maxBytes: 100_000 }), /answered as "fallback", not as a card/)
   })
 })
 

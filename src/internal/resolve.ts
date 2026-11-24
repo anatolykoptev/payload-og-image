@@ -13,6 +13,8 @@ export type GeneratedCard = {
   template: Template<any>
   props: any
   hero: Upload | null
+  /** The upload collection the hero is read from (the target's `heroCollection`). */
+  heroCollection: string | undefined
   alt: string
   url: string
   size: Size
@@ -172,6 +174,7 @@ export async function resolveCard(i: ResolveInput): Promise<ResolvedCard> {
     template,
     props,
     hero,
+    heroCollection: i.target.heroCollection,
     alt: typeof props.label === 'string' && props.label !== '' ? `${props.label}: ${cardTitle}` : cardTitle,
     url: `${i.serverUrl.replace(/\/+$/, '')}${cardPath(i.target, i.targetName, slug)}?v=${v}`,
     size: template.size,

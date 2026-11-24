@@ -11,6 +11,18 @@ export function createOgRoute(o: { config: Promise<SanitizedConfig> | SanitizedC
   GET(r: Request, c: RouteContext): Promise<Response>
 } {
   return {
-    GET: async (r, c) => (await getRuntime(o.config)).handler(o.target).GET(r, c),
+    GET: async (r, c) => {
+      let rt: Awaited<ReturnType<typeof getRuntime>> | undefined
+      try {
+        rt = await getRuntime(o.config)
+        return await rt.handler(o.target).GET(r, c)
+      } catch (error) {
+        // The plugin missing, Payload failing to start, or a pinned target that is not configured: never an uncaught 500.
+        const detail = { message: `route: ${String((error as Error)?.message ?? error)}` }
+        if (rt) rt.emit({ name: 'render_error', detail })
+        else console.warn(`[payload-og] event=render_error detail=${JSON.stringify(detail).replace(/[^\x20-\x7e]/g, '?')}`)
+        return new Response('Service unavailable', { status: 503, headers: { 'cache-control': 'no-store', 'retry-after': '5' } })
+      }
+    },
   }
 }

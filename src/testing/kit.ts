@@ -1,6 +1,7 @@
 import { readdir, readFile } from 'node:fs/promises'
 import path from 'node:path'
 import type { Metadata } from 'next'
+import sharp from 'sharp'
 import { missingGlyphs } from '../internal/fonts.js'
 import { CACHE, type RouteContext } from '../internal/handler.js'
 import type { TestRuntime } from './runtime.js'
@@ -49,10 +50,15 @@ function paramsOf(rt: TestRuntime, url: URL): { params: Params; fixedTarget?: st
 }
 
 /** Draws the card at an advertised URL through the runtime's own handler. */
-async function fetchCard(rt: TestRuntime, url: string): Promise<Response> {
-  const found = paramsOf(rt, new URL(url))
+async function fetchCard(rt: TestRuntime, url: string, route?: (url: URL) => { module: RouteModule; params: Params }): Promise<Response> {
+  const u = new URL(url)
+  if (route) {
+    const { module, params } = route(u)
+    return module.GET(new Request(url, { headers: rt.requestHeaders() }), ctx(params))
+  }
+  const found = paramsOf(rt, u)
   if (!found) return fail('fetch', `"${url}" does not match any configured card path`)
-  return rt.runtime.handler(found.fixedTarget).GET(new Request(url), ctx(found.params))
+  return rt.runtime.handler(found.fixedTarget).GET(new Request(url, { headers: rt.requestHeaders() }), ctx(found.params))
 }
 
 const imagesOf = (m: Metadata) => {
@@ -71,18 +77,24 @@ export function ogKit(rt: TestRuntime) {
     const base = urlOf(p)
     const req = new Request(o.v === undefined ? base : `${base}?v=${encodeURIComponent(o.v)}`, {
       method: o.method ?? 'GET',
-      headers: o.headers,
+      // The editor credential, when the runtime is in editor mode: the production auth path decides what it means.
+      headers: { ...rt.requestHeaders(), ...o.headers },
     })
     const fn = o.fn === 'HEAD' ? (m.HEAD ?? m.GET) : m.GET
     return fn(req, ctx(p))
   }
   const etagOf = (r: Response) => (r.headers.get('etag') ?? '').replaceAll('"', '')
+  const uploadPrefixes = (a: { uploadPaths?: string[] }) => a.uploadPaths ?? ['/api/media/file/', '/media/']
 
   return {
-    /** Every indexable route advertises a complete image of its own, and a generated one is served immutable at that exact URL. */
+    /**
+     * Every advertised image is either a recognised card route (fetched: 200, the declared type, immutable, a decodable PNG of
+     * the advertised width and height) or an upload the site serves (`uploadPaths`). Anything else fails.
+     */
     async everyRouteHasOwnCard(a: {
       routes: IndexableRoute[]
       cardRoute: (url: URL) => { module: RouteModule; params: Params }
+      uploadPaths?: string[]
     }): Promise<void> {
       const seen = new Map<string, string>()
       for (const route of a.routes) {
@@ -105,13 +117,17 @@ export function ogKit(rt: TestRuntime) {
         seen.set(url, route.path)
         const u = new URL(url)
         if (!paramsOf(rt, u)) {
-          // A versioned URL (`?v=<12 hex>`) is a generated card's shape: it must match a configured path, not slip through as an editor's image.
+          // A versioned URL (`?v=<12 hex>`) is a generated card's shape: it must match a configured path, not slip through as an upload.
           if (/[?&]v=[0-9a-f]{12}(&|$)/.test(u.search))
             fail('everyRouteHasOwnCard', `${route.path}: ${url} looks like a generated card but matches no configured card path`)
-          continue // an editor's own image: shared as it is, nothing for the route to serve
+          if (uploadPrefixes(a).some((prefix) => u.pathname.startsWith(prefix))) continue // an upload the site serves, shared as it is
+          fail(
+            'everyRouteHasOwnCard',
+            `${route.path}: ${url} is neither a configured card route nor an upload path (${uploadPrefixes(a).join(', ')}): a crawler would fetch a URL nothing owns`,
+          )
         }
         const { module, params } = a.cardRoute(u)
-        const res = await module.GET(new Request(url), ctx(params))
+        const res = await module.GET(new Request(url, { headers: rt.requestHeaders() }), ctx(params))
         if (res.status !== 200) fail('everyRouteHasOwnCard', `${route.path}: ${url} answers ${res.status}`)
         if (res.headers.get('content-type') !== image.type)
           fail('everyRouteHasOwnCard', `${route.path}: ${url} serves ${res.headers.get('content-type')}, declared ${image.type}`)
@@ -121,10 +137,24 @@ export function ogKit(rt: TestRuntime) {
             `${route.path}: the advertised ${url} answers ${res.headers.get('cache-control')} (answers 1h, not immutable): the page links a version the route does not serve as current`,
           )
         }
+        let decoded: { format?: string; width?: number; height?: number }
+        try {
+          decoded = await sharp(await bytesOf(res)).metadata()
+        } catch {
+          return fail('everyRouteHasOwnCard', `${route.path}: ${url} does not serve a decodable image`)
+        }
+        if (decoded.format !== 'png') fail('everyRouteHasOwnCard', `${route.path}: ${url} serves a ${decoded.format}, not a PNG`)
+        // The stub renderer draws 8x8 cards: only the real renderer can honour the advertised size.
+        if (rt.rendererKind === 'real' && (decoded.width !== image.width || decoded.height !== image.height)) {
+          fail(
+            'everyRouteHasOwnCard',
+            `${route.path}: ${url} is ${decoded.width}x${decoded.height} but og:image says ${image.width}x${image.height}`,
+          )
+        }
       }
     },
 
-    /** The route files in `appDir` that call `createOgRoute` are exactly the configured card paths. */
+    /** The route files in `appDir` that export GET and call `createOgRoute` are exactly the configured card paths, parameter names included. */
     async routesMatchPaths(a: { appDir: string }): Promise<void> {
       const files: string[] = []
       const walk = async (dir: string) => {
@@ -142,24 +172,33 @@ export function ogKit(rt: TestRuntime) {
           .filter((seg) => !/^\(.*\)$/.test(seg))
           .map((seg) => seg.replace(/^\[\.\.\.(.+)\]$/, ':$1').replace(/^\[(.+)\]$/, ':$1'))
           .join('/')}`
+      // Parse what the file exports and calls, with comments removed: a mention in a comment or a string is not a route.
+      const isCardRoute = (source: string) => {
+        const code = source.replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, '')
+        const exportsGet = /export\s+(?:const|let|var)\s+GET\b|export\s+(?:async\s+)?function\s+GET\b|export\s*\{[^}]*\bGET\b[^}]*\}/.test(
+          code,
+        )
+        return exportsGet && /\bcreateOgRoute\s*\(/.test(code)
+      }
       const routes = new Map<string, string>()
-      for (const f of files) if ((await readFile(f, 'utf8')).includes('createOgRoute')) routes.set(fromFile(f), f)
+      for (const f of files) if (isCardRoute(await readFile(f, 'utf8'))) routes.set(fromFile(f), f)
       const configured = new Map<string, string>()
       for (const [n, t] of Object.entries(rt.options.targets)) configured.set(t.path, `target "${n}"`)
       for (const [n, s] of Object.entries(rt.options.static ?? {})) configured.set(s.path, `static card "${n}"`)
-      // A route file path may be a template (`/og/:kind/:slug/card.png`) that serves several literal configured paths.
+      // A route file path may be a template that serves several LITERAL configured paths (any value in a `:param` segment); a
+      // configured path that is itself a template must be served by a route with the very same parameter names.
       const asRegex = (route: string) => new RegExp(`^${route.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/:[A-Za-z]+/g, '[^/]+')}$`)
-      const servedBy = (configuredPath: string) => [...routes.keys()].some((r) => r === configuredPath || asRegex(r).test(configuredPath))
-      const declaredFor = (route: string) => [...configured.keys()].some((c) => c === route || asRegex(route).test(c))
+      const matches = (route: string, configuredPath: string) =>
+        route === configuredPath || (!configuredPath.includes(':') && asRegex(route).test(configuredPath))
       const problems: string[] = []
       for (const [p, who] of configured) {
-        if (!servedBy(p))
+        if (![...routes.keys()].some((r) => matches(r, p)))
           problems.push(
-            `${who} declares ${p}, but no route file calling createOgRoute serves it (route files: ${[...routes.keys()].join(', ') || 'none'})`,
+            `${who} declares ${p}, but no route file exporting GET through createOgRoute serves it (route files: ${[...routes.keys()].join(', ') || 'none'})`,
           )
       }
       for (const [p, f] of routes) {
-        if (!declaredFor(p))
+        if (![...configured.keys()].some((c) => matches(p, c)))
           problems.push(
             `the route file ${path.relative(a.appDir, f)} serves ${p}, which no target or static card declares (declared: ${[...configured.keys()].join(', ')})`,
           )
@@ -167,13 +206,22 @@ export function ogKit(rt: TestRuntime) {
       if (problems.length > 0) fail('routesMatchPaths', problems.join('; '))
     },
 
-    /** A draft-mode request is never cached or stored, and never changes what the published card is. */
+    /**
+     * A draft-mode request is never cached or stored and never changes the published card: an editor gets the draft's pixels, a
+     * draft-mode request without an editor gets the published pixels, and neither touches the memo or the store.
+     */
     async draftNeverCached(a: { module: RouteModule; params: Params; target: string; slug: string }): Promise<void> {
+      if (!rt.docs.drafts?.[a.target]?.some((d) => d.slug === a.slug)) {
+        fail(
+          'draftNeverCached',
+          `no draft fixture for ${a.target}/${a.slug}: add one to docs.drafts so an editor's card can differ from the published one`,
+        )
+      }
       rt.reset()
       const warm = await call(a.module, a.params)
       const published = await bytesOf(warm)
-      const stored = rt.stored().length
-      for (const editor of [true, false]) {
+      const base = { reads: rt.storeReads(), writes: rt.stored().length, renders: rt.renders() }
+      const preview = async (editor: boolean) => {
         rt.draftMode(true, editor)
         const r = await call(a.module, a.params)
         if (r.headers.get('cache-control') !== 'no-store' || r.headers.get('x-og-cache') !== 'draft') {
@@ -182,9 +230,19 @@ export function ogKit(rt: TestRuntime) {
             `a draft-mode request (editor: ${editor}) answered cache-control "${r.headers.get('cache-control')}", x-og-cache "${r.headers.get('x-og-cache')}"; expected no-store and draft`,
           )
         }
-        await r.arrayBuffer()
+        return bytesOf(r)
       }
-      if (rt.stored().length !== stored) fail('draftNeverCached', 'a draft-mode request put a card in the store')
+      const editorBody = await preview(true)
+      const editorAgain = await preview(true)
+      const anonBody = await preview(false)
+      if (same(editorBody, published)) fail('draftNeverCached', 'an editor in draft mode got the PUBLISHED card, not the draft')
+      if (!same(editorBody, editorAgain)) fail('draftNeverCached', 'two identical editor previews differ')
+      if (!same(anonBody, published))
+        fail('draftNeverCached', 'a draft-mode request without an editor did not get the published card: draft words reached a visitor')
+      if (rt.renders() - base.renders !== 3)
+        fail('draftNeverCached', `3 draft-mode requests rendered ${rt.renders() - base.renders} times: one was served from a memo`)
+      if (rt.storeReads() !== base.reads) fail('draftNeverCached', 'a draft-mode request read the store')
+      if (rt.stored().length !== base.writes) fail('draftNeverCached', 'a draft-mode request put a card in the store')
       rt.draftMode(false)
       const after = await call(a.module, a.params)
       if (!same(published, await bytesOf(after)) || etagOf(after) !== etagOf(warm))
@@ -207,24 +265,45 @@ export function ogKit(rt: TestRuntime) {
         fail('storeHitSkipsRender', 'a store hit prepared the hero again (asset work must come after the cache check)')
     },
 
-    /** More cold requests than the gate and its queue hold are answered 503 with Retry-After, and the rest still succeed. */
+    /**
+     * More cold requests than the gate and its queue hold: exactly the excess is answered 503 with Retry-After, the rest succeed.
+     * No sleeps: renders are held until the gate reports itself full and every excess request has been answered.
+     */
     async queueSheds(a: { module: RouteModule; paramsFor: (i: number) => Params }): Promise<void> {
       rt.reset()
       const { concurrency = 2, queue = 50 } = rt.options.gate ?? {}
       const total = concurrency + queue + 3
+      const expectedShed = total - concurrency - queue
       const release = rt.holdRenders()
-      const pending = Array.from({ length: total }, (_, i) => call(a.module, a.paramsFor(i)))
-      await new Promise((r) => setTimeout(r, 50))
+      let answered = 0
+      const pending = Array.from({ length: total }, (_, i) =>
+        call(a.module, a.paramsFor(i)).then((r) => {
+          answered += 1
+          return r
+        }),
+      )
+      const until = async (cond: () => boolean, what: string) => {
+        for (const end = Date.now() + 10_000; !cond(); ) {
+          if (Date.now() > end)
+            fail('queueSheds', `timed out waiting for ${what} (gate ${JSON.stringify(rt.gateStats())}, ${answered} answered)`)
+          await new Promise((r) => setImmediate(r))
+        }
+      }
+      // The gate is full and every excess request has been answered: nothing more can change before the release.
+      await until(
+        () => rt.gateStats().active === concurrency && rt.gateStats().waiting === queue && answered >= expectedShed,
+        'the gate to fill and the excess to be shed',
+      )
       release()
       const results = await Promise.all(pending)
       const shed = results.filter((r) => r.status === 503)
       const ok = results.filter((r) => r.status === 200)
       if (shed.length === 0)
         fail('queueSheds', `${total} cold requests (gate ${concurrency}, queue ${queue}) and none was shed: the queue is unbounded`)
-      if (shed.length !== total - concurrency - queue) {
+      if (shed.length !== expectedShed) {
         fail(
           'queueSheds',
-          `${shed.length} of ${total} requests were shed, expected exactly ${total - concurrency - queue} (gate ${concurrency}, queue ${queue}): the queue admits the wrong number`,
+          `${shed.length} of ${total} requests were shed, expected exactly ${expectedShed} (gate ${concurrency}, queue ${queue}): the queue admits the wrong number`,
         )
       }
       if (shed.some((r) => r.headers.get('retry-after') !== '5' || r.headers.get('cache-control') !== 'no-store'))
@@ -236,7 +315,7 @@ export function ogKit(rt: TestRuntime) {
         )
     },
 
-    /** HEAD answers like GET: same status and headers, no body (Next drops the body of a HEAD answer). */
+    /** HEAD answers like GET (the module's own HEAD export, or what Next derives from GET): same status and headers, Content-Length included when present, no body. */
     async headParity(a: { module: RouteModule; params: Params }): Promise<void> {
       rt.reset()
       await (await call(a.module, a.params)).arrayBuffer() // warm: the cache state is then the same for both
@@ -248,7 +327,7 @@ export function ogKit(rt: TestRuntime) {
         fail('headParity', `HEAD answers ${head.status}, GET ${get.status}: link-preview crawlers HEAD an og:image first`)
       const names = new Set([...get.headers.keys(), ...head.headers.keys()])
       names.delete('date')
-      names.delete('content-length') // a HEAD response may legitimately omit the body length it would have had
+      if (!head.headers.has('content-length')) names.delete('content-length') // a HEAD answer may omit it; when present it must equal GET's
       for (const n of names) {
         if (get.headers.get(n) !== head.headers.get(n))
           fail('headParity', `header "${n}" differs: GET "${get.headers.get(n)}", HEAD "${head.headers.get(n)}"`)
@@ -275,28 +354,40 @@ export function ogKit(rt: TestRuntime) {
     async requestVersionNeverStored(a: { module: RouteModule; params: Params }): Promise<void> {
       rt.reset()
       const current = etagOf(await call(a.module, a.params))
+      let probesThatWrote = 0
       // Every probe starts cold: only a render that happens WITH a client-chosen ?v can store under it.
       for (const v of ['abcdef012345', '0123456789ab', 'attacker0000', '../../etc']) {
         rt.reset()
         await (await call(a.module, a.params, { v })).arrayBuffer()
-        const bad = rt.stored().filter((s) => s.v !== current)
+        const written = rt.stored()
+        if (written.length > 0) probesThatWrote += 1
+        const bad = written.filter((s) => s.v !== current)
         if (bad.length > 0)
           fail(
             'requestVersionNeverStored',
             `?v=${v} made the store hold version(s) ${bad.map((b) => b.v).join(', ')} that the server never derived (current is ${current})`,
           )
       }
+      if (probesThatWrote === 0)
+        fail('requestVersionNeverStored', 'no probe caused a store write, so nothing was checked (does the card render at all?)')
     },
 
-    /** Whatever changes the card's bytes also changes the advertised URL. */
-    async versionCoversEverythingDrawn(a: { metadata: () => Promise<Metadata>; mutate: Array<() => void> }): Promise<void> {
+    /** Whatever changes the card's bytes also changes the advertised URL. With `cardRoute` the card is fetched through the site's route module. */
+    async versionCoversEverythingDrawn(a: {
+      metadata: () => Promise<Metadata>
+      mutate: Array<() => void>
+      cardRoute?: (url: URL) => { module: RouteModule; params: Params }
+    }): Promise<void> {
       rt.reset()
       const snapshot = async () => {
         const url = String(imagesOf(await a.metadata())[0]?.url ?? '')
         if (!url) return fail('versionCoversEverythingDrawn', 'the page advertises no image')
         rt.clearCaches() // a cold render of the CURRENT documents, not a cached one
-        const res = await fetchCard(rt, url)
+        const res = await fetchCard(rt, url, a.cardRoute)
         if (res.status !== 200) return fail('versionCoversEverythingDrawn', `${url} answered ${res.status}, not a card`)
+        const source = res.headers.get('x-og-cache')
+        if (source === 'fallback' || source === 'downgraded')
+          return fail('versionCoversEverythingDrawn', `${url} was answered as "${source}", not as a card`)
         return { url, bytes: await bytesOf(res) }
       }
       let before = await snapshot()
@@ -313,7 +404,7 @@ export function ogKit(rt: TestRuntime) {
       }
     },
 
-    /** A card drawn without its hero (an unreadable file) is served briefly, flagged, and never stored or remembered. */
+    /** A card drawn without its hero (an unreadable file) is served briefly, flagged, with no etag, and never stored or remembered. */
     async downgradeNotStored(a: { module: RouteModule; params: Params }): Promise<void> {
       rt.reset()
       const current = etagOf(await call(a.module, a.params))
@@ -326,6 +417,11 @@ export function ogKit(rt: TestRuntime) {
             `a card without its hero answered x-og-cache "${r.headers.get('x-og-cache')}", cache-control "${r.headers.get('cache-control')}"; expected downgraded and "${CACHE.degraded}" (does the document's hero filename start with "missing"?)`,
           )
         }
+        if (r.headers.has('etag'))
+          fail(
+            'downgradeNotStored',
+            'a downgraded card carries an etag: a cache could revalidate it into a 304 that pins it as the current card',
+          )
         await r.arrayBuffer()
       }
       if (rt.stored().length > 0) fail('downgradeNotStored', 'a downgraded card was put in the store')
@@ -346,7 +442,7 @@ export function ogKit(rt: TestRuntime) {
       }
     },
 
-    /** Cards stay within a byte budget. */
+    /** Cards stay within a byte budget (measured on real cards: not the stub renderer, not an error or fallback body). */
     async sizeBudget(a: { module: RouteModule; params: Params[]; maxBytes: number }): Promise<void> {
       rt.reset()
       for (const p of a.params) {
@@ -357,6 +453,9 @@ export function ogKit(rt: TestRuntime) {
           )
         const res = await call(a.module, p)
         if (res.status !== 200) fail('sizeBudget', `${JSON.stringify(p)} answered ${res.status}, not a card`)
+        const source = res.headers.get('x-og-cache')
+        if (source === 'fallback' || source === 'downgraded')
+          fail('sizeBudget', `${JSON.stringify(p)} was answered as "${source}", not as a card: its size says nothing about the real card`)
         const size = (await bytesOf(res)).byteLength
         if (size > a.maxBytes) fail('sizeBudget', `${JSON.stringify(p)} is ${size} bytes, over the budget of ${a.maxBytes}`)
       }
