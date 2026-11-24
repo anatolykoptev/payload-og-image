@@ -2,16 +2,22 @@ import type { OgEvent, OnEvent } from './types.js'
 
 const HIT_SAMPLE = 100
 
+/** One printable-ASCII token: a request-derived value (a slug) can never add a line or a field to the log. */
+const token = (v: string | number, allowSpace = false): string =>
+  String(v)
+    .replace(allowSpace ? /[^\x20-\x7e]/g : /[^\x21-\x7e]/g, '?')
+    .slice(0, 200)
+
 function defaultSink(e: OgEvent, count: number): void {
   // Cache hits are the common case: log the first and then every 100th.
   if (e.name.startsWith('hit_') && count % HIT_SAMPLE !== 1) return
   const parts = [`event=${e.name}`]
-  if (e.kind !== undefined) parts.push(`kind=${e.kind}`)
-  if (e.slug !== undefined) parts.push(`slug=${e.slug}`)
-  if (e.v !== undefined) parts.push(`v=${e.v}`)
+  if (e.kind !== undefined) parts.push(`kind=${token(e.kind)}`)
+  if (e.slug !== undefined) parts.push(`slug=${token(e.slug)}`)
+  if (e.v !== undefined) parts.push(`v=${token(e.v)}`)
   if (e.ms !== undefined) parts.push(`ms=${Math.round(e.ms)}`)
   if (e.bytes !== undefined) parts.push(`bytes=${e.bytes}`)
-  if (e.detail !== undefined) parts.push(`detail=${JSON.stringify(e.detail)}`)
+  if (e.detail !== undefined) parts.push(`detail=${token(JSON.stringify(e.detail), true)}`)
   console.warn(`[payload-og] ${parts.join(' ')}`)
 }
 

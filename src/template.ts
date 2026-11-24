@@ -77,6 +77,8 @@ export type Target<D = any, P = any> = {
   template: string | ((a: ResolverArgs<D>) => string)
   props: (a: ResolverArgs<D>) => P | Promise<P>
   hero?: (a: ResolverArgs<D>) => Upload | null | undefined
+  /** The upload collection the hero belongs to. A hero file is read only from that collection's folder; with one upload collection it may be omitted. */
+  heroCollection?: string
   /** Candidate uploads shared as they are, in order, before a card is generated. */
   share?: (a: ResolverArgs<D>) => unknown[]
   select?: Record<string, true>

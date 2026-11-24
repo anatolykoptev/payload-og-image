@@ -42,6 +42,14 @@ describe('createEventSink', () => {
     createEventSink().emit({ name: 'render', kind: 'posts', slug: 'a', v: 'abc', ms: 12.4 })
     expect(warn).toHaveBeenCalledWith('[payload-og] event=render kind=posts slug=a v=abc ms=12')
   })
+  it('a request-derived value cannot add a line or a field to the default log', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    createEventSink().emit({ name: 'render_error', kind: 'posts', slug: 'a\nevent=forged x=1', detail: { message: 'bad\r\nline' } })
+    const line = warn.mock.calls[0]?.[0] as string
+    expect(line).not.toMatch(/[\r\n]/)
+    expect(line).toContain('slug=a?event=forged?x=1')
+    expect(line.match(/event=/g)).toHaveLength(2) // the real one and the neutered text inside slug=...
+  })
   it('samples cache hits (first, then every 100th) but logs every other event', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
     const sink = createEventSink()

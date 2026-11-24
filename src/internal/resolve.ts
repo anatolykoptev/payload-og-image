@@ -13,6 +13,8 @@ export type GeneratedCard = {
   template: Template<any>
   props: any
   hero: Upload | null
+  /** The upload collection the hero is read from (the target's `heroCollection`). */
+  heroCollection: string | undefined
   alt: string
   url: string
   size: Size
@@ -67,8 +69,12 @@ const isPlainObject = (v: unknown): v is Record<string, unknown> => {
   return proto === Object.prototype || proto === null
 }
 
+/** A card key (slug) longer than this is no document of ours: the route refuses it, so a page must not advertise it either. */
+export const MAX_SLUG = 256
+
 /** `.` and `..` as a whole path segment are resolved away by every URL parser (even as %2E), so they cannot key a route. */
-const routable = (slug: string | undefined) => (slug === '.' || slug === '..' ? undefined : slug)
+const routable = (slug: string | undefined) =>
+  slug === undefined || slug === '.' || slug === '..' || slug.length > MAX_SLUG ? undefined : slug
 
 const nonEmpty = (v: unknown): string | undefined => {
   const s = typeof v === 'string' ? v.trim() : typeof v === 'number' ? String(v) : ''
@@ -148,7 +154,7 @@ export async function resolveCard(i: ResolveInput): Promise<ResolvedCard> {
   }
   if (template.required && !template.required(props as never)) return { kind: 'none' }
 
-  const slug = routable(nonEmpty(getPath(i.doc, i.target.slugField ?? 'slug'))) ?? routable(nonEmpty(i.doc.id))
+  const slug = routable(nonEmpty(getPath(i.doc, i.target.slugField ?? 'slug')))
   if (slug === undefined) return { kind: 'none' }
   const key = { kind: i.target.kind ?? i.targetName, slug }
   const v = cardVersion({
@@ -168,6 +174,7 @@ export async function resolveCard(i: ResolveInput): Promise<ResolvedCard> {
     template,
     props,
     hero,
+    heroCollection: i.target.heroCollection,
     alt: typeof props.label === 'string' && props.label !== '' ? `${props.label}: ${cardTitle}` : cardTitle,
     url: `${i.serverUrl.replace(/\/+$/, '')}${cardPath(i.target, i.targetName, slug)}?v=${v}`,
     size: template.size,
