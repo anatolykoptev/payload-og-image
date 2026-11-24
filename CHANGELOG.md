@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.3](https://github.com/anatolykoptev/payload-og-image/compare/v0.1.2...v0.1.3) (2026-11-24)
+
+
+### Bug Fixes
+
+* **release:** every release is published as latest ([#21](https://github.com/anatolykoptev/payload-og-image/issues/21)) ([9a90c3f](https://github.com/anatolykoptev/payload-og-image/commit/9a90c3fe05c5c3e38be5bb742f44ae2b39c8eca2))
+
 ## [0.1.2](https://github.com/anatolykoptev/payload-og-image/compare/v0.1.1...v0.1.2) (2026-11-24)
 
 
