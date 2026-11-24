@@ -45,6 +45,7 @@ export default buildConfig({
           template: 'post',
           props: ({ doc, site }) => ({ label: 'Blog', title: doc.title, site: site.name }),
           hero: ({ doc }) => doc.heroImage,
+          heroCollection: 'media', // the upload collection the hero lives in
         },
       },
       store: { dir: '/var/lib/app/og-cards' }, // an absolute path on a volume only the app writes; `{ memory: true }` for tests

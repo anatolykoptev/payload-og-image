@@ -26,6 +26,7 @@
     "dist",
     "!dist/**/*.map",
     "docs",
+    "!docs/INDEX.md",
     "NOTICE"
   ],
   "main": "./dist/exports/index.js",
