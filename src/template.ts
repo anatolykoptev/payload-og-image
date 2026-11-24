@@ -1,5 +1,6 @@
 import type { ReactElement } from 'react'
 import type { Box } from './internal/fonts.js'
+import { MAX_SIDE } from './internal/limits.js'
 import type { SiteInfo, Size, Upload } from './internal/types.js'
 
 export type { Box }
@@ -58,7 +59,16 @@ export function defineTemplate<P extends PropsModel>(t: Omit<Template<P>, 'size'
   if (typeof t.id !== 'string' || t.id.trim() === '') throw new Error('payload-og-image: a template needs a non-empty id')
   if (typeof t.revision !== 'string') throw new Error(`payload-og-image: template "${t.id}" needs a string revision`)
   const size = t.size ?? DEFAULT_SIZE
-  if (!(Number.isInteger(size.width) && size.width > 0 && Number.isInteger(size.height) && size.height > 0)) {
+  if (
+    !(
+      Number.isInteger(size.width) &&
+      size.width > 0 &&
+      size.width <= MAX_SIDE &&
+      Number.isInteger(size.height) &&
+      size.height > 0 &&
+      size.height <= MAX_SIDE
+    )
+  ) {
     throw new Error(`payload-og-image: template "${t.id}" has an invalid size`)
   }
   return { ...t, size }
