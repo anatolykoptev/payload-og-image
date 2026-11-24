@@ -58,9 +58,12 @@ ogImagePlugin({ /* ... */, fields: { enabled: true } }) // the group sits in the
 ogImagePlugin({ /* ... */, fields: { enabled: true, position: 'tab' } }) // a "Share card" tab instead
 ```
 
-To place the group yourself, call `ogFields()` and leave `fields` off, for example inside plugin-seo:
-`seoPlugin({ fields: ({ defaultFields }) => [...defaultFields, ...ogFields()] })`. A collection that already
-carries an `og` field is not given a second one.
+To place the group yourself, call `ogFields()` and leave `fields` off. The group must be named `og` and must sit at
+the top level of the document: directly in the collection's `fields`, or inside a row, a collapsible or an unnamed
+tab. The plugin reads `doc.og` only. An `og` nested under a named group (such as `meta`), an array or a named tab is
+never read, so the plugin warns at start-up and, with `fields` on, still adds the top-level group. A collection that
+already has a top-level `og` is not given a second one. If it has its own `og` group with a `mode` field, the
+plugin reads that on upgrade: rename yours first if its values differ from `inherit`, `generated`, `custom`, `off`.
 
 | `og.mode`               | What the page advertises                                                                |
 | ----------------------- | --------------------------------------------------------------------------------------- |
@@ -76,7 +79,7 @@ when empty, and they change a card only when its `props` reads them:
 ```ts
 defineTarget({
   // ...
-  props: ({ doc, overrides, site }) => ({ title: overrides.headline ?? doc.title, subtitle: overrides.subtitle, site: site.name }),
+  props: ({ doc, overrides, site }) => ({ title: overrides?.headline ?? doc.title, subtitle: overrides?.subtitle, site: site.name }),
 })
 ```
 
@@ -85,6 +88,8 @@ headline gets its own URL. A target that sets `select` keeps `og` selected witho
 
 **Migration.** The new fields are columns. After enabling `fields` (or placing `ogFields()`), each site runs
 `payload migrate:create` and ships the migration with the plugin bump; the plugin does not migrate for you.
+Postgres limits an enum name to 63 characters; the select's is `enum_<collection>_og_mode`, so for a long collection
+slug set `dbName` on the `mode` field of the group you place (or shorten the slug).
 
 ## Related documents
 

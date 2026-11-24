@@ -236,8 +236,8 @@ export type RelatedFn = (collection: string, id: string | number) => Promise<Rec
 export type ResolverArgs<D> = {
     doc: D;
     site: SiteInfo;
-    related: RelatedFn;
-    overrides: OgOverrides;
+    related: RelatedFn; /** Always given by the resolver; optional so that a test calling `target.props({ doc, site, related })` by hand still compiles. */
+    overrides?: OgOverrides;
 };
 
 // @public (undocumented)

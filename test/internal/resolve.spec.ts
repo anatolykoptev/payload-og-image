@@ -200,7 +200,7 @@ describe('resolveCard', () => {
     const b = await base()
     const t = defineTarget<any, any>({
       ...posts,
-      props: ({ doc, site, overrides }) => ({ title: overrides.headline ?? doc.title, label: 'Blog', site: site.name }),
+      props: ({ doc, site, overrides }) => ({ title: overrides?.headline ?? doc.title, label: 'Blog', site: site.name }),
     })
     const plain = await resolveCard({ ...b, target: t, doc: { id: 1, slug: 'a', title: 'A' } })
     const over = await resolveCard({ ...b, target: t, doc: { id: 1, slug: 'a', title: 'A', og: { headline: 'B' } } })

@@ -53,7 +53,7 @@ export type OgImagePluginOptions = {
   /**
    * Adds the per-document `og` group (mode, headline, subtitle) to each target's collection. Off by default: the schema
    * is then exactly what it was without the option. Enabling it changes the database schema, so run `payload migrate:create`
-   * in the site. `position` is `sidebar` (default) or `tab` (a "Share card" tab). To place the group yourself, use `ogFields()`.
+   * in the site. `position` is `sidebar` (default) or `tab` (a "Share card" tab). To place the group yourself, use `ogFields()` (top level, named `og`).
    */
   fields?: OgFieldsOption
   /** Every card route answers 404 and no metadata is produced. */

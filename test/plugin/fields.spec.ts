@@ -2,11 +2,12 @@
  * - fields.ts:63  add the group even when `fields.enabled` is false -> "disabled: the schema is exactly 0.1" RED
  * - fields.ts:67  touch a collection that is not a target -> "only target collections get the group" RED
  * - fields.ts:67  add the group twice (no `has og` check) -> "a collection that already carries og is left alone" RED
+ * - fields.ts:82  let carriesOg descend into named groups -> "og is a top-level field: an og nested under a named group is not already there" RED
  * - payloadSource.ts:39  leave `og` out of the select -> "a target select always keeps og" RED
  * - index.ts:131  accept `fields.position` other than sidebar/tab -> "refuses a fields.position that is neither" RED */
 import { readFile } from 'node:fs/promises'
 import type { Config } from 'payload'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { type OgImagePluginOptions, ogFields, ogImagePlugin } from '../../src/plugin/index.js'
 import { buildFind } from '../../src/plugin/payloadSource.js'
 import { defineTarget, defineTemplate } from '../../src/template.js'
@@ -103,6 +104,42 @@ describe('fields option', () => {
     ;(tabbed.collections as any[])[0].fields.push({ type: 'tabs', tabs: [{ label: 'SEO', fields: ogFields() }] })
     const after = fieldsOf(apply(options({ fields: { enabled: true } }), tabbed), 'posts')
     expect(JSON.stringify(after).match(/"name":"og"/g)).toHaveLength(1)
+  })
+  it('og is a top-level field: an og nested under a named group is not "already there"', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const cfg = baseConfig()
+    ;(cfg.collections as any[])[0].fields.push({ type: 'group', name: 'meta', fields: [...ogFields()] })
+    const after = fieldsOf(apply(options({ fields: { enabled: true } }), cfg), 'posts')
+    expect(after.at(-1)).toMatchObject({ type: 'group', name: 'og' })
+    expect(warn).toHaveBeenCalledTimes(1)
+    expect(String(warn.mock.calls[0]?.[0])).toMatch(/"posts".*"meta\.og"/)
+    warn.mockRestore()
+  })
+  it('an og under a named tab, an array or a block is nested too; an unnamed tab, a row and a collapsible are not', () => {
+    const nested = (f: unknown) => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      const cfg = baseConfig()
+      ;(cfg.collections as any[])[0].fields.push(f)
+      const out = fieldsOf(apply(options({ fields: { enabled: true } }), cfg), 'posts')
+      const n = warn.mock.calls.length
+      warn.mockRestore()
+      return { n, added: out.length - (cfg.collections as any[])[0].fields.length }
+    }
+    const og = ogFields()
+    expect(nested({ type: 'tabs', tabs: [{ name: 'seo', fields: og }] })).toEqual({ n: 1, added: 1 })
+    expect(nested({ type: 'array', name: 'xs', fields: og })).toEqual({ n: 1, added: 1 })
+    expect(nested({ type: 'blocks', name: 'bs', blocks: [{ slug: 'b', fields: og }] })).toEqual({ n: 1, added: 1 })
+    expect(nested({ type: 'tabs', tabs: [{ label: 'SEO', fields: og }] })).toEqual({ n: 0, added: 0 })
+    expect(nested({ type: 'row', fields: og })).toEqual({ n: 0, added: 0 })
+    expect(nested({ type: 'collapsible', label: 'C', fields: og })).toEqual({ n: 0, added: 0 })
+  })
+  it('hand placement with fields off still warns about a nested og', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const cfg = baseConfig()
+    ;(cfg.collections as any[])[0].fields.push({ type: 'group', name: 'meta', fields: ogFields() })
+    apply(options(), cfg)
+    expect(warn).toHaveBeenCalledTimes(1)
+    warn.mockRestore()
   })
   it('never adds a collection, a global, an endpoint or a job', () => {
     const before = baseConfig()
