@@ -30,7 +30,7 @@ export type OgImagePluginOptions = {
   /** Characters every stack must draw, checked at start-up. Default `Aa’‘“”–—…`. */
   requiredSample?: string
   onEvent?: OnEvent
-  /** Emit a `crawler` event for one request in `sample` (default off). */
+  /** Emit a `crawler` event for this fraction of card requests (0 < sample <= 1, e.g. 0.1). Default off. */
   crawlerEvents?: { sample: number }
   brand?: { ink?: string; paper?: string }
   /** Every card route answers 404 and no metadata is produced. */
@@ -99,7 +99,11 @@ function validate(o: OgImagePluginOptions, config: Config): string {
   if (store?.dir !== undefined && (typeof store.dir !== 'string' || !path.isAbsolute(store.dir)))
     fail('options.store.dir must be an absolute path (there is no working-directory default)')
   createGate(o.gate) // validates concurrency and queue
-  if (o.crawlerEvents) assertInt('crawlerEvents.sample', o.crawlerEvents.sample, 1)
+  if (o.crawlerEvents) {
+    const sample = o.crawlerEvents.sample
+    if (typeof sample !== 'number' || !(sample > 0 && sample <= 1))
+      fail(`crawlerEvents.sample must be a fraction above 0 and at most 1, got ${String(sample)}`)
+  }
   for (const host of o.allowedImageHosts ?? [])
     if (typeof host !== 'string' || host === '' || /[/:@\s]/.test(host))
       fail(`allowedImageHosts entry "${String(host)}" must be a bare hostname`)

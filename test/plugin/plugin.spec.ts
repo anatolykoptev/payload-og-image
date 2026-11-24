@@ -3,12 +3,13 @@
  * - index.ts:75  accept a target on a missing collection -> "3: a target whose collection does not exist throws" RED
  * - index.ts:76  accept an unknown template -> "2: a target naming an unknown template throws" RED
  * - index.ts:79  skip the duplicate-kind check -> "4: two targets with the same kind throw" RED
- * - index.ts:122  drop the existing afterChange hooks -> "5: siteGlobals get an afterChange hook ... after the existing hooks" RED
- * - index.ts:127  add a field to a collection -> "6: the plugin is schema-neutral" RED
- * - index.ts:146  skip the glyph self-test -> "throws outside production when a stack cannot draw the sample" RED
- * - index.ts:155  always throw, even in production -> "in production it logs through the event sink instead of throwing" RED
- * - index.ts:131  run the self-test when disabled -> "7: disabled keeps the config valid and runs no start-up checks" RED
- * - index.ts:99  accept a relative store dir -> "refuses a relative store dir" RED */
+ * - index.ts:126  drop the existing afterChange hooks -> "5: siteGlobals get an afterChange hook ... after the existing hooks" RED
+ * - index.ts:131  add a field to a collection -> "6: the plugin is schema-neutral" RED
+ * - index.ts:150  skip the glyph self-test -> "throws outside production when a stack cannot draw the sample" RED
+ * - index.ts:159  always throw, even in production -> "in production it logs through the event sink instead of throwing" RED
+ * - index.ts:135  run the self-test when disabled -> "7: disabled keeps the config valid and runs no start-up checks" RED
+ * - index.ts:99  accept a relative store dir -> "refuses a relative store dir" RED
+ * - index.ts:104  accept a crawler sample outside (0, 1] -> "refuses a crawler sample of 0 / above 1 / NaN" RED */
 import { readFile } from 'node:fs/promises'
 import type { Config } from 'payload'
 import { describe, expect, it, vi } from 'vitest'
@@ -120,7 +121,9 @@ describe('ogImagePlugin: config transform', () => {
     ['both stores', { store: { dir: '/x', memory: true } as never }, /exactly one of/],
     ['a relative store dir', { store: { dir: 'cards' } }, /absolute path/],
     ['a bad gate', { gate: { concurrency: 0 } }, /gate concurrency/],
-    ['a bad crawler sample', { crawlerEvents: { sample: 0 } }, /crawlerEvents\.sample/],
+    ['a crawler sample of 0', { crawlerEvents: { sample: 0 } }, /crawlerEvents\.sample/],
+    ['a crawler sample above 1', { crawlerEvents: { sample: 2 } }, /crawlerEvents\.sample/],
+    ['a NaN crawler sample', { crawlerEvents: { sample: Number.NaN } }, /crawlerEvents\.sample/],
     ['a url as an image host', { allowedImageHosts: ['https://cdn.test'] }, /bare hostname/],
     ['a css injection as a brand colour', { brand: { ink: 'red; background:url(x)' } }, /brand\.ink/],
     [

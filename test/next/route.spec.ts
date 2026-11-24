@@ -1,9 +1,10 @@
 /** Mutation table (production line -> the test that goes RED). Silent-failure surface: a route that answers for the wrong target, a HEAD that is not GET's twin, a log that forges lines.
- * - runtime.ts:124  build the crawler wrapper per request (its counter never reaches `sample`) -> "crawlerEvents: one request in `sample` becomes a crawler event" RED
- * - runtime.ts:78  accept an unconfigured pinned target -> "a pinned target that is not configured fails" RED
- * - runtime.ts:53  ignore `disabled` -> "disabled: every card route answers 404 no-store" RED
+ * - runtime.ts:130  build the crawler wrapper per request (its counter never reaches `sample`) -> "crawlerEvents: one request in `sample` becomes a crawler event" RED
+ * - runtime.ts:84  accept an unconfigured pinned target -> "a pinned target that is not configured fails" RED
+ * - runtime.ts:59  ignore `disabled` -> "disabled: every card route answers 404 no-store" RED
  * - withHead.ts:13  leave the body un-cancelled -> "keeps a non-200 status ... cancels the body unread" RED
- * - withHead.ts:12  run the wrapped GET with the request's own method -> "answers HEAD from GET ... the GET copy is a GET" RED */
+ * - withHead.ts:12  run the wrapped GET with the request's own method -> "answers HEAD from GET ... the GET copy is a GET" RED
+ * - runtime.ts:40  emit a crawler event for every request (ignore the sample fraction) -> "a `sample` fraction of requests becomes a crawler event" RED */
 import { getPayload, type Payload } from 'payload'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { buildRuntime, getRuntime, setTestRuntime } from '../../src/internal/runtime.js'
@@ -102,9 +103,9 @@ describe('createOgRoute', () => {
     expect([r.status, r.headers.get('cache-control')]).toEqual([404, 'no-store'])
     expect(await rt.resolveForMetadata({ target: 'posts', id: 1 })).toEqual({ kind: 'none' })
   })
-  it('crawlerEvents: one request in `sample` becomes a crawler event naming the bot family, never the raw user agent', async () => {
+  it('crawlerEvents: a `sample` fraction of requests becomes a crawler event naming the bot family, never the raw user agent', async () => {
     const events: Array<{ name: string; detail?: Record<string, unknown> }> = []
-    runtime({ crawlerEvents: { sample: 2 }, onEvent: (e) => events.push(e) })
+    runtime({ crawlerEvents: { sample: 0.5 }, onEvent: (e) => events.push(e) })
     const route = createOgRoute({ config: {} as never })
     for (const ua of ['LinkedInBot/1.0 (+https://secret.example/contact)', 'Mozilla/5.0 weird', 'facebookexternalhit/1.1', 'x']) {
       const { req, ctx } = get('https://x.test/og/posts/a/card.png', 'a', 'posts')
@@ -112,7 +113,8 @@ describe('createOgRoute', () => {
     }
     const crawler = events.filter((e) => e.name === 'crawler')
     expect(crawler).toHaveLength(2)
-    expect(crawler.map((e) => e.detail?.bot)).toEqual(['other', 'other'])
+    expect(crawler.map((e) => e.detail?.ua_family)).toEqual(['other', 'other'])
+    expect(crawler[0]?.detail).toMatchObject({ method: 'GET', status: 200, cache: expect.stringMatching(/^(memo|render|store)$/) })
     expect(JSON.stringify(crawler)).not.toContain('secret.example')
   })
   it('crawlerEvents names the known bot families, lower-cased', async () => {
@@ -123,7 +125,7 @@ describe('createOgRoute', () => {
       const { req, ctx } = get('https://x.test/og/posts/a/card.png', 'a', 'posts')
       await route.GET(new Request(req, { headers: { 'user-agent': ua } }), ctx)
     }
-    expect(events.filter((e) => e.name === 'crawler').map((e) => e.detail?.bot)).toEqual([
+    expect(events.filter((e) => e.name === 'crawler').map((e) => e.detail?.ua_family)).toEqual([
       'linkedinbot',
       'twitterbot',
       'facebookexternalhit',
