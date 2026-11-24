@@ -1,16 +1,20 @@
 /** Mutation table (production line -> the test that goes RED). Silent-failure surface: a wrong card advertised, a stale URL, a colliding key.
- * - resolve.ts:96     drop `!sameUpload(seo, rawHero)`                     -> "3: an editor image that is the hero itself does not override the card" RED
- * - resolve.ts:96    drop the `isDeliberate` check                        -> "7: isDeliberate returning false is not shared" RED
- * - resolve.ts:98    ignore `target.share()`                              -> "6: share() returning an eligible photo is shared as is" RED
- * - resolve.ts:113    skip stripMissing                                    -> "10: a title with an emoji" RED
- * - resolve.ts:118 skip `template.required`                             -> "9: a blank title advertises nothing" RED
- * - resolve.ts:94     hash the raw hero (not only a usable upload)         -> "a hero without a file is no part of the version" RED
- * - resolve.ts:129     leave `host` out of the version                      -> "the host is part of the version" RED
- * - resolve.ts:120     use the raw slug even when blank                     -> "a blank slug falls back to the id" RED
- * - resolve.ts:71   do not encodeURIComponent path values               -> "11: cardPath encodes the key" RED
- * - resolve.ts:80     allow two targets with one kind                      -> "12: buildKindIndex throws on a duplicate kind" RED
- * - resolve.ts:110  fall back to an empty stack silently                 -> "a text field with no font stack throws" RED */
-import { describe, expect, it } from 'vitest'
+ * - resolve.ts:116  drop `!sameUpload(seo, rawHero)` -> "3: an editor image that is the hero itself does not override the card" RED
+ * - resolve.ts:116  drop the `isDeliberate` check -> "7: isDeliberate returning false is not shared" RED
+ * - resolve.ts:119  ignore `target.share()` -> "6: share() returning an eligible photo is shared as is" RED; call it eagerly -> "does not call share() when the editor image already wins" RED
+ * - resolve.ts:140  skip stripMissing -> "10: a title with an emoji ..." RED
+ * - resolve.ts:145  skip `template.required` -> "9: a blank title advertises nothing" RED
+ * - resolve.ts:114  hash the raw hero object -> "a hero without a file is no part of the version" RED
+ * - resolve.ts:156  leave `host` out of the version -> "the host is part of the version" RED
+ * - resolve.ts:155  leave the stacks out of the version -> "reordering a font stack is a new version" RED
+ * - resolve.ts:126  accept any props() result -> "props() must return a plain object" RED
+ * - resolve.ts:71  allow `.`/`..` as a slug -> "a slug that is a dot segment cannot key a route" RED
+ * - resolve.ts:147  use the raw slug even when blank -> "a blank slug falls back to the id" RED
+ * - resolve.ts:90  no encodeURIComponent -> "11: cardPath encodes the key" RED
+ * - resolve.ts:96  plain-object index -> "a target named like an Object.prototype member is not a duplicate of itself" RED
+ * - resolve.ts:100  allow two targets with one kind -> "12: buildKindIndex throws on a duplicate kind" RED
+ * - resolve.ts:137  fall back to an empty stack silently -> "a text field with no font stack throws" RED */
+import { describe, expect, it, vi } from 'vitest'
 import { buildKindIndex, cardPath, resolveCard } from '../../src/internal/resolve.js'
 import { defineTarget, defineTemplate } from '../../src/template.js'
 import { loadTestFonts } from '../helpers.js'
@@ -180,6 +184,36 @@ describe('resolveCard', () => {
     const r = await resolveCard({ ...(await base()), doc: { id: 1, slug: 'a', title: { root: {} }, meta: { image: noAlt } } })
     expect(r).toMatchObject({ kind: 'own', image: { alt: '' } })
   })
+  it('reordering a font stack is a new version (the stack picks the family that draws the title)', async () => {
+    const doc = { id: 1, slug: 'a', title: 'A' }
+    const a = await generated({ doc, stacks: { title: ['Inter', 'Archivo'] } })
+    const b = await generated({ doc, stacks: { title: ['Archivo', 'Inter'] } })
+    expect(b.v).not.toBe(a.v)
+    expect((await generated({ doc, stacks: { title: ['Inter', 'Archivo'] } })).v).toBe(a.v)
+  })
+  it('props() must return a plain object', async () => {
+    for (const bad of [new Date(0), null, [1], 'x']) {
+      const target = defineTarget<any, any>({ ...posts, props: () => bad })
+      await expect(resolveCard({ ...(await base()), target, doc: { id: 1, slug: 'a', title: 'A' } })).rejects.toThrow(
+        /props\(\) must return a plain object/,
+      )
+    }
+  })
+  it('does not call share() when the editor image already wins', async () => {
+    const share = vi.fn(() => [])
+    const target = defineTarget<any, any>({ ...posts, share })
+    const r = await resolveCard({ ...(await base()), target, doc: { id: 1, slug: 'a', title: 'A', meta: { image: jpeg } } })
+    expect(r.kind).toBe('own')
+    expect(share).not.toHaveBeenCalled()
+  })
+  it('a slug that is a dot segment cannot key a route: the id is used, and with no id nothing is advertised', async () => {
+    for (const dots of ['.', '..']) {
+      const r = await generated({ doc: { id: 3, slug: dots, title: 'A' } })
+      expect(r.key.slug).toBe('3')
+      expect(r.url).toContain('/og/posts/3/card.png')
+    }
+    expect((await resolveCard({ ...(await base()), doc: { slug: '..', title: 'A' } })).kind).toBe('none')
+  })
   it('a trailing slash on the server URL does not double up', async () => {
     const r = await generated({ serverUrl: 'https://x.test/', doc: { id: 1, slug: 'a', title: 'A' } })
     expect(r.url.startsWith('https://x.test/og/')).toBe(true)
@@ -189,6 +223,10 @@ describe('resolveCard', () => {
 describe('buildKindIndex', () => {
   it('maps kinds to target names, defaulting the kind to the name', () => {
     expect(buildKindIndex({ posts, pages: { ...posts, kind: 'page' } })).toEqual({ posts: 'posts', page: 'pages' })
+  })
+  it('a target named like an Object.prototype member is not a duplicate of itself', () => {
+    expect(buildKindIndex({ constructor: posts })).toEqual({ constructor: 'constructor' })
+    expect(Object.keys(buildKindIndex(JSON.parse('{"__proto__": {"path":"/x/:slug","template":"t"}}')))).toEqual(['__proto__'])
   })
   it('12: throws on a duplicate kind, naming both targets', () => {
     expect(() => buildKindIndex({ posts: { ...posts, kind: 'post' }, pages: { ...posts, kind: 'post' } })).toThrow(

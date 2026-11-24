@@ -67,6 +67,9 @@ export function defineTarget<D, P>(t: Target<D, P>): Target<D, P> {
   if (!/:(slug|id)\b/.test(t.path)) {
     throw new Error(`payload-og-image: target path "${t.path}" has no :slug or :id, so every document would share one card URL`)
   }
+  if (t.kind !== undefined && !/^[A-Za-z0-9_~-][A-Za-z0-9._~-]*$/.test(t.kind)) {
+    throw new Error(`payload-og-image: target kind "${t.kind}" must be one URL-safe path segment`)
+  }
   return t
 }
 

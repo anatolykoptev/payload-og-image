@@ -1,8 +1,9 @@
+import { createHash } from 'node:crypto'
 import type { Target, Template } from '../template.js'
-import { firstShareImage, type ShareImage } from './eligible.js'
+import { firstShareImage, type ShareImage, shareImageOf } from './eligible.js'
 import { type LoadedFont, type Stacks, stripMissing } from './fonts.js'
 import type { CardKey, SiteInfo, Size, Upload } from './types.js'
-import { cardVersion, pageId } from './version.js'
+import { canonicalJson, cardVersion, pageId } from './version.js'
 
 export type GeneratedCard = {
   kind: 'generated'
@@ -60,10 +61,28 @@ const usableHero = (h: unknown): Upload | null =>
     ? (h as Upload)
     : null
 
+const isPlainObject = (v: unknown): v is Record<string, unknown> => {
+  if (v === null || typeof v !== 'object') return false
+  const proto = Object.getPrototypeOf(v)
+  return proto === Object.prototype || proto === null
+}
+
+/** `.` and `..` as a whole path segment are resolved away by every URL parser (even as %2E), so they cannot key a route. */
+const routable = (slug: string | undefined) => (slug === '.' || slug === '..' ? undefined : slug)
+
 const nonEmpty = (v: unknown): string | undefined => {
   const s = typeof v === 'string' ? v.trim() : typeof v === 'number' ? String(v) : ''
   return s === '' ? undefined : s
 }
+
+/**
+ * The face digest plus the stack order. Which family draws a title depends on the stacks, so reordering them
+ * must change every card URL just as swapping a font file does.
+ */
+const fontsKey = (digest: string, stacks: Stacks) =>
+  createHash('sha256')
+    .update(`${digest}\n${canonicalJson(stacks)}`)
+    .digest('hex')
 
 /** `/og/:kind/:slug/card.png` filled in. A single pass, so a value that contains `:slug` is never expanded again. */
 export function cardPath(target: Target, targetName: string, slug: string): string {
@@ -73,14 +92,15 @@ export function cardPath(target: Target, targetName: string, slug: string): stri
 
 /** kind -> target name. Two targets sharing a kind would share card URLs and store keys, so it throws. */
 export function buildKindIndex(targets: Record<string, Target>): Record<string, string> {
-  const index: Record<string, string> = {}
+  // A Map, then own properties: a target called `constructor` or `__proto__` must not collide with Object.prototype.
+  const index = new Map<string, string>()
   for (const [name, t] of Object.entries(targets)) {
     const kind = t.kind ?? name
-    const other = index[kind]
+    const other = index.get(kind)
     if (other !== undefined) throw new Error(`payload-og-image: targets "${other}" and "${name}" share the kind "${kind}"`)
-    index[kind] = name
+    index.set(kind, name)
   }
-  return index
+  return Object.fromEntries(index)
 }
 
 /**
@@ -95,13 +115,20 @@ export async function resolveCard(i: ResolveInput): Promise<ResolvedCard> {
   const seo = i.seoImage ? getPath(i.doc, i.seoImage.path) : undefined
   const editor = seo != null && (i.seoImage?.isDeliberate?.(seo) ?? true) && !sameUpload(seo, rawHero) ? seo : undefined
   const title = typeof i.doc.title === 'string' ? i.doc.title.trim() : ''
-  const own = firstShareImage([editor, ...(i.target.share?.(args) ?? [])], i.serverUrl)
+  // The editor's image wins without asking the target for alternatives (and without running its code).
+  const own = shareImageOf(editor, i.serverUrl) ?? firstShareImage(i.target.share?.(args) ?? [], i.serverUrl)
   if (own) return { kind: 'own', image: { ...own, alt: own.alt ?? title } }
 
   const templateId = typeof i.target.template === 'function' ? i.target.template(args) : i.target.template
   const template = i.templates.get(templateId)
   if (!template) throw new Error(`payload-og-image: target "${i.targetName}" names unknown template "${templateId}"`)
-  const props: Record<string, any> = { ...(await i.target.props(args)) }
+  const given: unknown = await i.target.props(args)
+  if (!isPlainObject(given)) {
+    throw new Error(
+      `payload-og-image: target "${i.targetName}" props() must return a plain object, got ${given === null ? 'null' : typeof given}`,
+    )
+  }
+  const props: Record<string, any> = { ...given }
   const missing: string[] = []
   for (const field of template.textFields ?? []) {
     if (typeof props[field] !== 'string') continue
@@ -117,7 +144,7 @@ export async function resolveCard(i: ResolveInput): Promise<ResolvedCard> {
   }
   if (template.required && !template.required(props as never)) return { kind: 'none' }
 
-  const slug = nonEmpty(getPath(i.doc, i.target.slugField ?? 'slug')) ?? nonEmpty(i.doc.id)
+  const slug = routable(nonEmpty(getPath(i.doc, i.target.slugField ?? 'slug'))) ?? routable(nonEmpty(i.doc.id))
   if (slug === undefined) return { kind: 'none' }
   const key = { kind: i.target.kind ?? i.targetName, slug }
   const v = cardVersion({
@@ -125,7 +152,7 @@ export async function resolveCard(i: ResolveInput): Promise<ResolvedCard> {
     templateRevision: template.revision,
     props,
     heroes: hero ? [hero] : [],
-    fontsDigest: i.fontsDigest,
+    fontsDigest: fontsKey(i.fontsDigest, i.stacks),
     host: i.host,
   })
   const cardTitle = typeof props.title === 'string' ? props.title : ''
