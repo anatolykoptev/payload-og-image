@@ -1,10 +1,13 @@
 /** Mutation table (production line -> the test that goes RED). Silent-failure surface: text from a draft leaving the host through the renderer's CDN fetches.
- * - draw.ts:46  hand the renderer the element as the template drew it (no `stripUndrawable`) -> "text no face draws, from a prop outside textFields and from the template itself, is removed, reported and never fetched" RED
- * - draw.ts:46  same -> "a preview reports what was removed from the template, not only from textFields" RED
- */
+ * - draw.ts:35  hand the renderer the element as the template drew it (no `stripUndrawable`) -> "text no face draws, from a prop outside textFields and from the template itself, is removed, reported and never fetched" RED
+ * - draw.ts:35  same -> "a preview reports what was removed from the template, not only from textFields" RED
+ * - draw.ts:22  `ctx.font` returns the first family when no single one covers the run -> "(#38) a run no single family draws is drawn glyph by glyph across the stack" RED
+ * - fonts.ts:177  measure a mixed run with its first family only -> "(#38) a mixed run is measured with the family that draws each character" RED */
 
 import sharp from 'sharp'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { templateContext } from '../../src/internal/draw.js'
+import type { LoadedFont } from '../../src/internal/fonts.js'
 import { createGate } from '../../src/internal/gate.js'
 import { createCardHandler } from '../../src/internal/handler.js'
 import { createMemo } from '../../src/internal/memo.js'
@@ -108,5 +111,37 @@ describe('a card is drawn without any request to a third party', () => {
     })
     if (out.kind !== 'png') throw new Error('expected a png')
     expect([...out.warnings.missing].sort()).toEqual(['★', '語', '🎉'].sort())
+  })
+})
+
+/** A face that draws exactly `chars`, every one 1 em wide unless `em` says otherwise. */
+const face = (family: string, chars: string, em = 1000): LoadedFont => ({
+  family,
+  weight: 400,
+  style: 'normal',
+  data: new ArrayBuffer(0),
+  has: (ch) => chars.includes(ch),
+  advance: () => em,
+})
+const LATIN = ' abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ'
+const CYRILLIC = 'абвгдеёжзийклмнопрстуфхцчшщъыьэюяАБВГДЕЁЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯ'
+
+describe('(#38) a stack of single-script families', () => {
+  const fonts = [face('Latin', LATIN, 500), face('Cyr', CYRILLIC, 1000)]
+  const stacks = { default: ['Latin', 'Cyr'] }
+  const c = templateContext({ host: 'x.test', fonts, stacks, hero: null })
+
+  it('a run no single family draws is drawn glyph by glyph across the stack', () => {
+    expect(c.font('default', 'Hello Привет')).toBe('Latin, Cyr')
+    // A run one family draws keeps the whole-run swap.
+    expect(c.font('default', 'Hello')).toBe('Latin')
+    expect(c.font('default', 'Привет')).toBe('Cyr')
+  })
+
+  it('a mixed run is measured with the family that draws each character', () => {
+    const box = { width: 600, height: 1000, maxSize: 100, minSize: 10, leading: 1 }
+    // `Привет` is 6 em wide in Cyr (3 em if it were measured with Latin): it must not fit on the first line at 100.
+    expect(c.fit('aaaa Привет', box, 'default')).toEqual({ size: 98, lines: 2, text: 'aaaa Привет' })
+    expect(c.fit('aaaa bbbb', box, 'default')).toEqual({ size: 100, lines: 1, text: 'aaaa bbbb' })
   })
 })

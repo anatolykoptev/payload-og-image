@@ -1,5 +1,5 @@
 import type { TemplateContext } from '../template.js'
-import { coveringFamily, fitText, type LoadedFont, type Stacks } from './fonts.js'
+import { coveringFamily, fitText, fontFamilyFor, type LoadedFont, type Stacks } from './fonts.js'
 import type { Renderer } from './handler.js'
 import { stripUndrawable } from './sanitize.js'
 
@@ -14,14 +14,12 @@ export function templateContext(a: { host: string; fonts: LoadedFont[]; stacks: 
   return {
     host: a.host,
     hero: a.hero,
+    // A run no single family draws is measured and drawn glyph by glyph across the stack, never with its first family alone.
     fit: (text, box, stack) => {
       const s = stackOf(stack)
-      return fitText(a.fonts, coveringFamily(a.fonts, s, text) ?? (s[0] as string), text, box)
+      return fitText(a.fonts, coveringFamily(a.fonts, s, text) ?? s, text, box)
     },
-    font: (stack, text) => {
-      const s = stackOf(stack)
-      return coveringFamily(a.fonts, s, text) ?? (s[0] as string)
-    },
+    font: (stack, text) => fontFamilyFor(a.fonts, stackOf(stack), text),
   }
 }
 

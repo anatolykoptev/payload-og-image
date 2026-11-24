@@ -1,8 +1,8 @@
 /** Mutation table (production line -> the test that goes RED). Silent-failure surface: text leaving the host through a CDN request, a render that depends on a CDN.
  * - nextOg.ts:23  draw outside `withoutNetwork` -> "a character no face draws is never fetched: the draw is refused, not sent" RED (the spy is called)
- * - noNetwork.ts:50  do not throw when a refusal was swallowed (a font download) -> "a refused font download fails the draw (the renderer would carry on with tofu)" RED
- * - noNetwork.ts:38  refuse `data:` URLs too -> "a clean card renders: the renderer reads its own WebAssembly from a data: URL" RED
- * - noNetwork.ts:34  refuse outside a draw -> "fetch outside a draw passes through untouched" RED */
+ * - noNetwork.ts:53  do not throw when a refusal was swallowed (a font download) -> "a refused font download fails the draw (the renderer would carry on with tofu)" RED
+ * - noNetwork.ts:10  refuse `data:` URLs too -> "a clean card renders: the renderer reads its own WebAssembly from a data: URL" RED
+ * - noNetwork.ts:32  refuse outside a draw -> "fetch outside a draw passes through untouched" RED */
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { nextOgRenderer } from '../../src/render/nextOg.js'
 import { loadTestFonts } from '../helpers.js'
