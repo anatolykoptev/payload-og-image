@@ -1,19 +1,20 @@
 /** Mutation table (production line -> the test that goes RED). Silent-failure surface: a draft cached, a stale or request-chosen version stored, a degraded card pinned.
- * - handler.ts:200  delete the draft branch -> "6", "7", "7b", "16", "20" RED
- * - handler.ts:220  store keyed by the request ?v -> "3: a stale ?v is served short, stored under the CURRENT v" RED
- * - handler.ts:207  immutable without the `current` check -> "3" RED
- * - handler.ts:218  decide the downgrade inside the memo closure (store and memoise it) -> "17" RED
- * - handler.ts:212  call heroLoader before store.get -> "4: a store hit renders nothing and loads no hero" RED
- * - handler.ts:255  fail open when the draft check throws -> "20" RED
- * - handler.ts:150  memoise the fallback in draft mode -> "21" RED
+ * - handler.ts:205  delete the draft branch -> "6", "7", "7b", "16", "20" RED
+ * - handler.ts:225  store keyed by the request ?v -> "3: a stale ?v is served short, stored under the CURRENT v" RED
+ * - handler.ts:212  immutable without the `current` check -> "3" RED
+ * - handler.ts:223  decide the downgrade inside the memo closure (store and memoise it) -> "17" RED
+ * - handler.ts:217  call heroLoader before store.get -> "4: a store hit renders nothing and loads no hero" RED
+ * - handler.ts:260  fail open when the draft check throws -> "20" RED
+ * - handler.ts:155  memoise the fallback in draft mode -> "21" RED
  * - handler.ts:70  match If-None-Match only as one whole tag -> "13" RED
- * - handler.ts:160  no slug length cap -> "24: an over-long or missing slug is a 404 before any lookup" RED
- * - handler.ts:264  let a pre-card error escape GET (rethrow) -> "19", "19b" RED
+ * - handler.ts:165  no slug length cap -> "24: an over-long or missing slug is a 404 before any lookup" RED
+ * - handler.ts:269  let a pre-card error escape GET (rethrow) -> "19", "19b" RED
  * - handler.ts:110  ctx stack lookup without the `default` rule -> "22" RED
- * - handler.ts:173  always pass the request to site() -> "18" RED
- * - handler.ts:177  ask for a draft on a normal request -> "2" (draft not called) RED
- * - handler.ts:242  drop the shed branch -> "8" (shed event) RED
- * - handler.ts:165  (equivalent mutant) `urlKind in kindIndex`: the later `Object.hasOwn(d.targets, ...)` guard still answers 404 -> "15b" */
+ * - handler.ts:178  always pass the request to site() -> "18" RED
+ * - handler.ts:182  ask for a draft on a normal request -> "2" (draft not called) RED
+ * - handler.ts:247  drop the shed branch -> "8" (shed event) RED
+ * - handler.ts:170  (equivalent mutant) `urlKind in kindIndex`: the later `Object.hasOwn(d.targets, ...)` guard still answers 404 -> "15b"
+ * - handler.ts:149  fallback keeps unsupported glyphs in the site name -> "10b: the fallback drops site-name characters no font draws" RED */
 import { describe, expect, it, vi } from 'vitest'
 import { createGate } from '../../src/internal/gate.js'
 import { CACHE, createCardHandler } from '../../src/internal/handler.js'
@@ -189,6 +190,32 @@ describe('card handler', () => {
     expect(put).not.toHaveBeenCalled()
     const fallbackDraws = renderer.render.mock.calls.filter(([el]: any) => el?.props?.children === undefined)
     expect(fallbackDraws).toHaveLength(1)
+  })
+  it('10b: the fallback drops site-name characters no font draws', async () => {
+    const seen: string[] = []
+    const fb = defineTemplate<{ site: string }>({
+      id: 'fb',
+      revision: '1',
+      render: (p) => {
+        seen.push(p.site)
+        return { type: 'div', props: {} } as never
+      },
+    })
+    const { h } = setup(
+      {
+        fallback: fb,
+        stacks: { title: ['Inter'], default: ['Inter'] },
+        source: {
+          published: async () => ({ id: 1, slug: 'a', title: 'T' }),
+          publishedById: async () => null,
+          draft: async () => null,
+          site: async () => ({ name: 'Acme 🚀 Co' }),
+        },
+      },
+      { renderFails: true },
+    )
+    expect((await h.GET(req('/og/posts/a/card.png'), ctx('a'))).headers.get('x-og-cache')).toBe('fallback')
+    expect(seen).toEqual(['Acme Co'])
   })
   it('11: a slug of "%" (Next already decoded %25) is looked up as "%" and does not throw', async () => {
     const { h } = setup()
