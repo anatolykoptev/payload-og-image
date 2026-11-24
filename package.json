@@ -3,6 +3,19 @@
   "version": "0.0.0",
   "description": "Payload CMS plugin: generated, content-versioned Open Graph share cards with a crash-safe store and a test kit.",
   "license": "Apache-2.0",
+  "homepage": "https://github.com/anatolykoptev/payload-og-image#readme",
+  "bugs": {
+    "url": "https://github.com/anatolykoptev/payload-og-image/issues"
+  },
+  "keywords": [
+    "payload",
+    "payload-plugin",
+    "payloadcms",
+    "open-graph",
+    "og-image",
+    "share-card",
+    "nextjs"
+  ],
   "type": "module",
   "packageManager": "pnpm@11.20.0",
   "repository": {
@@ -11,7 +24,9 @@
   },
   "files": [
     "dist",
+    "!dist/**/*.map",
     "docs",
+    "!docs/INDEX.md",
     "NOTICE"
   ],
   "main": "./dist/exports/index.js",

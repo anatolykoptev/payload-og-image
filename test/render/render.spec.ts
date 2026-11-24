@@ -22,8 +22,8 @@
  * - hero.ts:184  default to the unguarded global fetch -> "the default fetch is refused for an allowlisted name that resolves to 127.0.0.1 / 10.20.30.40 / ::1" RED
  * - hero.ts:190  search every upload collection -> "a hero is read only inside its own upload collection" RED
  * - guardedFetch.ts:43  leave 64:ff9b:1::/48 out of the blocked ranges -> "isPublicAddress(\"64:ff9b:1::1\") is false" RED
- * - guardedFetch.ts:26  leave AS112-v4 out -> "isPublicAddress(\"192.31.196.1\") is false" RED
- * - guardedFetch.ts:46  narrow 2001::/23 to 2001::/32 -> "isPublicAddress(\"2001:10::1\") is false" / "2001:1::2" RED
+ * - guardedFetch.ts:26  leave AS112-v4 out -> "isPublicAddress(\"192.31.196.1\") is false" RED repo-standards: ignore IANA special-purpose or boundary address under test, not a host
+ * - guardedFetch.ts:46  narrow 2001::/23 to 2001::/32 -> "isPublicAddress(\"2001:10::1\") is false" / "2001:1::2" RED repo-standards: ignore IANA special-purpose or boundary address under test, not a host
  * - guardedFetch.ts:111  send the request on the global agent (which HTTPS_PROXY / NODE_USE_ENV_PROXY would reroute) -> "uses a dedicated https.Agent ..." RED
  * - guardedFetch.ts:126  build the Response outside a catch (a status 600 or a bad header throws inside the callback) -> "a status outside 200-599 is a rejected fetch, not a crash" goes RED by hanging until the 30 s test timeout (the rejection never comes) */
 import { execFileSync } from 'node:child_process'
@@ -137,7 +137,7 @@ describe('nextOgRenderer + encodePng', () => {
       font: (_: string, text: string) => coveringFamily(fonts, ['Inter'], text) ?? 'Inter',
     }
     for (const t of [fallbackTemplate, createFallbackTemplate({ ink: '#fff', paper: '#000' })]) {
-      const out = await nextOgRenderer().render(t.render({ site: 'Krolik' }, ctx as never), { ...t.size, fonts })
+      const out = await nextOgRenderer().render(t.render({ site: 'Example' }, ctx as never), { ...t.size, fonts })
       expect(isCompletePng(out)).toBe(true)
     }
   })
@@ -305,7 +305,7 @@ describe('payloadHeroLoader (remote)', () => {
 
 describe('SSRF guard for remote heroes', () => {
   it.each([
-    ['93.184.216.34', true],
+    ['8.8.8.8', true],
     ['2606:4700:4700::1111', true],
     ['127.0.0.1', false],
     ['127.255.255.254', false],
@@ -329,21 +329,21 @@ describe('SSRF guard for remote heroes', () => {
     ['2002:7f00:1::', false],
     ['[::1]', false],
     ['64:ff9b:1::1', false],
-    ['2001:10::1', false],
-    ['2001:1::2', false],
-    ['3fff::1', false],
-    ['5f00::1', false],
-    ['fec0::1', false],
-    ['100:0:0:1::1', false],
+    ['2001:10::1', false], // repo-standards: ignore IANA special-purpose or boundary address under test, not a host
+    ['2001:1::2', false], // repo-standards: ignore IANA special-purpose or boundary address under test, not a host
+    ['3fff::1', false], // repo-standards: ignore IANA special-purpose or boundary address under test, not a host
+    ['5f00::1', false], // repo-standards: ignore IANA special-purpose or boundary address under test, not a host
+    ['fec0::1', false], // repo-standards: ignore IANA special-purpose or boundary address under test, not a host
+    ['100:0:0:1::1', false], // repo-standards: ignore IANA special-purpose or boundary address under test, not a host
     ['192.0.0.8', false],
-    ['192.31.196.1', false],
-    ['192.52.193.1', false],
+    ['192.31.196.1', false], // repo-standards: ignore IANA special-purpose or boundary address under test, not a host
+    ['192.52.193.1', false], // repo-standards: ignore IANA special-purpose or boundary address under test, not a host
     ['192.88.99.1', false],
-    ['192.175.48.1', false],
+    ['192.175.48.1', false], // repo-standards: ignore IANA special-purpose or boundary address under test, not a host
     ['255.255.255.255', false],
     ['198.19.255.255', false],
-    ['198.20.0.1', true],
-    ['2a00:1450:4001::1', true],
+    ['198.20.0.1', true], // repo-standards: ignore IANA special-purpose or boundary address under test, not a host
+    ['2a00:1450:4001::1', true], // repo-standards: ignore IANA special-purpose or boundary address under test, not a host
     ['not-an-ip', false],
     ['', false],
   ])('isPublicAddress(%j) is %s', (addr, ok) => expect(isPublicAddress(addr)).toBe(ok))
@@ -361,11 +361,11 @@ describe('SSRF guard for remote heroes', () => {
     const r = await lookup(
       [
         { address: '10.0.0.5', family: 4 },
-        { address: '93.184.216.34', family: 4 },
+        { address: '8.8.8.8', family: 4 },
       ],
       calls,
     )
-    expect([r.err, r.address, r.family]).toEqual([null, '93.184.216.34', 4])
+    expect([r.err, r.address, r.family]).toEqual([null, '8.8.8.8', 4])
     expect(calls).toEqual(['cdn.test'])
   })
   it('pinnedLookup in `all` mode returns the vetted subset only', async () => {
@@ -405,12 +405,12 @@ describe('SSRF guard for remote heroes', () => {
     const fetchImpl = vi.fn(async () => new Response(new Uint8Array(await jpeg()), { status: 200 }))
     const run = (allowedHosts: string[], url: string) =>
       payloadHeroLoader({ staticDirs: async () => [], allowedHosts, fetchImpl })({ id: 1, url }, BOX)
-    expect(await run(['cdn.test'], 'https://93.184.216.34/a.jpg')).toBeNull() // not allowlisted
+    expect(await run(['cdn.test'], 'https://8.8.8.8/a.jpg')).toBeNull() // not allowlisted
     expect(await run(['127.0.0.1'], 'https://127.0.0.1/a.jpg')).toBeNull() // allowlisted but private
     expect(await run(['[::1]'], 'https://[::1]/a.jpg')).toBeNull()
     expect(await run(['cdn.test'], 'https://cdn.test:8443/a.jpg')).toBeNull()
     expect(fetchImpl).not.toHaveBeenCalled()
-    expect(await run(['93.184.216.34'], 'https://93.184.216.34/a.jpg')).not.toBeNull() // allowlisted and public
+    expect(await run(['8.8.8.8'], 'https://8.8.8.8/a.jpg')).not.toBeNull() // allowlisted and public
     expect(fetchImpl).toHaveBeenCalledTimes(1)
   })
 })
@@ -443,7 +443,7 @@ describe('guardedFetch: its own agent, no proxy, and a failed response is a reje
     }) as never)
     return { seen, spy }
   }
-  const publicHost = async () => [{ address: '93.184.216.34', family: 4 }]
+  const publicHost = async () => [{ address: '8.8.8.8', family: 4 }]
 
   it('uses a dedicated https.Agent (never the global agent that HTTPS_PROXY / NODE_USE_ENV_PROXY would reroute) with the pinned lookup', async () => {
     vi.stubEnv('NODE_USE_ENV_PROXY', '1')

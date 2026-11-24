@@ -1,0 +1,18 @@
+name: repo-standards
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  standards:
+    # Same runner rule as preflight.yml: no untrusted fork code on the self-hosted runner.
+    if: ${{ !github.event.repository.private || github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+    runs-on: ${{ github.event.repository.private && fromJSON('["self-hosted","linux","arm64"]') || 'ubuntu-24.04-arm' }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: anatolykoptev/repo-standards@v0.5.1

@@ -23,11 +23,11 @@ for (const [net4, bits] of [
   ['172.16.0.0', 12], // private
   ['192.0.0.0', 24], // IETF protocol assignments (incl. 192.0.0.8/32 and 192.0.0.170/171)
   ['192.0.2.0', 24], // documentation
-  ['192.31.196.0', 24], // AS112-v4
-  ['192.52.193.0', 24], // AMT
+  ['192.31.196.0', 24], // AS112-v4 ; repo-standards: ignore IANA special-purpose or boundary address under test, not a host
+  ['192.52.193.0', 24], // AMT ; repo-standards: ignore IANA special-purpose or boundary address under test, not a host
   ['192.88.99.0', 24], // deprecated 6to4 relay anycast
   ['192.168.0.0', 16], // private
-  ['192.175.48.0', 24], // direct delegation AS112
+  ['192.175.48.0', 24], // direct delegation AS112 ; repo-standards: ignore IANA special-purpose or boundary address under test, not a host
   ['198.18.0.0', 15], // benchmarking
   ['198.51.100.0', 24], // documentation
   ['203.0.113.0', 24], // documentation
