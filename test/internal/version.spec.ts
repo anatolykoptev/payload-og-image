@@ -16,6 +16,7 @@
  * - version.ts:46  Date not converted -> "passes plain JSON through ... Date into its ISO string" RED
  * - version.ts:51  no cycle check -> "rejects a cycle" RED
  * - version.ts:50  accept function/bigint -> "rejects a function" / "rejects a bigint" RED
+ * - version.ts:66  assign instead of defineProperty (an own __proto__ key swaps the prototype) -> "an own \"__proto__\" key stays data" RED
  * - version.ts:64  path not extended per member -> every "naming the path" test RED */
 import { createHash } from 'node:crypto'
 import { describe, expect, it } from 'vitest'
@@ -128,6 +129,16 @@ describe('normalizeProps', () => {
     ['Infinity nested in an array', { a: [{ n: Number.POSITIVE_INFINITY }] }, /props\.a\[0\]\.n is Infinity/],
     ['an invalid Date', { d: new Date('x') }, /props\.d is an invalid Date/],
   ])('rejects %s, naming the path', (_, props, message) => expect(() => normalizeProps(props)).toThrow(message))
+  it('an own "__proto__" key stays data: same object hashed and rendered, prototype untouched', () => {
+    const given = JSON.parse('{"title":"A","__proto__":{"polluted":true}}')
+    const n = normalizeProps(given) as Record<string, unknown>
+    expect(Object.getPrototypeOf(n)).toBe(Object.prototype)
+    expect((n as { polluted?: unknown }).polluted).toBeUndefined()
+    expect(Object.keys(n)).toEqual(['title', '__proto__'])
+    expect(JSON.stringify(n)).toBe(JSON.stringify(given))
+    const other = normalizeProps(JSON.parse('{"title":"A","__proto__":{"polluted":false}}'))
+    expect(cardVersion({ ...base, props: n })).not.toBe(cardVersion({ ...base, props: other }))
+  })
   it('rejects a cycle', () => {
     const a: Record<string, unknown> = {}
     a.self = a

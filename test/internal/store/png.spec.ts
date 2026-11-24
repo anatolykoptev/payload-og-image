@@ -1,9 +1,11 @@
 /** Mutation table (production line -> the test that goes RED). Silent-failure surface: a torn PNG served as immutable.
- * - png.ts:32  drop the CRC comparison -> "rejects a flipped byte inside a chunk (CRC)" RED
- * - png.ts:28  drop the bounds check -> "rejects a chunk length pointing past the end (a later chunk)" RED
+ * - png.ts:31  drop the CRC comparison -> "rejects a flipped byte inside a chunk (CRC)" RED
+ * - png.ts:27  drop the bounds check -> "rejects a chunk length pointing past the end (a later chunk)" RED
  * - png.ts:43  drop `end === b.length` -> "rejects trailing bytes after IEND" RED; skip decodes() -> "rejects valid CRCs around a corrupt zlib stream" / "an empty IDAT" / "inflates to the wrong size" RED
- * - png.ts:56  drop the decode cap -> "rejects a header that claims more pixels than any card could have" RED
- * - png.ts:59  accept any inflated length -> "rejects a valid zlib stream that inflates to the wrong size" RED */
+ * - png.ts:39  accept an interlaced PNG -> "rejects an interlaced (Adam7) PNG" RED
+ * - png.ts:57  drop the decode cap -> "rejects a header that claims more pixels than any card could have" RED
+ * - png.ts:61  accept any filter byte -> "rejects a row whose filter byte is not 0..4" RED
+ * - png.ts:60  accept any inflated length -> "rejects a valid zlib stream that inflates to the wrong size" RED */
 import { crc32, deflateSync } from 'node:zlib'
 import sharp from 'sharp'
 import { describe, expect, it } from 'vitest'
@@ -57,6 +59,21 @@ describe('isCompletePng', () => {
   it('rejects an empty IDAT', async () => expect(isCompletePng(withIdat(await real(), new Uint8Array()))).toBe(false))
   it('rejects a valid zlib stream that inflates to the wrong size', async () => {
     expect(isCompletePng(withIdat(await real(), deflateSync(Buffer.alloc(10))))).toBe(false)
+  })
+  it('rejects an interlaced (Adam7) PNG even when everything else is consistent', async () => {
+    const ihdr = new Uint8Array(13)
+    const dv = new DataView(ihdr.buffer)
+    dv.setUint32(0, 300)
+    dv.setUint32(4, 200)
+    ihdr.set([8, 2, 0, 0, 1], 8) // 8-bit RGB, interlace method 1
+    expect(isCompletePng(withIdat(await real(), deflateSync(Buffer.alloc(200 * 901)), ihdr))).toBe(false)
+  })
+  it('rejects a row whose filter byte is not 0..4', async () => {
+    const raw = Buffer.alloc(200 * 901)
+    raw[57 * 901] = 5
+    expect(isCompletePng(withIdat(await real(), deflateSync(raw)))).toBe(false)
+    raw[57 * 901] = 4
+    expect(isCompletePng(withIdat(await real(), deflateSync(raw)))).toBe(true)
   })
   it('rejects a stream that inflates past what the header promises (a bomb)', async () => {
     expect(isCompletePng(withIdat(await real(), deflateSync(Buffer.alloc(50 * 1024 * 1024))))).toBe(false)
