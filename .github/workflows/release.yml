@@ -62,9 +62,8 @@ jobs:
       # The packed tarball, installed into a clean project, must export exactly the agreed surface
       # from every entry point and carry every declared bin. Fails while any entry is empty.
       - run: node scripts/verify-pack.mjs
-      # First publishes go to the `next` dist-tag. Promotion to `latest` is manual:
-      #   npm dist-tag add payload-og-image@<version> latest
+      # Every release goes to `latest`: merging the release PR is the whole release, nothing manual.
       # Trusted publishing (OIDC, `id-token: write` above): npm trusts this workflow file of this
       # repository, configured on the package's npm page; no token is stored anywhere. A
       # NODE_AUTH_TOKEN here would win over OIDC, so there is none.
-      - run: npm publish --provenance --access public --tag next
+      - run: npm publish --provenance --access public

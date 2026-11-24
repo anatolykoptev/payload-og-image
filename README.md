@@ -5,8 +5,8 @@ URL carries a version derived from what the card shows, so a changed title or a 
 URL and an unchanged one stays cached forever. Finished cards live on disk (or in memory), behind a bounded
 render queue, and a crash never leaves a half-written card behind.
 
-**Status:** pre-1.0. The API can still change in a minor release. Releases are published to the npm `next`
-dist-tag until the surface is promoted to `latest`.
+**Status:** pre-1.0. The API can still change in a minor release. Every release is published to npm
+automatically from this repository, with provenance.
 
 **Compatibility:** Payload `^3.93.0`, Next.js `^16.4.5`, React `^19.3.1`, sharp `^0.35.4`, Node
 `^22.23.5 || ^24.22.3 || >=26.13.1`. ESM only.
@@ -14,7 +14,7 @@ dist-tag until the surface is promoted to `latest`.
 ## Install
 
 ```sh
-pnpm add payload-og-image@next
+pnpm add payload-og-image
 ```
 
 Keep `fontkit` out of the Next bundle, in `next.config`:
