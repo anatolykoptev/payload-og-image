@@ -90,12 +90,15 @@ export function ogKit(rt: TestRuntime) {
   return {
     /**
      * Every advertised image is either a recognised card route (fetched: 200, the declared type, immutable, a decodable PNG of
-     * the advertised width and height) or an upload the site serves (`uploadPaths`). Anything else fails.
+     * the advertised width and height) or an upload the site serves (`uploadPaths`). Anything else fails. The image URL must be
+     * `https`, as Facebook, LinkedIn and X document it: `allowHttpImages: true` admits `http` for a site that is only ever served
+     * on plain HTTP (a local dev server).
      */
     async everyRouteHasOwnCard(a: {
       routes: IndexableRoute[]
       cardRoute: (url: URL) => { module: RouteModule; params: Params }
       uploadPaths?: string[]
+      allowHttpImages?: boolean
     }): Promise<void> {
       const seen = new Map<string, string>()
       for (const route of a.routes) {
@@ -104,6 +107,11 @@ export function ogKit(rt: TestRuntime) {
         if (!image?.url) fail('everyRouteHasOwnCard', `${route.path} advertises no og:image`)
         const url = String(image?.url)
         if (!/^https?:\/\//.test(url)) fail('everyRouteHasOwnCard', `${route.path}: image url "${url}" is not absolute`)
+        if (url.startsWith('http://') && !a.allowHttpImages)
+          fail(
+            'everyRouteHasOwnCard',
+            `${route.path}: image url "${url}" is not https (crawlers expect an https og:image; allowHttpImages: true admits http for a local dev server)`,
+          )
         for (const k of ['width', 'height'] as const)
           if (!(Number(image?.[k]) > 0)) fail('everyRouteHasOwnCard', `${route.path}: og:image has no ${k}`)
         if (!image?.type) fail('everyRouteHasOwnCard', `${route.path}: og:image has no type`)
