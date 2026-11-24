@@ -9,6 +9,7 @@ export function memoryStore({ maxBytes = 16 * 1024 * 1024 }: { maxBytes?: number
       return entries.get(`${pageId}|${v}`) ?? null
     },
     async put(pageId, v, data) {
+      if (data.byteLength > maxBytes) return // one card larger than the whole budget is never kept
       const key = `${pageId}|${v}`
       const old = entries.get(key)
       if (old) bytes -= old.byteLength
@@ -16,7 +17,7 @@ export function memoryStore({ maxBytes = 16 * 1024 * 1024 }: { maxBytes?: number
       entries.set(key, data)
       bytes += data.byteLength
       for (const [k, e] of entries) {
-        if (bytes <= maxBytes || k === key) break
+        if (bytes <= maxBytes) break
         entries.delete(k)
         bytes -= e.byteLength
       }

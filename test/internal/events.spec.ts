@@ -1,7 +1,8 @@
 /** Mutation table (production line -> the test that goes RED).
- * - events.ts:31    remove the try/catch around the sink          -> "a throwing sink never fails the caller" RED
- * - events.ts:7 log every hit_* event (drop the 1/100 sampling) -> "samples cache hits" RED
- * - events.ts:27  stop counting                                  -> "counts every event by name" RED */
+ * - events.ts:25  remove the try/catch around the sink -> "a throwing sink never fails the caller" RED
+ * - events.ts:27  ignore an async sink's rejection -> "an async sink that rejects is not an unhandled rejection" RED
+ * - events.ts:7  log every hit_* event (no 1/100 sampling) -> "samples cache hits" RED
+ * - events.ts:42  stop counting -> "counts every event by name" RED */
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createEventSink } from '../../src/internal/events.js'
 
@@ -23,6 +24,18 @@ describe('createEventSink', () => {
     })
     expect(() => sink.emit({ name: 'render' })).not.toThrow()
     expect(sink.counters().render).toBe(1)
+  })
+  it('an async sink that rejects is not an unhandled rejection', async () => {
+    const unhandled: unknown[] = []
+    const on = (reason: unknown) => unhandled.push(reason)
+    process.on('unhandledRejection', on)
+    try {
+      createEventSink(async () => Promise.reject(new Error('async sink down'))).emit({ name: 'render' })
+      await new Promise((r) => setTimeout(r, 20))
+    } finally {
+      process.off('unhandledRejection', on)
+    }
+    expect(unhandled).toEqual([])
   })
   it('the default sink formats one line per event', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
