@@ -4,18 +4,23 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      tag:
+        description: Publish this existing release tag (a retry after a failed publish), e.g. v0.1.0
+        required: false
+        type: string
 
-permissions:
-  contents: write
-  pull-requests: write
-  id-token: write
+permissions: {}
 
 jobs:
   release-please:
     # Release automation is for the public repository only: npm provenance requires a public
     # source repository and a GitHub-hosted runner. Skipped while the repository is private.
-    if: ${{ github.event.repository.private == false }}
+    if: ${{ github.event.repository.private == false && inputs.tag == '' }}
     runs-on: ubuntu-24.04-arm
+    permissions:
+      contents: write
+      pull-requests: write
     outputs:
       release_created: ${{ steps.rp.outputs.release_created }}
       tag_name: ${{ steps.rp.outputs.tag_name }}
@@ -28,18 +33,23 @@ jobs:
 
   publish:
     needs: release-please
-    if: ${{ needs.release-please.outputs.release_created == 'true' }}
+    # A new release, or a retry of an existing tag. Never while private.
+    if: ${{ !cancelled() && github.event.repository.private == false && (needs.release-please.outputs.release_created == 'true' || inputs.tag != '') }}
     runs-on: ubuntu-24.04-arm
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      TAG: ${{ inputs.tag || needs.release-please.outputs.tag_name }}
     steps:
       # Build the tagged revision, not whatever commit triggered this run: release-please can tag a
       # newer release merge than the push that started the workflow, and a manual dispatch can start
       # from any branch.
       - uses: actions/checkout@v7
         with:
-          ref: ${{ needs.release-please.outputs.tag_name }}
+          ref: ${{ env.TAG }}
+          persist-credentials: false
       - name: The tag matches package.json
-        env:
-          TAG: ${{ needs.release-please.outputs.tag_name }}
         run: test "$TAG" = "v$(node -p "require('./package.json').version")"
       - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v7
@@ -48,6 +58,9 @@ jobs:
           registry-url: https://registry.npmjs.org
       - run: pnpm install --frozen-lockfile
       - run: make preflight
+      # The packed tarball, installed into a clean project, must export exactly the agreed surface
+      # from every entry point and carry every declared bin. Fails while any entry is empty.
+      - run: node scripts/verify-pack.mjs
       # First publishes go to the `next` dist-tag. Promotion to `latest` is manual:
       #   npm dist-tag add payload-og-image@<version> latest
       - run: npm publish --provenance --access public --tag next
