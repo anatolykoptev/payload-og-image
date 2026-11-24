@@ -15,7 +15,13 @@
  * - resolve.ts:90  no encodeURIComponent -> "11: cardPath encodes the key" RED
  * - resolve.ts:96  plain-object index -> "a target named like an Object.prototype member ..." RED
  * - resolve.ts:100  allow two targets with one kind -> "12: buildKindIndex throws on a duplicate kind" RED
- * - resolve.ts:139  fall back to an empty stack silently -> "a text field with no font stack throws" RED */
+ * - resolve.ts:139  fall back to an empty stack silently -> "a text field with no font stack throws" RED
+ * - resolve.ts:185  mix `og.headline` into the version outside props (e.g. `host`) -> "og: inherit keeps every 0.1 outcome, even with a headline set that the target never reads" RED
+ * - resolve.ts:185  mix `og.mode` into the version -> "og: mode inherit with no og data resolves exactly as 0.1" and the headline case RED
+ * - resolve.ts:126  drop the `off` early return -> "og: mode off advertises nothing" RED
+ * - resolve.ts:141  stop skipping the image step for `generated` -> "og: mode generated ignores an eligible editor image" RED
+ * - resolve.ts:143  let `custom` ask share() -> "og: mode custom with no eligible editor image falls back to generated, and never asks share()" RED
+ * - resolve.ts:131  drop the overrides from the resolver args -> "og: a headline override reaches props and changes v" RED */
 import { describe, expect, it, vi } from 'vitest'
 import { buildKindIndex, cardPath, resolveCard } from '../../src/internal/resolve.js'
 import { defineTarget, defineTemplate } from '../../src/template.js'
@@ -130,6 +136,100 @@ describe('resolveCard', () => {
   it('text that lost nothing is left exactly as given', async () => {
     const r = await generated({ doc: { id: 1, slug: 'a', title: ' Spaced  out ' } })
     expect(r.props.title).toBe(' Spaced  out ')
+  })
+  // --- per-document `og` fields (0.2 Task 1) ---
+  it('og: mode inherit with no og data resolves exactly as 0.1 (same kind, same v)', async () => {
+    const b = await base()
+    const v01 = await resolveCard({ ...b, doc: { id: 1, slug: 'a', title: 'A' } })
+    const v02 = await resolveCard({ ...b, doc: { id: 1, slug: 'a', title: 'A', og: { mode: 'inherit', headline: null, subtitle: null } } })
+    expect(v02).toEqual(v01)
+  })
+  it('og: inherit keeps every 0.1 outcome, even with a headline set that the target never reads', async () => {
+    const b = await base()
+    const plain = await generated({ doc: { id: 1, slug: 'a', title: 'A' } })
+    const set = await generated({ doc: { id: 1, slug: 'a', title: 'A', og: { mode: 'inherit', headline: 'Zed', subtitle: 'Sub' } } })
+    expect(set.v).toBe(plain.v) // `posts` props() ignores overrides, and the version is derived from props alone
+    const own = await resolveCard({ ...b, doc: { id: 1, slug: 'a', title: 'A', meta: { image: jpeg }, og: { mode: 'inherit' } } })
+    expect(own.kind).toBe('own')
+  })
+  it('og: a mode that is not one of the four is read as inherit', async () => {
+    const b = await base()
+    const doc = { id: 1, slug: 'a', title: 'A', meta: { image: jpeg } }
+    for (const mode of ['bogus', 7, null, {}, '']) {
+      expect(await resolveCard({ ...b, doc: { ...doc, og: { mode } } })).toEqual(await resolveCard({ ...b, doc }))
+    }
+    expect(await resolveCard({ ...b, doc: { ...doc, og: 'garbage' } })).toEqual(await resolveCard({ ...b, doc }))
+  })
+  it('og: mode generated ignores an eligible editor image', async () => {
+    const b = await base()
+    const r = await resolveCard({ ...b, doc: { id: 1, slug: 'a', title: 'A', meta: { image: jpeg }, og: { mode: 'generated' } } })
+    expect(r.kind).toBe('generated')
+  })
+  it('og: mode generated also ignores share()', async () => {
+    const target = defineTarget<any, any>({ ...posts, share: ({ doc }) => [doc.photo] })
+    const r = await resolveCard({
+      ...(await base()),
+      target,
+      doc: { id: 1, slug: 'a', title: 'A', photo: jpeg, og: { mode: 'generated' } },
+    })
+    expect(r.kind).toBe('generated')
+  })
+  it('og: mode off advertises nothing, even with an eligible editor image', async () => {
+    const b = await base()
+    expect((await resolveCard({ ...b, doc: { id: 1, slug: 'a', title: 'A', og: { mode: 'off' } } })).kind).toBe('none')
+    expect((await resolveCard({ ...b, doc: { id: 1, slug: 'a', title: 'A', meta: { image: jpeg }, og: { mode: 'off' } } })).kind).toBe(
+      'none',
+    )
+  })
+  it('og: mode custom shares the editor image', async () => {
+    const r = await resolveCard({ ...(await base()), doc: { id: 1, slug: 'a', title: 'A', meta: { image: jpeg }, og: { mode: 'custom' } } })
+    expect(r.kind).toBe('own')
+  })
+  it('og: mode custom with no eligible editor image falls back to generated, and never asks share()', async () => {
+    const share = vi.fn(() => [jpeg])
+    const target = defineTarget<any, any>({ ...posts, share })
+    const b = await base()
+    const none = await resolveCard({ ...b, target, doc: { id: 1, slug: 'a', title: 'A', og: { mode: 'custom' } } })
+    expect(none.kind).toBe('generated')
+    const svg = { id: 8, url: '/m/a.svg', width: 1200, height: 630, mimeType: 'image/svg+xml' }
+    const bad = await resolveCard({ ...b, target, doc: { id: 1, slug: 'a', title: 'A', meta: { image: svg }, og: { mode: 'custom' } } })
+    expect(bad.kind).toBe('generated')
+    expect(share).not.toHaveBeenCalled()
+  })
+  it('og: a headline override reaches props and changes v', async () => {
+    const b = await base()
+    const t = defineTarget<any, any>({
+      ...posts,
+      props: ({ doc, site, overrides }) => ({ title: overrides?.headline ?? doc.title, label: 'Blog', site: site.name }),
+    })
+    const plain = await resolveCard({ ...b, target: t, doc: { id: 1, slug: 'a', title: 'A' } })
+    const over = await resolveCard({ ...b, target: t, doc: { id: 1, slug: 'a', title: 'A', og: { headline: 'B' } } })
+    expect(over.kind === 'generated' && over.props.title).toBe('B')
+    expect(over.kind === 'generated' && plain.kind === 'generated' && over.v !== plain.v).toBe(true)
+  })
+  it('og: overrides are trimmed, and empty or non-string values are undefined', async () => {
+    const seen: unknown[] = []
+    const t = defineTarget<any, any>({
+      ...posts,
+      props: ({ doc, overrides }) => (seen.push(overrides), { title: doc.title, label: 'Blog', site: 'S' }),
+    })
+    const b = await base()
+    const run = (og: unknown) => resolveCard({ ...b, target: t, doc: { id: 1, slug: 'a', title: 'A', og } })
+    await run({ headline: '  Hi  ', subtitle: ' there ' })
+    await run({ headline: '   ', subtitle: '' })
+    await run({ headline: 5, subtitle: null })
+    await run(undefined)
+    expect(seen).toEqual([{ headline: 'Hi', subtitle: 'there' }, {}, {}, {}])
+  })
+  it('og: overrides reach hero(), share() and template() as well', async () => {
+    const seen: unknown[] = []
+    const t = defineTarget<any, any>({
+      ...posts,
+      template: ({ overrides }) => (seen.push(overrides), 'post'),
+      hero: ({ overrides }) => (seen.push(overrides), undefined),
+    })
+    await resolveCard({ ...(await base()), target: t, doc: { id: 1, slug: 'a', title: 'A', og: { headline: 'B' } } })
+    expect(seen).toEqual([{ headline: 'B' }, { headline: 'B' }])
   })
   it('11: cardPath encodes the key', () => expect(cardPath(posts, 'posts', 'a b/c')).toBe('/og/posts/a%20b%2Fc/card.png'))
   it('cardPath fills placeholders in one pass', () => {

@@ -7,6 +7,9 @@ import { buildKindIndex } from '../internal/resolve.js'
 import { CUSTOM_KEY, createState } from '../internal/state.js'
 import type { OnEvent, SiteInfo } from '../internal/types.js'
 import type { StaticCard, Target, Template } from '../template.js'
+import { type OgFieldsOption, withOgFields } from './fields.js'
+
+export { type OgDocFields, type OgFieldsOption, ogFields } from './fields.js'
 
 export type OgImagePluginOptions = {
   /** The site data cards draw (its name, say). Published values unless `draft` is true: then `user` is the authenticated editor. */
@@ -47,6 +50,12 @@ export type OgImagePluginOptions = {
   /** Emit a `crawler` event for this fraction of card requests (0 < sample <= 1, e.g. 0.1). Default off. */
   crawlerEvents?: { sample: number }
   brand?: { ink?: string; paper?: string }
+  /**
+   * Adds the per-document `og` group (mode, headline, subtitle) to each target's collection. Off by default: the schema
+   * is then exactly what it was without the option. Enabling it changes the database schema, so run `payload migrate:create`
+   * in the site. `position` is `sidebar` (default) or `tab` (a "Share card" tab). To place the group yourself, use `ogFields()` (top level, named `og`).
+   */
+  fields?: OgFieldsOption
   /** Every card route answers 404 and no metadata is produced. */
   disabled?: boolean
 }
@@ -116,6 +125,13 @@ function validate(o: OgImagePluginOptions, config: Config): string {
   for (const g of o.siteGlobals ?? [])
     if (!(config.globals ?? []).some((x) => x.slug === g)) fail(`siteGlobals names the global "${g}", which does not exist`)
 
+  if (o.fields !== undefined) {
+    if (!o.fields || typeof o.fields !== 'object' || typeof o.fields.enabled !== 'boolean')
+      fail('options.fields must be { enabled: boolean, position?: "sidebar" | "tab" }; fields.enabled must be a boolean')
+    if (o.fields.position !== undefined && o.fields.position !== 'sidebar' && o.fields.position !== 'tab')
+      fail(`fields.position must be "sidebar" or "tab", got ${JSON.stringify(o.fields.position)}`)
+  }
+
   const store = o.store as { dir?: string; memory?: true; maxFiles?: number; maxBytes?: number } | undefined
   if (!store || (store.dir === undefined) === (store.memory === undefined))
     fail('options.store needs exactly one of { dir } or { memory: true }')
@@ -143,7 +159,7 @@ function validate(o: OgImagePluginOptions, config: Config): string {
 }
 
 /**
- * The Payload plugin. Schema-neutral: it adds no fields, endpoints or jobs. It stores its state in
+ * The Payload plugin. Schema-neutral unless `fields.enabled`: it then adds the `og` group and nothing else (no collections, endpoints or jobs). It stores its state in
  * `config.custom`, hooks `afterChange` on the site globals, and checks fonts and the store when Payload starts.
  */
 export function ogImagePlugin(o: OgImagePluginOptions): (config: Config) => Config {
@@ -155,8 +171,9 @@ export function ogImagePlugin(o: OgImagePluginOptions): (config: Config) => Conf
       return { ...g, hooks: { ...g.hooks, afterChange: [...(g.hooks?.afterChange ?? []), () => state.invalidateSite()] } }
     })
     const previousOnInit = config.onInit
+    const withFields = withOgFields(config, o.targets, o.fields)
     return {
-      ...config,
+      ...withFields,
       ...(config.globals ? { globals } : {}),
       custom: { ...config.custom, [CUSTOM_KEY]: state },
       onInit: async (payload) => {

@@ -5,6 +5,7 @@
 ```ts
 
 import type { Config } from 'payload';
+import type { Field } from 'payload';
 import type { Metadata } from 'next';
 import type { Payload } from 'payload';
 import type { ReactElement } from 'react';
@@ -57,6 +58,13 @@ export type Normalized<T> = T extends Date ? string : T extends string | number 
     [K in keyof T]: Normalized<T[K]>;
 } : never;
 
+// @public
+export type OgDocFields = {
+    mode?: 'inherit' | 'generated' | 'custom' | 'off' | null;
+    headline?: string | null;
+    subtitle?: string | null;
+};
+
 // @public (undocumented)
 export type OgEvent = {
     name: OgEventName;
@@ -70,6 +78,15 @@ export type OgEvent = {
 
 // @public (undocumented)
 export type OgEventName = 'hit_memo' | 'hit_store' | 'render' | 'shed' | 'store_disabled' | 'store_write_skipped' | 'store_corrupt' | 'downgraded' | 'render_error' | 'glyph_missing' | 'over_budget' | 'draft' | 'not_found' | 'crawler';
+
+// @public
+export function ogFields(): Field[];
+
+// @public (undocumented)
+export type OgFieldsOption = {
+    enabled: boolean;
+    position?: 'sidebar' | 'tab';
+};
 
 // @public
 export function ogImagePlugin(o: OgImagePluginOptions): (config: Config) => Config;
@@ -123,6 +140,7 @@ export type OgImagePluginOptions = {
         ink?: string;
         paper?: string;
     };
+    fields?: OgFieldsOption;
     disabled?: boolean;
 };
 
@@ -189,6 +207,12 @@ export function ogKit(rt: TestRuntime): {
     }): Promise<void>;
 };
 
+// @public
+export type OgOverrides = {
+    headline?: string;
+    subtitle?: string;
+};
+
 // @public (undocumented)
 export type OnEvent = (e: OgEvent) => void;
 
@@ -212,7 +236,8 @@ export type RelatedFn = (collection: string, id: string | number) => Promise<Rec
 export type ResolverArgs<D> = {
     doc: D;
     site: SiteInfo;
-    related: RelatedFn;
+    related: RelatedFn; /** Always given by the resolver; optional so that a test calling `target.props({ doc, site, related })` by hand still compiles. */
+    overrides?: OgOverrides;
 };
 
 // @public (undocumented)

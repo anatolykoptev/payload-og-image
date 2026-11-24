@@ -1,4 +1,5 @@
 /** Mutation table (production line -> the test that goes RED), against a REAL Payload instance (SQLite).
+ * - payloadSource.ts:39  leave `og` out of the select -> "og fields end to end: ..." RED
  * - payloadSource.ts:35  drop the published-status filter -> "a drafts-enabled collection with public read still never returns a draft-only doc" RED
  * - payloadSource.ts:68  published read with overrideAccess: true -> "published() respects collection access" RED
  * - payloadSource.ts:134  hand out a draft without an editor -> "draft() never hands a draft to an anonymous request, even where the collection is publicly readable" RED
@@ -23,6 +24,7 @@ import { lexicalEditor } from '@payloadcms/richtext-lexical'
 import { buildConfig, getPayload, type Payload } from 'payload'
 import sharp from 'sharp'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { resolveCard } from '../../src/internal/resolve.js'
 import { buildRuntime } from '../../src/internal/runtime.js'
 import { CUSTOM_KEY, type OgState } from '../../src/internal/state.js'
 import { ogImagePlugin } from '../../src/plugin/index.js'
@@ -132,9 +134,10 @@ beforeAll(async () => {
           posts: defineTarget<any, any>({
             path: '/og/:kind/:slug/card.png',
             template: 'post',
-            props: ({ doc }: any) => ({ title: doc.title, label: 'Blog' }),
+            props: ({ doc, overrides }: any) => ({ title: overrides?.headline ?? doc.title, label: 'Blog' }),
           }),
         },
+        fields: { enabled: true },
         store: { memory: true },
       }),
     ],
@@ -176,6 +179,11 @@ beforeAll(async () => {
       _status: 'published',
     },
   })
+  await payload.create({ collection: 'posts', data: { title: 'Hidden card', slug: 'og-off', og: { mode: 'off' }, _status: 'published' } })
+  await payload.create({
+    collection: 'posts',
+    data: { title: 'Plain title', slug: 'og-headline', og: { headline: '  Custom headline  ' }, _status: 'published' },
+  })
   await payload.create({
     collection: 'posts',
     data: { title: 'Points at a published note', slug: 'rel-pub', related: pubNote.id, _status: 'published' },
@@ -194,6 +202,34 @@ describe('payloadSource against a real Payload', () => {
     expect((await src().published('posts', 'a'))?.title).toBe('Published A')
     expect(await src().published('posts', 'b')).toBeNull()
     expect(await src().published('posts', 'nope')).toBeNull()
+  })
+  it('og fields end to end: the plugin adds the group, a stored mode and headline come back through buildFind and reach resolveCard', async () => {
+    const resolve = async (slug: string, targets = state.options.targets) => {
+      const doc = await payloadSource(payload, { ...state, options: { ...state.options, targets } } as OgState, async () => ({
+        name: siteName,
+      })).published('posts', slug)
+      const { fonts, digest } = await state.fonts()
+      return resolveCard({
+        target: state.options.targets.posts as never,
+        targetName: 'posts',
+        doc: doc as never,
+        site: { name: siteName },
+        host: 'x.test',
+        serverUrl: 'https://x.test',
+        templates: new Map([['post', post]]),
+        fonts,
+        fontsDigest: digest,
+        stacks: { default: ['Inter'] },
+      })
+    }
+    expect(payload.collections.posts?.config.fields.some((f: any) => f.name === 'og')).toBe(true)
+    expect((await resolve('og-off')).kind).toBe('none')
+    const withHeadline = await resolve('og-headline')
+    expect(withHeadline.kind === 'generated' && withHeadline.props.title).toBe('Custom headline')
+    expect((await resolve('a')).kind).toBe('generated') // no og data: as before
+    // A target `select` that does not list og still gets it.
+    const restricted = { posts: defineTarget<any, any>({ ...state.options.targets.posts, select: { title: true } }) }
+    expect((await resolve('og-off', restricted)).kind).toBe('none')
   })
   it('publishedById(): the same document by id', async () => {
     const a = (await src().published('posts', 'a')) as { id: number }

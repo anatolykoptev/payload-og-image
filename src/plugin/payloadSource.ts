@@ -33,10 +33,10 @@ export function buildFind(
     limit: 1,
     pagination: false,
     where: hasDrafts ? { and: [match, { _status: { equals: 'published' } }] } : match,
-    // The slug field and the root of the editor's share-image field are always selected: without them the resolver
-    // would drop the editor's chosen image and fall through to a generated card.
+    // The slug field, the `og` group and the root of the editor's share-image field are always selected: without them
+    // the resolver would drop the editor's chosen image or mode and fall through to a generated card.
     ...(target.select
-      ? { select: { ...target.select, [slugField]: true, ...(seoPath ? { [seoPath.split('.')[0] as string]: true } : {}) } }
+      ? { select: { ...target.select, [slugField]: true, og: true, ...(seoPath ? { [seoPath.split('.')[0] as string]: true } : {}) } }
       : {}),
   } as FindArgs
 }
