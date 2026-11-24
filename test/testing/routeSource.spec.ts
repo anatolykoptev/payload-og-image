@@ -5,7 +5,10 @@
  * - routeSource.ts:160 accept any member of the call result as GET -> "another member of the call result as GET" RED
  * - routeSource.ts:18  an escaped backtick ends a template -> "an escaped backtick does not end a template that quotes a route" RED
  * - routeSource.ts:152 a destructured GET counts as exported without an export -> "a destructured GET that is never exported" RED
- * - routeSource.ts:170 `export { GET as X }` counts as exporting GET -> "a destructured GET exported under another name" RED */
+ * - routeSource.ts:170 `export { GET as X }` counts as exporting GET -> "a destructured GET exported under another name" RED
+ * - routeSource.ts:115 do not step over a type annotation before the `=` -> "a type-annotated destructured export" (and 4 more type-annotated shapes) RED
+ * - routeSource.ts:210 accept `export { GET } from './x'` as a route export -> "a GET re-exported from another module" RED
+ * - routeSource.ts:210 match the local name instead of the exported name -> "a handler exported under the name GET" RED */
 import { describe, expect, it } from 'vitest'
 import { analyzeRouteSource } from '../../src/testing/routeSource.js'
 
@@ -30,6 +33,34 @@ describe('analyzeRouteSource: shapes that ARE a card route', () => {
       `${IMPORT}export const GET = createOgRoute({ config: load(\`a\${(1)}\`), target: ('p') }).GET\n`,
     ],
     ['a double-quoted import', 'import { createOgRoute } from "payload-og-image/next"\nexport const GET = createOgRoute({ config }).GET\n'],
+    [
+      'a type-annotated destructured export',
+      `${IMPORT}export const { GET, HEAD }: { GET: unknown; HEAD: unknown } = createOgRoute({ config })\n`,
+    ],
+    [
+      'a type-annotated destructure of a route variable, exported by name',
+      `${IMPORT}const route = createOgRoute({ config })\nconst { GET }: Pick<typeof route, 'GET'> = route\nexport { GET }\n`,
+    ],
+    [
+      'a type-annotated GET with an arrow type',
+      `${IMPORT}const route = createOgRoute({ config })\nexport const GET: (r: Request, c: RouteContext) => Promise<Response> = route.GET\n`,
+    ],
+    ['a type-annotated GET taken from the call', `${IMPORT}export const GET: Handler<(a: A) => B> = createOgRoute({ config }).GET\n`],
+    [
+      'a type-annotated route variable',
+      `${IMPORT}const route: ReturnType<typeof createOgRoute> = createOgRoute({ config })\nexport const GET = route.GET\n`,
+    ],
+    ['a GET constant exported by name', `${IMPORT}const route = createOgRoute({ config })\nconst GET = route.GET\nexport { GET }\n`],
+    ['GET also exported as HEAD', `${IMPORT}const { GET } = createOgRoute({ config })\nexport { GET, GET as HEAD }\n`],
+    [
+      'a handler exported under the name GET',
+      `${IMPORT}const route = createOgRoute({ config })\nconst handler = route.GET\nexport { handler as GET }\n`,
+    ],
+    ['a destructured rename exported as GET', `${IMPORT}const { GET: card } = createOgRoute({ config })\nexport { card as GET }\n`],
+    [
+      'a handler constant re-exported as a GET declaration',
+      `${IMPORT}const route = createOgRoute({ config })\nconst handler = route.GET\nexport const GET = handler\n`,
+    ],
   ])('%s', (_, src) => yes(src))
 })
 
@@ -81,6 +112,28 @@ describe('analyzeRouteSource: shapes that are NOT', () => {
       'an export list naming a GET that is not from the route',
       `${IMPORT}const route = createOgRoute({ config })\nconst GET = () => new Response()\nexport { GET }\n`,
     ],
+    [
+      'a type-annotated GET taken from something else',
+      `${IMPORT}const other = { GET: () => new Response() }\nexport const GET: Handler = other.GET\n`,
+    ],
+    [
+      'a type-annotated destructure that is never exported',
+      `${IMPORT}const { GET }: Handlers = createOgRoute({ config })\nexport const POST = () => new Response()\n`,
+    ],
+    [
+      'a type annotation that never reaches an initialiser',
+      `${IMPORT}declare const GET: Handler\nexport { GET }\nconst route = createOgRoute({ config })\n`,
+    ],
+    [
+      'a hand-written handler exported as GET',
+      `${IMPORT}const route = createOgRoute({ config })\nconst handler = () => new Response()\nexport { handler as GET }\nexport const POST = route.GET\n`,
+    ],
+    ['a route GET exported under another name', `${IMPORT}const { GET } = createOgRoute({ config })\nexport { GET as HEAD }\n`],
+    [
+      'a GET re-exported from another module',
+      `${IMPORT}const { GET } = createOgRoute({ config })\nexport { GET } from './elsewhere'\nexport const POST = () => GET\n`,
+    ],
+    ['the result of calling route.GET', `${IMPORT}const route = createOgRoute({ config })\nexport const GET = route.GET()\n`],
     ['an empty file', ''],
   ])('%s', (_, src) => no(src))
 })

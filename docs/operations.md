@@ -61,3 +61,12 @@ The cached `site()` (60 seconds) and the memo are per process. Saving a site glo
 process that handled the save; other workers show the old value until their 60 seconds are up. The card URL
 changes when a worker reads the new value, so the worst case is a card that lags a minute behind a site-wide
 edit. The disk store is shared between processes that mount the same directory.
+
+## Response framing (`content-length`)
+
+The handler sets `content-length` on every card answer that has a body. Next 16 drops it: measured on the dev app with
+Next 16.4.6, both `next dev` and a production build under `next start` answer a card GET with
+`transfer-encoding: chunked` and a HEAD with neither header, with or without `accept-encoding: identity`. Next's route
+response writer strips `content-length`, `content-encoding` and `transfer-encoding` from a route handler's response, so
+nothing the handler can set changes it. Crawlers read chunked bodies; if you need a length on the wire, let a reverse
+proxy buffer the response. Re-measure after a Next upgrade (`next build dev && next start dev`, then `curl -I` a card).

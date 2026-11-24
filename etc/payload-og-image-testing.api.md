@@ -135,6 +135,7 @@ export function ogKit(rt: TestRuntime): {
             params: Params;
         };
         uploadPaths?: string[];
+        allowHttpImages?: boolean;
     }): Promise<void>;
     routesMatchPaths(a: {
         appDir: string;

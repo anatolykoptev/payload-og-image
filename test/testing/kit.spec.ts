@@ -1,4 +1,5 @@
 /** Mutation table (production line -> the test that goes RED). Each check must pass on a correct setup and fail on a site module the test breaks by hand.
+ * - kit.ts:110  accept an http:// image URL -> "everyRouteHasOwnCard: https > rejects an http image URL unless allowHttpImages" RED
  * - kit.ts:103  accept a page with no og:image -> "everyRouteHasOwnCard > rejects a metadata function that returns no image" RED
  * - kit.ts:134  do not require the advertised card to be immutable -> "rejects a card URL carrying ?v=wrong: it answers 1h, not immutable" RED
  * - kit.ts:116  allow two routes to share one card -> "rejects two routes sharing one card unless allowShared" RED
@@ -181,6 +182,27 @@ describe('everyRouteHasOwnCard', () => {
   })
 })
 
+describe('everyRouteHasOwnCard: https', () => {
+  it('rejects an http image URL unless allowHttpImages, and accepts an https one', async () => {
+    const rt = installTestRuntime(options(), docs(), { serverUrl: 'http://localhost:3000' })
+    const { module, kit, meta } = site(rt)
+    const routes = [{ path: '/posts/a', metadata: meta(1) }]
+    await reject(
+      kit.everyRouteHasOwnCard({ routes, cardRoute: cardRoute(module) }),
+      /posts\/a: image url "http:\/\/localhost:3000\/.*" is not https/,
+    )
+    await kit.everyRouteHasOwnCard({ routes, cardRoute: cardRoute(module), allowHttpImages: true })
+    const upload = async () => ({
+      openGraph: { images: [{ url: 'http://example.test/media/own.jpg', width: 1200, height: 630, type: 'image/jpeg', alt: 'x' }] },
+      twitter: { card: 'summary_large_image', images: [{ url: 'http://example.test/media/own.jpg' }] },
+    })
+    await reject(
+      kit.everyRouteHasOwnCard({ routes: [{ path: '/p', metadata: upload as never }], cardRoute: cardRoute(module) }),
+      /is not https/,
+    )
+  })
+})
+
 describe('routesMatchPaths', () => {
   const appWith = async (...routes: string[]) => {
     const app = await mkdtemp(path.join(os.tmpdir(), 'og-app-'))
@@ -198,6 +220,17 @@ describe('routesMatchPaths', () => {
   it('passes when the route file matches the configured path (groups stripped, [x] -> :x)', async () => {
     const rt = installTestRuntime(options(), docs())
     await ogKit(rt).routesMatchPaths({ appDir: await appWith('(frontend)/og/[kind]/[slug]/card.png') })
+  })
+  it('recognises a type-annotated destructured card route in the route file (a Next 16 shape)', async () => {
+    const rt = installTestRuntime(options(), docs())
+    const app = await appWith()
+    const dir = path.join(app, '(frontend)/og/[kind]/[slug]/card.png')
+    await mkdir(dir, { recursive: true })
+    await writeFile(
+      path.join(dir, 'route.ts'),
+      "import { createOgRoute } from 'payload-og-image/next'\nexport const { GET, HEAD }: { GET: unknown; HEAD: unknown } = createOgRoute({ config: {} as never })\n",
+    )
+    await ogKit(rt).routesMatchPaths({ appDir: app })
   })
   it('rejects a route file for /og/[kind]/[slug]/card.png when options declare /share/:kind/:slug/og.png, naming both', async () => {
     const rt = installTestRuntime(
