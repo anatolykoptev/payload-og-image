@@ -4,6 +4,9 @@
  * - OgPreviewField.tsx:86  never abort the previous request -> "a change aborts the previous request" RED
  * - OgPreviewField.tsx:74  never revoke the old blob URL -> "revokes the previous blob URL" RED
  * - OgPreviewField.tsx  drop the warnings from the loading state -> "keeps the last warnings visible ..." RED
+ * - OgPreviewField.tsx:146  Force new image: never disabled -> "Force new image is disabled, with a reason, where a new nonce cannot change the URL" RED
+ * - OgPreviewField.tsx:124  mode off not read from the form, or sharesImage ignored -> the same test RED
+ * - OgPreviewField.tsx:156  the crawler hint dropped -> "names the crawler step next to the button" RED
  * - OgPreviewField.tsx  Force new image: no dispatch / not +1 / no setModified -> "Force new image sets og.nonce ..." RED
  * - OgPreviewField.tsx:62  retry a 503 more than once -> "a second 503 in a row is not retried again" RED; not at all -> "a 503 shows Busy, retrying ..." RED */
 import { act, cleanup, render, screen } from '@testing-library/react'
@@ -168,6 +171,40 @@ describe('OgPreviewField', () => {
     render(el())
     await tick(800)
     expect(screen.getByText('500 characters cannot be drawn: a b …')).toBeTruthy()
+  })
+  it('Force new image is disabled, with a reason, where a new nonce cannot change the URL', async () => {
+    const reason = (t: RegExp) => screen.getByText(t)
+    const button = () => screen.getByRole('button', { name: 'Force new image' }) as HTMLButtonElement
+    // Mode off: known from the form at once, before any preview answers.
+    data = { title: 'Hello', og: { mode: 'off' } }
+    const { rerender } = render(el())
+    expect(button().disabled).toBe(true)
+    reason(/shares no card of its own/)
+    await act(async () => button().click())
+    expect(dispatchFields).not.toHaveBeenCalled()
+    // An eligible image is shared: the server says so.
+    data = { title: 'Hello' }
+    fetchMock.mockResolvedValueOnce(
+      png({ missing: [], overBudget: false, customIneligible: false, customTooSmall: false, modeOff: false, sharesImage: true }),
+    )
+    fields = { v: 1 }
+    rerender(el())
+    await tick(800)
+    expect(button().disabled).toBe(true)
+    reason(/shares an image, not a generated card/)
+    await act(async () => button().click())
+    expect(dispatchFields).not.toHaveBeenCalled()
+    // A generated card again: enabled, with the usual hint.
+    fields = { v: 2 }
+    rerender(el())
+    await tick(800)
+    expect(button().disabled).toBe(false)
+    expect(screen.getByText('Gives the card a new address so LinkedIn, Facebook and Telegram fetch it again.')).toBeTruthy()
+  })
+  it('names the crawler step next to the button: a platform shows the new card once it re-reads the page', async () => {
+    render(el())
+    await tick(800)
+    expect(screen.getByText(/LinkedIn Post Inspector or the Facebook\s+Sharing Debugger/)).toBeTruthy()
   })
   it('Force new image sets og.nonce to the next number and marks the form modified', async () => {
     render(el())

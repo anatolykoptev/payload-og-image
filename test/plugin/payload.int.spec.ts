@@ -14,6 +14,7 @@
  * - payloadSource.ts:32  read relations at depth 1 -> "reads are depth 0 ...", "related(): ...", "end to end: a target that draws a related title ..." RED
  * - payloadSource.ts:158  related() without the published filter -> "related(): the published document, never a draft-only one" RED
  * - payloadSource.ts:149  related() treats any previewing request as an editor -> same test RED
+ * - resolve.ts:197  leave og.nonce out of the card version, or fields.ts:46 drop the nonce field -> "og.nonce round trip" RED
  * - payloadSource.ts:102  leave the upload fields as bare ids -> "uploads are read by id with the caller's access" RED
  * - payloadSource.ts:103  read an upload with overrideAccess: true -> same test RED (a private upload would be populated) */
 import { mkdtemp, readFile } from 'node:fs/promises'
@@ -230,6 +231,35 @@ describe('payloadSource against a real Payload', () => {
     // A target `select` that does not list og still gets it.
     const restricted = { posts: defineTarget<any, any>({ ...state.options.targets.posts, select: { title: true } }) }
     expect((await resolve('og-off', restricted)).kind).toBe('none')
+  })
+  it('og.nonce round trip: saved as a draft, published, reopened, and only then the public card URL changes', async () => {
+    const rt = buildRuntime(state, payload, { renderer: { render: tinyPng }, isDraftRequest: async () => false })
+    const { id } = (await payload.create({
+      collection: 'posts',
+      data: { title: 'Force new image', slug: 'nonce-card', _status: 'published' },
+    })) as { id: number }
+    const publicUrl = async () => {
+      const card = await rt.resolveForMetadata({ target: 'posts', id })
+      if (card.kind !== 'generated') throw new Error(`expected a generated card, got ${card.kind}`)
+      return card.url
+    }
+    const before = await publicUrl()
+    // What the admin does after the button: the form holds og.nonce = 1; Save draft writes a draft version...
+    await payload.update({ collection: 'posts', id, data: { og: { nonce: 1 } }, draft: true })
+    expect(await publicUrl()).toBe(before) // ...which the public never sees
+    // ...and Publish makes it the published document.
+    await payload.update({ collection: 'posts', id, data: { og: { nonce: 1 }, _status: 'published' } })
+    const reopened = (await payload.findByID({ collection: 'posts', id, draft: true })) as { og?: { nonce?: number } }
+    expect(reopened.og?.nonce).toBe(1)
+    const published = (await payload.findByID({ collection: 'posts', id })) as { og?: { nonce?: number } }
+    expect(published.og?.nonce).toBe(1)
+    const after = await publicUrl()
+    expect(after).not.toBe(before)
+    expect(after.split('?')[0]).toBe(before.split('?')[0]) // the same card path, a new ?v=
+    // The next click is another URL again.
+    await payload.update({ collection: 'posts', id, data: { og: { nonce: 2 }, _status: 'published' } })
+    const next = await publicUrl()
+    expect([next === after, next === before]).toEqual([false, false])
   })
   it('publishedById(): the same document by id', async () => {
     const a = (await src().published('posts', 'a')) as { id: number }

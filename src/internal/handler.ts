@@ -98,6 +98,8 @@ export type PreviewWarnings = {
   customIneligible: boolean
   /** The shared image is smaller than 600x315. */
   customTooSmall: boolean
+  /** The page shares an image (the editor's, or one the target offers) instead of the generated card: a new nonce cannot change its URL. */
+  sharesImage: boolean
   /** Mode `off`: the page advertises no card of its own; the picture is what `generated` would show. */
   modeOff: boolean
 }
@@ -310,6 +312,7 @@ export function createCardHandler(d: HandlerDeps): CardHandler {
         customIneligible: mode === 'custom' && actual.kind === 'generated',
         customTooSmall: actual.kind === 'own' && ((actual.image.width ?? 0) < 600 || (actual.image.height ?? 0) < 315),
         modeOff: mode === 'off',
+        sharesImage: actual.kind === 'own',
       },
     }
   }

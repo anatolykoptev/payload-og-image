@@ -5,6 +5,7 @@
  * - endpoints.ts:93  skip the `findByID` access check (no 403 on a missing doc) -> "3: a doc the user may not read -> 403 (foreign doc)" RED
  * - endpoints.ts:88  `findByID` with overrideAccess: true -> "3: ..." RED
  * - endpoints.ts:99  skip the `access.create` check for a body with no id -> "10: no id: the collection create access decides" RED
+ * - handler.ts:315  never report sharesImage -> "6b: an eligible editor image is shared -> sharesImage: true" RED
  * - endpoints.ts:12  `cache-control` other than no-store -> "1", "4" and "a card that would be blank" RED
  * - endpoints.ts:35  restore `return o.id` for an upload-shaped value (an object id survives) -> "an upload-shaped value in the body is never trusted ..." RED
  * - payloadSource.ts:95  keep an object that has no usable id in populateUploads -> "populateUploads: an object with no usable id ..." RED
@@ -161,6 +162,15 @@ beforeAll(async () => {
       size: 70,
     },
   })
+  const photo = await sharp({ create: { width: 1200, height: 630, channels: 3, background: '#abcdef' } })
+    .png()
+    .toBuffer()
+  const shared = await payload.create({
+    collection: 'media',
+    data: {},
+    file: { data: photo, mimetype: 'image/png', name: 'p.png', size: photo.length },
+  })
+  ids.shared = await mk('shared', { title: 'Shares a photo', meta: { image: shared.id } })
   ids.custom = await mk('custom', { title: 'Custom title', og: { mode: 'custom' }, meta: { image: svg.id } })
   setTestRuntime(buildRuntime(state, payload, { renderer, store, heroLoader: heroSpy }))
 }, 60_000)
@@ -226,6 +236,7 @@ describe('POST /api/payload-og-image/preview', () => {
       customIneligible: false,
       customTooSmall: false,
       modeOff: false,
+      sharesImage: false,
     })
     expect(memoGet).not.toHaveBeenCalled()
     expect(putSpy).not.toHaveBeenCalled()
@@ -250,6 +261,15 @@ describe('POST /api/payload-og-image/preview', () => {
     const r = await call('ed1@x.test', { collection: 'posts', id: ids.off, doc: {} })
     expect(r.status).toBe(200)
     expect(warningsOf(r).modeOff).toBe(true)
+  })
+  it('6b: an eligible editor image is shared -> sharesImage: true, and the generated card is still drawn; the generated page says false', async () => {
+    const shared = await call('ed1@x.test', { collection: 'posts', id: ids.shared, doc: {} })
+    expect(shared.status).toBe(200)
+    expect(warningsOf(shared).sharesImage).toBe(true)
+    expect(warningsOf(await call('ed1@x.test', { collection: 'posts', id: ids.plain, doc: {} })).sharesImage).toBe(false)
+    // The same document, forced to the generated card: nothing is shared, so a nonce can change the URL.
+    const generated = await call('ed1@x.test', { collection: 'posts', id: ids.shared, doc: { og: { mode: 'generated' } } })
+    expect(warningsOf(generated).sharesImage).toBe(false)
   })
   it('7: a custom SVG image -> customIneligible: true (a generated card is drawn)', async () => {
     const r = await call('ed1@x.test', { collection: 'posts', id: ids.custom, doc: {} })

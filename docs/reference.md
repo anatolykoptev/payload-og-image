@@ -124,6 +124,14 @@ It is part of the card's version, so a new value is a new card URL: LinkedIn, Fa
 A nonce of 0 (or none) is exactly the 0.1 version, so no existing URL changes. The field is a column: run
 `payload migrate:create` after upgrading, as for the rest of the group.
 
+The button is disabled where a new nonce cannot change the page's card URL, with a one-line reason: mode Off (no card at
+all), and a page that shares an image (the editor's, or one the target offers) instead of a generated card. The nonce is
+saved with the document, so the new address reaches the public page only when the document is published.
+
+A new card URL is seen only when a platform reads the page again. Anything already shared keeps the old card until the
+platform re-fetches it: paste the page URL into the LinkedIn Post Inspector or the Facebook Sharing Debugger to make it
+scrape again (see [crawlers](crawlers.md)).
+
 ## Endpoints
 
 The plugin adds up to two endpoints to your Payload config, after your own, and none when `disabled` is true:
