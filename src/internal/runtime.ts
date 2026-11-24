@@ -28,15 +28,21 @@ export type RuntimeOverrides = {
 
 const BOTS = /(facebookexternalhit|linkedinbot|twitterbot|slackbot|telegrambot|whatsapp|discordbot|googlebot|bingbot)/i
 
-/** One request in `sample` becomes a `crawler` event naming the bot family and the answer, never the raw user agent. */
+/**
+ * A fraction `sample` (0 < sample <= 1) of requests becomes a `crawler` event naming the bot family, the method, the
+ * status and the cache source, never the raw user agent. Deterministic: every `1/sample`-th request.
+ */
 function withCrawlerEvents(h: CardHandler, state: OgState, sample: number): CardHandler['GET'] {
   let n = 0
   return async (r, c) => {
     const res = await h.GET(r, c)
     n += 1
-    if (n % sample === 0) {
-      const bot = (BOTS.exec(r.headers.get('user-agent') ?? '')?.[1] ?? 'other').toLowerCase()
-      state.events.emit({ name: 'crawler', detail: { bot, method: r.method, status: res.status } })
+    if (Math.floor(n * sample) > Math.floor((n - 1) * sample)) {
+      const ua_family = (BOTS.exec(r.headers.get('user-agent') ?? '')?.[1] ?? 'other').toLowerCase()
+      state.events.emit({
+        name: 'crawler',
+        detail: { ua_family, method: r.method, status: res.status, cache: res.headers.get('x-og-cache') ?? '' },
+      })
     }
     return res
   }
