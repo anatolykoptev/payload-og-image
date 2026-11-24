@@ -1,10 +1,11 @@
 /** Mutation table (production line -> the test that goes RED), against a REAL Payload instance (SQLite).
- * - payloadSource.ts:24  drop the published-status filter -> "a drafts-enabled collection with public read still never returns a draft-only doc" RED
- * - payloadSource.ts:56  published read with overrideAccess: true -> "published() respects collection access" RED
- * - payloadSource.ts:61  hand out a draft without an editor -> "draft() never hands a draft to an anonymous request, even where the collection is publicly readable" RED
- * - payloadSource.ts:68  draft read with overrideAccess: true -> "draft() runs with the editor's own access" RED
- * - payloadSource.ts:72  draft site data without an editor check -> "site(request): published/cached site data unless the request carries an editor" RED
- * - payloadSource.ts:25  always pass a select (a half-empty document) -> "a target with no `select` gets every field" RED */
+ * - payloadSource.ts:32  drop the published-status filter -> "a drafts-enabled collection with public read still never returns a draft-only doc" RED
+ * - payloadSource.ts:68  published read with overrideAccess: true -> "published() respects collection access" RED
+ * - payloadSource.ts:73  hand out a draft without an editor -> "draft() never hands a draft to an anonymous request, even where the collection is publicly readable" RED
+ * - payloadSource.ts:80  draft read with overrideAccess: true -> "draft() runs with the editor's own access" RED
+ * - payloadSource.ts:84  draft site data without an editor check -> "site(request): published/cached site data unless the request carries an editor" RED
+ * - payloadSource.ts:35  always pass a select (a half-empty document) -> "a target with no `select` gets every field" RED
+ * - payloadSource.ts:36  leave the editor's share-image field out of `select` -> "a target `select` also keeps the root of the editor's share-image field" RED */
 import { mkdtemp, readFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
@@ -177,6 +178,17 @@ describe('payloadSource against a real Payload', () => {
     }))
     const got = await secrets.published('secrets', 's').catch(() => 'denied')
     expect(got === null || got === 'denied').toBe(true)
+  })
+  it("a target `select` also keeps the root of the editor's share-image field, or the editor's image would be dropped", async () => {
+    const t = defineTarget<any, any>({ path: '/og/:kind/:slug/card.png', template: 'post', props: () => ({}), select: { title: true } })
+    const restricted = payloadSource(
+      payload,
+      { ...state, options: { ...state.options, targets: { posts: t }, seoImage: { path: 'extra.deep' } } } as OgState,
+      async () => ({ name: 'S' }),
+    )
+    const doc = await restricted.published('posts', 'a')
+    expect(doc).toHaveProperty('extra') // selected because `extra.deep` is the SEO image path
+    expect(doc).toHaveProperty('title')
   })
   it('draft(): null for an anonymous request, the latest draft for an authenticated editor', async () => {
     expect(await src().draft('posts', { slug: 'a' }, anon)).toBeNull()
