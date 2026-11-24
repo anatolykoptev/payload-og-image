@@ -1,0 +1,125 @@
+# Reference
+
+Detail behind the [README](../README.md): how a page picks its image, cache headers, Next 16 specifics, who counts as an editor, related documents, the card store, the crawler notes and the test kit. [Templates](templates.md), [operations](operations.md) and [crawlers](crawlers.md) have their own pages.
+
+## Which image a page gets
+
+1. The image the editor set at `seoImage.path` (for example `meta.image`), unless it is the hero itself or
+   `isDeliberate` says it is a placeholder.
+2. Any other eligible image the target lists in `share`.
+3. Otherwise the generated card.
+
+An image is eligible when its width, height and MIME type are on record and it is a JPEG, PNG, WebP or GIF:
+never an SVG (X's large card takes none), never an upload with no size. A card that would be blank (an empty
+title) advertises nothing.
+
+## Cache headers
+
+| Answer                                                                     | `Cache-Control`                                     |
+| -------------------------------------------------------------------------- | --------------------------------------------------- |
+| `?v=` is the current version                                               | `public, max-age=31536000, immutable, no-transform` |
+| any other or missing `v` (the current card is served)                      | `public, max-age=3600, no-transform`                |
+| the hero could not be read, or the card fell back                          | `public, max-age=300, no-transform`                 |
+| unknown document, shed (503 with `Retry-After: 5`), any draft-mode request | `no-store`                                          |
+
+A card answer carries `etag: "<v>"` and `x-og-cache` (`render`, `memo`, `store` or `draft`). A downgraded card
+(`x-og-cache: downgraded`, hero missing) and the brand fallback carry no `etag`, so a cache cannot revalidate them
+into the current version; a 304 carries the `etag`, `cache-control`, `content-type` and `x-og-cache` and is sent only once the current card is in hand. The request's `?v=` only picks the header; it is never a key, and the version is always derived
+on the server.
+
+Draft mode is never cached, never stored, and shows draft text only to an authenticated editor. An HTTP cache
+that already holds a card for the same URL may serve it during a preview without asking the app; preview with a
+fresh URL (`?preview=1`) if you need to be sure.
+
+## Next 16 specifics (measured in the dev app)
+
+- A page component's `params` arrive percent-encoded (`a%25b`). `generateMetadata` params and a route
+  handler's `params` arrive already decoded (`a%b`). Decode in the page component only: decoding the others
+  again throws on a literal `%`. The card route never decodes.
+- The card route exports `GET` and `HEAD = GET`. `withHead` is for Payload's own REST route only (see below).
+- A collection with drafts must allow public reads of published documents, because the plugin reads with
+  `overrideAccess: false`:
+  `read: ({ req: { user } }) => (user ? true : { _status: { equals: 'published' } })`.
+
+## Who counts as an editor
+
+Draft text and draft site data go only to users of the admin user collection (`admin.user`, normally `users`), or of
+the auth collections named in the `editors` option. A user of any other auth collection (customers, say) is never
+an editor, and `site()` is told which user it is serving (`site({ payload, draft: true, user })`).
+
+## Related documents
+
+The plugin reads your document at depth 0, whatever `defaultPopulate` or `select` say: a relation arrives as its bare
+id, so a draft-only related document can never leak into a published card. Two things are loaded for you, each by id and
+with the visitor's access: the hero upload and the upload fields the document carries. Anything else a card draws comes
+through `related(collection, id)` in `props`:
+
+```ts
+props: async ({ doc, site, related }) => {
+  const author = await related('authors', doc.author)
+  return { title: doc.title, byline: author?.name ?? '', site: site.name }
+},
+```
+
+`related` is published-only and access-respecting (it is `null` for a missing, unpublished or forbidden document); an
+editor previewing a draft also gets the draft of a related document. `Target.depth` is gone: there is nothing to tune.
+Say which upload collection a hero lives in with `heroCollection` on the target; a hero file is read only inside that
+collection's folder. A transparent hero is flattened onto `heroBackground` (`#rgb` or `#rrggbb`, default white; names and alpha forms are refused at start-up) before it is cut. It is part of the version of a card with a hero, so changing it gives new URLs. Remote heroes (`allowedImageHosts`) are fetched over https on the default port with a dedicated
+agent (never an environment proxy), from a vetted public address only (IANA special-purpose ranges are refused), with no
+redirect.
+
+## Where the cards live
+
+`store: { dir }` must be an absolute path to a volume that only the app writes, with room for the cap
+(default 2000 files, 100 MiB). In Docker, mount a named volume there and keep the folder out of the build
+context (`.dockerignore`: the same path). Without a writable volume the store switches itself off with one
+`store_disabled` event and cards stay in memory only. [operations](operations.md) has the runbook.
+
+`store: { memory: true }` keeps cards in memory only (tests, serverless).
+
+## Crawlers
+
+Link-preview crawlers need an absolute https image URL, no redirect, a 1200x630 image, and `Allow` for the
+card path in `robots.txt`. They send HEAD first, so the card route answers HEAD. See
+[crawlers](crawlers.md).
+
+## HEAD for Payload REST
+
+Payload's REST router looks endpoints up by method, so a HEAD to `/api/media/file/...` answers 404 and
+LinkedIn drops an editor-chosen image. In the generated `app/(payload)/api/[...slug]/route.ts`:
+
+```ts
+import { withHead } from 'payload-og-image/next'
+
+export const HEAD = withHead(GET)
+```
+
+`withHead` is a stopgap: remove it when Payload REST answers HEAD for GET endpoints. Do not use it on the card
+route, where `HEAD = GET` is enough.
+
+## Testing your site
+
+`payload-og-image/testing` exports `installTestRuntime` and `ogKit`. The kit calls your real page, metadata and
+route modules and checks the failures this plugin exists to prevent: a draft cached, a stale version served as
+immutable, a client-chosen version stored, a HEAD that is not GET's twin, a card route whose path no config
+declares, a template that draws something the URL does not cover. The test runtime runs the production draft logic over an in-memory drafts collection, so give `draftNeverCached` a
+document that exists only as a draft (`draftOnly`): the public and a draft-mode visitor without an editor must get a 404,
+and an editor's credential (a user of the first editor collection) the draft. `routesMatchPaths` reads your route files
+and counts one only when the `GET` it exports is the one `createOgRoute()` returned; a mention in a comment or a string
+does not count. See [`dev/tests/og.spec.ts`](https://github.com/anatolykoptev/payload-og-image/blob/main/dev/tests/og.spec.ts).
+
+`og-parity --old <dir> --new <dir>` compares two directories of rendered cards (`<card>.png` plus
+`<card>.layout.json`) pixel for pixel, for a migration that must not change a card.
+
+## Not implemented
+
+Per-document mode and headline fields in the admin, live preview, a force-new-image nonce, a stats endpoint,
+pre-warming, locales, JPEG/WebP output, size variants, local emoji, another renderer, object-storage stores.
+The version and URL formats already reserve the slots, so adding them later changes no existing URL.
+
+## Threat model
+
+The card store directory (`store: { dir }`) must be private to the application user and live on a volume only
+the application writes. Anyone who can write that directory can already change the application, so the store
+defends against corrupt or foreign files appearing in it (torn writes, symlinks, odd file types), not against a
+local attacker racing it with directory swaps after boot.
