@@ -47,7 +47,8 @@ jobs:
       # from any branch.
       - uses: actions/checkout@v7
         with:
-          ref: ${{ env.TAG }}
+          # Fully qualified, so a branch that happens to share the tag's name can never be built instead.
+          ref: refs/tags/${{ env.TAG }}
           persist-credentials: false
       - name: The tag matches package.json
         run: test "$TAG" = "v$(node -p "require('./package.json').version")"
