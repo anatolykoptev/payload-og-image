@@ -20,7 +20,6 @@ export function isCompletePng(b: Uint8Array): boolean {
   let width = 0
   let height = 0
   let bitsPerPixel = 0
-  let interlaced = false
   const idat: Uint8Array[] = []
   while (pos + 12 <= b.length) {
     const len = view.getUint32(pos)
@@ -36,27 +35,31 @@ export function isCompletePng(b: Uint8Array): boolean {
       const channels = CHANNELS[view.getUint8(pos + 17)]
       if (channels === undefined || width === 0 || height === 0) return false
       bitsPerPixel = channels * view.getUint8(pos + 16)
-      interlaced = view.getUint8(pos + 20) === 1
+      // Adam7 is rejected: our renderer never emits it, and its pass layout is not validated here.
+      if (view.getUint8(pos + 20) !== 0) return false
     }
     first = false
     if (type === 'IDAT') idat.push(b.subarray(pos + 8, pos + 8 + len))
-    if (type === 'IEND') return len === 0 && end === b.length && decodes(idat, width, height, bitsPerPixel, interlaced)
+    if (type === 'IEND') return len === 0 && end === b.length && decodes(idat, width, height, bitsPerPixel)
     pos = end
   }
   return false
 }
 
-/** The IDAT payloads, joined, must inflate to the size the header promises (a corrupt or empty stream does not). */
-function decodes(idat: Uint8Array[], width: number, height: number, bitsPerPixel: number, interlaced: boolean): boolean {
+/**
+ * The IDAT payloads, joined, must inflate to exactly the size the header promises, and every row must start
+ * with a valid filter type (0..4). A corrupt, empty or wrong-sized stream is not a card.
+ */
+function decodes(idat: Uint8Array[], width: number, height: number, bitsPerPixel: number): boolean {
   if (idat.length === 0) return false
   const rowBytes = Math.ceil((width * bitsPerPixel) / 8) + 1 // + the filter byte
-  // Non-interlaced: exactly this. Interlaced (Adam7): each pass adds filter bytes, so only a ceiling.
   const expected = height * rowBytes
-  const ceiling = interlaced ? expected * 2 + 64 : expected
-  if (ceiling > MAX_INFLATED) return false
+  if (expected > MAX_INFLATED) return false
   try {
-    const out = inflateSync(Buffer.concat(idat), { maxOutputLength: ceiling })
-    return interlaced ? out.length > 0 : out.length === expected
+    const out = inflateSync(Buffer.concat(idat), { maxOutputLength: expected })
+    if (out.length !== expected) return false
+    for (let row = 0; row < height; row++) if ((out[row * rowBytes] ?? 0xff) > 4) return false
+    return true
   } catch {
     return false
   }
