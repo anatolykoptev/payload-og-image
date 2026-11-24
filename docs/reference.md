@@ -59,7 +59,7 @@ Two ways out:
 - **Render on every request**: `export const dynamic = 'force-dynamic'` on the page, as the dev app's `posts/[slug]` does.
 - **Revalidate on save**: tag what the page reads and expire the tag from an `afterChange` hook. `ogTag(collection, key)` and
   `OG_SITE_TAG` from `payload-og-image/next` only name the tags, so the page and the hook agree (`key` is anything both
-  know: the slug, the id).
+  know: the slug, the id; a tag over Next's 256-character limit, which Next would silently ignore, is shortened to a hash).
 
 ```ts
 // page: what it reads carries the tag
@@ -78,7 +78,15 @@ export const revalidatePost: CollectionAfterChangeHook = ({ doc, previousDoc, re
 ```
 
 Use `{ expire: 0 }`, not `'max'`: `'max'` serves the stale page to the next visitor, and the next visitor after a save is
-often the crawler. Deleting a document runs no `afterChange`: add an `afterDelete` hook that expires the same tag. Without a tagged read, `revalidatePath('/posts/<slug>')` does the same for one page. The plugin's own
+often the crawler. `afterChange` (and `afterOperation`) run inside the operation's transaction, before it commits (Payload 3.94.1: `updateByID` calls
+`buildAfterOperation` before `commitTransaction`; `req.transactionID` is set while one is open). A request that re-renders the
+page in that window reads the old document and caches it again, with the old `og:image`. For a rarely read page the window is
+milliseconds and does not matter. For a hot page, add the tags to a module-level `Set` in the hook (the wrapper below cannot see `req`) and expire
+them once the commit is done, from outside Payload: wrap the REST route's handlers in `app/(payload)/api/[...slug]/route.ts`
+(`export const PATCH = async (r, c) => { const res = await REST_PATCH(config)(r, c); /* expire the tags in the Set, then clear it */ return res }`),
+which resolve after the commit. Saves through the Local API (a job, a script) have no such wrapper: expire there yourself.
+
+Deleting a document runs no `afterChange`: add an `afterDelete` hook that expires the same tag. Without a tagged read, `revalidatePath('/posts/<slug>')` does the same for one page. The plugin's own
 `afterChange` on `siteGlobals` only drops its per-process `site()` cache; it never touches Next's page cache. A vitest suite
 has no Next page cache, so the proof is over HTTP: `scripts/probe-dev-server.mjs` (run in CI after the build) edits a post
 of the dev app's cached page `/cached/[slug]` and requires the page to advertise a new card URL at once.
