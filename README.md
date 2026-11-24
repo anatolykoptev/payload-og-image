@@ -98,7 +98,7 @@ title) advertises nothing.
 
 A card answer carries `etag: "<v>"` and `x-og-cache` (`render`, `memo`, `store` or `draft`). A downgraded card
 (`x-og-cache: downgraded`, hero missing) and the brand fallback carry no `etag`, so a cache cannot revalidate them
-into the current version; a 304 carries the `etag` and `cache-control` only. The request's `?v=` only picks the header; it is never a key, and the version is always derived
+into the current version; a 304 carries the `etag`, `cache-control`, `content-type` and `x-og-cache` and is sent only once the current card is in hand. The request's `?v=` only picks the header; it is never a key, and the version is always derived
 on the server.
 
 Draft mode is never cached, never stored, and shows draft text only to an authenticated editor. An HTTP cache
@@ -114,6 +114,19 @@ fresh URL (`?preview=1`) if you need to be sure.
 - A collection with drafts must allow public reads of published documents, because the plugin reads with
   `overrideAccess: false`:
   `read: ({ req: { user } }) => (user ? true : { _status: { equals: 'published' } })`.
+
+## Who counts as an editor
+
+Draft text and draft site data go only to users of the admin user collection (`admin.user`, normally `users`), or of
+the auth collections named in the `editors` option. A user of any other auth collection (customers, say) is never
+an editor, and `site()` is told which user it is serving (`site({ payload, draft: true, user })`).
+
+## Related documents
+
+A published read never draws a related document that is not published: a populated relation to a draft is replaced
+by its bare id before the template sees it. Say which upload collection a hero lives in with `heroCollection` on the
+target; a hero file is read only inside that collection's folder. Remote heroes (`allowedImageHosts`) are fetched
+over https on the default port, from a vetted public address only, with no redirect.
 
 ## Where the cards live
 
