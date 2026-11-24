@@ -461,32 +461,37 @@ describe('guardedFetch: its own agent, no proxy, and a failed response is a reje
     }
   })
 
-  it('does not go through a proxy even when the process-wide proxy is switched on', async () => {
-    const connections: string[] = []
-    const proxy = net.createServer((sock) => {
-      connections.push('connect')
-      sock.destroy()
-    })
-    await new Promise<void>((r) => proxy.listen(0, '127.0.0.1', r))
-    const { port } = proxy.address() as net.AddressInfo
-    // Node 24+: switch the GLOBAL agents to the env proxy at run time (older Node has no such switch, and nothing to prove).
-    const restore = (http as unknown as { setGlobalProxyFromEnv?: (env: Record<string, string>) => () => void }).setGlobalProxyFromEnv?.({
-      HTTPS_PROXY: `http://127.0.0.1:${port}`,
-    })
-    try {
-      const attempt = guardedFetch('https://cdn.test/a.jpg', { signal: AbortSignal.timeout(400) }, async () => [
-        { address: '1.1.1.1', family: 4 },
-      ])
-      await attempt.then(
-        (r) => r.body?.cancel(),
-        () => undefined,
-      )
-      expect(connections).toEqual([])
-    } finally {
-      restore?.()
-      await new Promise((r) => proxy.close(r))
-    }
-  })
+  // `http.setGlobalProxyFromEnv` exists from Node 24. Below it the process-wide proxy cannot be switched on, so the test would pass
+  // having proved nothing: skip it, and say why. CI runs Node 24 (.github/workflows/preflight.yml), where it runs.
+  it.skipIf(typeof (http as unknown as { setGlobalProxyFromEnv?: unknown }).setGlobalProxyFromEnv !== 'function')(
+    'does not go through a proxy even when the process-wide proxy is switched on (needs Node >= 24: http.setGlobalProxyFromEnv)',
+    async () => {
+      const connections: string[] = []
+      const proxy = net.createServer((sock) => {
+        connections.push('connect')
+        sock.destroy()
+      })
+      await new Promise<void>((r) => proxy.listen(0, '127.0.0.1', r))
+      const { port } = proxy.address() as net.AddressInfo
+      // Switch the GLOBAL agents to the env proxy at run time.
+      const restore = (http as unknown as { setGlobalProxyFromEnv?: (env: Record<string, string>) => () => void }).setGlobalProxyFromEnv?.({
+        HTTPS_PROXY: `http://127.0.0.1:${port}`,
+      })
+      try {
+        const attempt = guardedFetch('https://cdn.test/a.jpg', { signal: AbortSignal.timeout(400) }, async () => [
+          { address: '1.1.1.1', family: 4 },
+        ])
+        await attempt.then(
+          (r) => r.body?.cancel(),
+          () => undefined,
+        )
+        expect(connections).toEqual([])
+      } finally {
+        restore?.()
+        await new Promise((r) => proxy.close(r))
+      }
+    },
+  )
 
   it.each([
     ['a status outside 200-599', 600],

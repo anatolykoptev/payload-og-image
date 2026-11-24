@@ -28,6 +28,8 @@ jobs:
       - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v7
         with:
+          # Node 24 on purpose: the env-proxy test in test/render/render.spec.ts needs http.setGlobalProxyFromEnv (Node >= 24) and
+          # is skipped below it, so a lower pin would silently drop that check.
           node-version: 24
       - run: pnpm install --frozen-lockfile
       - run: make preflight
