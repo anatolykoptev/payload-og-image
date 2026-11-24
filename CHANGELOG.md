@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.2](https://github.com/anatolykoptev/payload-og-image/compare/v0.1.1...v0.1.2) (2026-11-24)
+
+
+### Bug Fixes
+
+* **release:** publish through npm trusted publishing; og-parity bin path npm keeps ([#19](https://github.com/anatolykoptev/payload-og-image/issues/19)) ([ae3a762](https://github.com/anatolykoptev/payload-og-image/commit/ae3a76289e96733b2eda521b719035f4f72ae801))
+
 ## [0.1.1](https://github.com/anatolykoptev/payload-og-image/compare/v0.1.0...v0.1.1) (2026-11-24)
 
 
