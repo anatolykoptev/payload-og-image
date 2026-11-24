@@ -61,7 +61,15 @@ export function normalizeProps(value: unknown, path = 'props', seen: object[] = 
   }
   const out: Record<string, unknown> = {}
   for (const [k, member] of Object.entries(value)) {
-    if (member !== undefined) out[k] = normalizeProps(member, `${path}.${k}`, next)
+    // defineProperty, not assignment: an own "__proto__" key is data here, never a prototype swap.
+    if (member !== undefined) {
+      Object.defineProperty(out, k, {
+        value: normalizeProps(member, `${path}.${k}`, next),
+        enumerable: true,
+        writable: true,
+        configurable: true,
+      })
+    }
   }
   return out
 }
