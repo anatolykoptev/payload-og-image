@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.4](https://github.com/anatolykoptev/payload-og-image/compare/v0.1.3...v0.1.4) (2026-11-24)
+
+
+### Bug Fixes
+
+* close the 0.1 review leftovers ([#11](https://github.com/anatolykoptev/payload-og-image/issues/11)) ([#23](https://github.com/anatolykoptev/payload-og-image/issues/23)) ([b4d1da9](https://github.com/anatolykoptev/payload-og-image/commit/b4d1da97dcf7426366ed9c1a2337f3233f971eb8))
+
 ## [0.1.3](https://github.com/anatolykoptev/payload-og-image/compare/v0.1.2...v0.1.3) (2026-11-24)
 
 
