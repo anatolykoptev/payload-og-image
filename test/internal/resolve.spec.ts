@@ -22,8 +22,10 @@
  * - resolve.ts:126  drop the `off` early return -> "og: mode off advertises nothing" RED
  * - resolve.ts:141  stop skipping the image step for `generated` -> "og: mode generated ignores an eligible editor image" RED
  * - resolve.ts:143  let `custom` ask share() -> "og: mode custom with no eligible editor image falls back to generated, and never asks share()" RED
- * - resolve.ts:131  drop the overrides from the resolver args -> "og: a headline override reaches props and changes v" RED */
+ * - resolve.ts:131  drop the overrides from the resolver args -> "og: a headline override reaches props and changes v" RED
+ * - fonts.ts:113  `missingGlyphs` judges against the stack's first family only (or one covering family) -> "(#38) a stack of two single-script faces strips only what neither draws" RED */
 import { describe, expect, it, vi } from 'vitest'
+import type { LoadedFont } from '../../src/internal/fonts.js'
 import { buildKindIndex, cardPath, resolveCard } from '../../src/internal/resolve.js'
 import { defineTarget, defineTemplate } from '../../src/template.js'
 import { loadTestFonts } from '../helpers.js'
@@ -405,5 +407,34 @@ describe('buildKindIndex', () => {
     expect(() => buildKindIndex({ posts: { ...posts, kind: 'post' }, pages: { ...posts, kind: 'post' } })).toThrow(
       /"posts" and "pages" share the kind "post"/,
     )
+  })
+})
+
+describe('(#38) a stack of two single-script faces', () => {
+  const face = (family: string, chars: string): LoadedFont => ({
+    family,
+    weight: 400,
+    style: 'normal',
+    data: new ArrayBuffer(0),
+    has: (ch) => chars.includes(ch),
+    advance: () => 500,
+  })
+  const fonts = [face('Latin', ' Helo'), face('Cyr', ' Привет')]
+
+  it('a stack of two single-script faces strips only what neither draws, and reports it', async () => {
+    const r = await generated({
+      fonts,
+      stacks: { title: ['Latin', 'Cyr'] },
+      doc: { id: 1, slug: 'a', title: 'Hello Привет 日本' },
+    })
+    // No family draws the whole run, but every kept character is drawn by one of them: nothing else is touched.
+    expect(r.props.title).toBe('Hello Привет')
+    expect(r.missing).toEqual(['日', '本'])
+  })
+
+  it('a title the two faces draw between them loses nothing and reports nothing', async () => {
+    const r = await generated({ fonts, stacks: { title: ['Latin', 'Cyr'] }, doc: { id: 1, slug: 'a', title: 'Hello Привет' } })
+    expect(r.props.title).toBe('Hello Привет')
+    expect(r.missing).toEqual([])
   })
 })

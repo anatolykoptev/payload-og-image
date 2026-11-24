@@ -189,7 +189,11 @@ export function ogImagePlugin(o: OgImagePluginOptions): (config: Config) => Conf
   }
 }
 
-/** Faces load (WOFF2 fails here), every stack draws the required sample, and the store opens. Throws except in production, where it logs. */
+/**
+ * Faces load (WOFF2 fails here), every stack draws the required sample, the store opens, and the fallback card is drawn once:
+ * a template needs a document to be drawn, the fallback does not, so a card that cannot be drawn at all (fonts, renderer) shows
+ * here and not at the first crawler request. Throws except in production, where it logs.
+ */
 async function selfTest(state: ReturnType<typeof createState>): Promise<void> {
   const o = state.options
   const problems: string[] = []
@@ -201,6 +205,12 @@ async function selfTest(state: ReturnType<typeof createState>): Promise<void> {
       if (missing.length > 0) problems.push(`stack "${name}" cannot draw ${JSON.stringify(missing.join(''))}`)
     }
     await state.store().get('0'.repeat(16), '0'.repeat(12)) // boots the store: its checks emit events
+    try {
+      const { drawFallbackCard } = await import('../render/selfTest.js') // lazy: it loads next/og and sharp
+      await drawFallbackCard({ brand: o.brand, fonts, stacks: o.stacks, host: new URL(state.serverUrl).host, siteName: sample })
+    } catch (error) {
+      problems.push(`the fallback card cannot be drawn: ${String((error as Error)?.message ?? error)}`)
+    }
   } catch (error) {
     problems.push(String((error as Error)?.message ?? error))
   }

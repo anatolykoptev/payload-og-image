@@ -2,6 +2,7 @@ import type { Renderer } from '../internal/handler.js'
 import { MAX_SIDE } from '../internal/limits.js'
 import { isCompletePng } from '../internal/store/png.js'
 import { assertPalette, DEFAULT_PALETTE, encodePng, type Palette } from './encode.js'
+import { withoutNetwork } from './noNetwork.js'
 
 /**
  * Draws a card with `next/og` (satori + resvg), then keeps the smaller of the truecolour and palette PNGs.
@@ -17,13 +18,18 @@ export function nextOgRenderer(o: { palette?: Palette | false } = {}): Renderer 
         throw new Error(`payload-og-image: card size ${width}x${height} must be whole pixels from 1 to ${MAX_SIDE}`)
       }
       const { ImageResponse } = await import('next/og.js')
-      const res = new ImageResponse(el, {
-        width,
-        height,
-        fonts: fonts.map((f) => ({ name: f.family, data: f.data, weight: f.weight as 400, style: f.style })),
+      // `next/og` fetches a font or an emoji image from a CDN for any character no registered face has, and has no option to refuse:
+      // the draw runs with fetch refused. (Callers remove such characters first, so this is the backstop, not the path.)
+      const png = await withoutNetwork(async () => {
+        const res = new ImageResponse(el, {
+          width,
+          height,
+          fonts: fonts.map((f) => ({ name: f.family, data: f.data, weight: f.weight as 400, style: f.style })),
+        })
+        if (!res.ok) throw new Error(`payload-og-image: next/og answered ${res.status}`)
+        return new Uint8Array(await res.arrayBuffer())
       })
-      if (!res.ok) throw new Error(`payload-og-image: next/og answered ${res.status}`)
-      const out = await encodePng(new Uint8Array(await res.arrayBuffer()), palette)
+      const out = await encodePng(png, palette)
       // Whatever leaves here may be cached as immutable: it must be a whole, decodable PNG.
       if (!isCompletePng(out)) throw new Error('payload-og-image: the renderer produced an invalid PNG')
       return out

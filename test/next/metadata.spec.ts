@@ -1,6 +1,7 @@
 /** Mutation table (production line -> the test that goes RED). Silent-failure surface: a page advertising a card URL the route does not serve (a different v, a different image).
  * - runtime.ts:149  resolve from the document the page passed instead of re-reading by id (patched through metadata.ts and runtime.ts together) -> "4: the page passes a doc whose hero is a bare id ..." RED
  * - resolve.ts:169 leave heroBackground out of the version -> "a changed heroBackground is a new card URL" RED
+ * - metadata.ts:17  never set `secureUrl` -> "1: a generated card", "2: the editor image is advertised as it is" RED; set it for an http URL too -> "43: an http image gets no secureUrl" RED
  * - metadata.ts:38  always throw -> "a failure throws in development and test, and is an event with {} in production" RED
  * - metadata.ts:11  advertise a card that would be blank -> "3: a card that would be blank advertises nothing" RED */
 import type { Payload } from 'payload'
@@ -82,6 +83,8 @@ describe('ogMetadata', () => {
     const image = (m.openGraph as any).images[0]
     expect(image.url).toMatch(/^https:\/\/x\.test\/og\/posts\/a\/card\.png\?v=[0-9a-f]{12}$/)
     expect([image.width, image.height, image.type, image.alt]).toEqual([1200, 630, 'image/png', 'Blog: A'])
+    expect(image.secureUrl).toBe(image.url) // an https image also says so as og:image:secure_url
+    expect(m.twitter).not.toHaveProperty('images.0.secureUrl')
     expect(m.twitter).toEqual({ card: 'summary_large_image', images: [{ url: image.url, width: 1200, height: 630, alt: 'Blog: A' }] })
   })
   it('2: the editor image is advertised as it is', async () => {
@@ -89,12 +92,20 @@ describe('ogMetadata', () => {
     const m = await ogMetadata({ config, target: 'posts', doc: { id: 1 } })
     expect((m.openGraph as any).images[0]).toEqual({
       url: 'https://x.test/media/own.jpg',
+      secureUrl: 'https://x.test/media/own.jpg',
       width: 1200,
       height: 630,
       type: 'image/jpeg',
       alt: 'Own',
     })
     expect((m.twitter as any).images[0]).toEqual({ url: 'https://x.test/media/own.jpg', width: 1200, height: 630, alt: 'Own' })
+  })
+  it('43: an http image gets no secureUrl; an https one gets its own URL', async () => {
+    const http = { ...jpeg, url: 'http://cdn.test/own.jpg' }
+    const { config } = setup({ 1: { id: 1, slug: 'a', title: 'A', meta: { image: http } } })
+    const image = ((await ogMetadata({ config, target: 'posts', doc: { id: 1 } })).openGraph as any).images[0]
+    expect(image.url).toBe('http://cdn.test/own.jpg')
+    expect(image).not.toHaveProperty('secureUrl')
   })
   it('3: a card that would be blank advertises nothing, and so does a missing doc', async () => {
     const { config } = setup({ 1: { id: 1, slug: 'a', title: '  ' } })

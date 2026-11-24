@@ -5,6 +5,7 @@
  * - fonts.ts:40  `data` as `bytes.slice().buffer` (a Buffer view shares its pool) -> "keeps exactly the face bytes when the source is a view into a larger buffer" RED
  * - fonts.ts:91  a family covers a run its faces only cover between them (`some` per char) -> "a family whose faces only cover a run between them does not cover it" RED
  * - fonts.ts:98  missingGlyphs looks only at the first family -> "reports and strips chars no face draws" RED
+ * - fonts.ts:29  allow a comma or a quote in a family name -> "rejects a family name that cannot sit in a font-family list" RED
  * - fonts.ts:51  advance() ignores unitsPerEm -> "advances match the fontTools oracle" RED
  * - fonts.ts:81  fitText measures the first registered face -> "measures a family with the same face whatever the registration order" RED; no upright-first rule -> "measures with an upright face before an italic one" RED
  * - fonts.ts:122  fit ignores a word wider than the line -> "shrinks for a word wider than a line instead of breaking it" RED
@@ -167,6 +168,11 @@ describe('fonts', () => {
     ))
   it('rejects bytes that are not a font, naming the family', async () =>
     expect(loadFonts([{ family: 'Bad', data: async () => new Uint8Array(64) }])).rejects.toThrow(/"Bad" could not be parsed/))
+  it('rejects a family name that cannot sit in a font-family list', async () => {
+    // `ctx.font` joins a stack's families with commas for a run no single family draws: a comma or quote in a name would split or end it.
+    for (const family of ['A,B', 'A"B', "A'B"])
+      await expect(loadFonts([{ ...(specs[1] as (typeof specs)[number]), family }])).rejects.toThrow(/must not contain a comma or a quote/)
+  })
   it('rejects a face registered twice', async () =>
     expect(loadFonts([specs[1] as (typeof specs)[number], specs[1] as (typeof specs)[number]])).rejects.toThrow(
       /"Inter" 800 normal is registered twice/,

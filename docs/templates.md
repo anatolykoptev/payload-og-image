@@ -67,7 +67,26 @@ stacks: { title: ['Inter'], default: ['Inter'] },
 
 A stack is an ordered list of families. `ctx.font(stack, text)` returns the first family with one face that
 draws every character of the run, so a Latin title uses the display face and a Cyrillic one falls over to a face
-that has Cyrillic, whole, never mixed per glyph. For a Cyrillic site put a Cyrillic-covering face in the stack.
+that has Cyrillic, whole. When no single family draws the run (Latin and Cyrillic words, with a Latin-only and a
+Cyrillic-only face), it returns the stack's families in order as one `font-family` list (`'Latin, Cyr'`), and each
+character is drawn by the first family that has it; `ctx.fit` measures it the same way. A family name may not contain a
+comma or a quote. Only characters no family of the stack draws are removed. For a Cyrillic site put a
+Cyrillic-covering face in the stack.
+
+### No request leaves the host while a card is drawn
+
+`next/og` downloads a font (the missing characters in the query) or a Twemoji image from a third-party CDN for any
+character none of the registered faces has, and has no option to turn that off. The plugin makes the render offline:
+
+- Before drawing, every text child of the element a template returns (not only the `textFields` props, and including a
+  character written in the template itself) loses the characters no registered face draws. Each is reported as a
+  `glyph_missing` event, and in the editor's preview warnings. Composed forms are used where they exist (`e` + U+0301
+  is drawn as `é`), and an accent that a face lacks is dropped from its letter.
+- The draw runs with `fetch` refused, as a last line: anything that still tries (a remote `<img src>`, say) makes the card fail
+  with a `render_error` that names the host, and the fallback card is served. The version of a card does not change.
+
+A template that needs an emoji or a symbol must draw it with a registered face that has it, or as an `<img>` with a
+`data:` URL.
 
 The `default` stack is required: the fallback card and any text field without a stack of its own use it.
 At start-up every stack must draw `requiredSample` (default `Aa’‘“”–—…`; add `«»„№₽` for Russian), or the

@@ -25,6 +25,9 @@ const sha = (b: Uint8Array | string) => createHash('sha256').update(b).digest('h
 const asBytes = (d: ArrayBuffer | Uint8Array) => (d instanceof Uint8Array ? d : new Uint8Array(d))
 
 async function loadOne(spec: FontSpec): Promise<LoadedFont & { hash: string }> {
+  // A family is named in a CSS `font-family` list (`ctx.font` joins a stack with commas), so it cannot hold a list separator or a quote.
+  if (/[,"']/.test(spec.family))
+    throw new Error(`payload-og-image: font family ${JSON.stringify(spec.family)} must not contain a comma or a quote`)
   const bytes = asBytes(await spec.data())
   if (WOFF2.every((b, i) => bytes[i] === b)) {
     throw new Error(`payload-og-image: font "${spec.family}" is WOFF2; satori cannot read WOFF2. Ship WOFF/TTF/OTF.`)
@@ -93,6 +96,18 @@ export function coveringFamily(fonts: LoadedFont[], stack: string[], text: strin
   return null
 }
 
+/**
+ * The `font-family` value for a run of text. One family when a single face of it draws every character (a whole-run swap);
+ * otherwise the stack's registered families in order, which the renderer resolves glyph by glyph (the first family that has the
+ * glyph draws it). Characters no family draws are not this function's business: they are removed before drawing.
+ */
+export function fontFamilyFor(fonts: LoadedFont[], stack: string[], text: string): string {
+  const one = coveringFamily(fonts, stack, text)
+  if (one !== null) return one
+  const present = stack.filter((family) => facesOf(fonts, family).length > 0)
+  return present.length > 0 ? present.join(', ') : (stack[0] as string)
+}
+
 /** Characters (each once, in order) that no face of any family in the stack draws. */
 export function missingGlyphs(fonts: LoadedFont[], stack: string[], text: string): string[] {
   const faces = stack.flatMap((family) => facesOf(fonts, family))
@@ -109,10 +124,13 @@ export function stripMissing(fonts: LoadedFont[], stack: string[], text: string)
 
 type Layout = { lines: number; broke: boolean }
 
+/** The face that measures (and, in a stack, draws) a character. */
+type FaceOf = (ch: string) => LoadedFont
+
 /** Greedy wrap by real advance widths. `broke` means a single word is wider than a line. */
-function layout(face: LoadedFont, words: string[], size: number, width: number): Layout {
+function layout(faceOf: FaceOf, words: string[], size: number, width: number): Layout {
   const limit = width * WIDTH_MARGIN
-  const wide = (s: string) => ([...s].reduce((em, ch) => em + face.advance(ch), 0) / 1000) * size
+  const wide = (s: string) => ([...s].reduce((em, ch) => em + faceOf(ch).advance(ch), 0) / 1000) * size
   const space = wide(' ')
   let lines = 1
   let used = 0
@@ -146,33 +164,51 @@ function assertBox(box: Box): void {
 const fits = (l: Layout, size: number, box: Box) =>
   !l.broke && l.lines * size * box.leading <= box.height && (box.maxLines === undefined || l.lines <= box.maxLines)
 
+/** Measures with one family, or with a stack: each character with the first family that has it (as the renderer draws it). */
+function faceOfFamily(fonts: LoadedFont[], family: string | string[]): FaceOf {
+  if (typeof family === 'string') {
+    const face = measuringFace(fonts, family)
+    if (!face) throw new Error(`payload-og-image: fitText: font family "${family}" is not registered`)
+    return () => face
+  }
+  const faces = family.flatMap((f) => measuringFace(fonts, f) ?? [])
+  const first = faces[0]
+  if (!first) throw new Error(`payload-og-image: fitText: font family "${family[0]}" is not registered`)
+  return (ch) => faces.find((f) => f.has(ch)) ?? first
+}
+
 /**
  * The largest size from `maxSize` down (steps of 2) at which `text` wraps within the box, using the face's
- * advance widths. At `minSize` a text that still does not fit is cut with an ellipsis.
+ * advance widths. At `minSize` a text that still does not fit is cut with an ellipsis. A stack (an array) measures each
+ * character with the first family that draws it.
  */
-export function fitText(fonts: LoadedFont[], family: string, text: string, box: Box): { size: number; lines: number; text: string } {
-  const face = measuringFace(fonts, family)
-  if (!face) throw new Error(`payload-og-image: fitText: font family "${family}" is not registered`)
+export function fitText(
+  fonts: LoadedFont[],
+  family: string | string[],
+  text: string,
+  box: Box,
+): { size: number; lines: number; text: string } {
+  const faceOf = faceOfFamily(fonts, family)
   assertBox(box)
   const clean = text.replace(/\s+/g, ' ').trim()
   if (clean === '') return { size: box.maxSize, lines: 0, text: '' }
   const words = clean.split(' ')
   for (let size = box.maxSize; ; ) {
-    const l = layout(face, words, size, box.width)
+    const l = layout(faceOf, words, size, box.width)
     if (fits(l, size, box)) return { size, lines: l.lines, text: clean }
     const next = Math.max(box.minSize, size - STEP)
     if (next >= size) break // the step must change the size, or the loop would never end
     size = next
   }
-  return ellipsize(face, clean, box)
+  return ellipsize(faceOf, clean, box)
 }
 
 /** The longest prefix that fits at `minSize`, cut at a word when there is one, followed by an ellipsis. */
-function ellipsize(face: LoadedFont, clean: string, box: Box): { size: number; lines: number; text: string } {
-  const mark = face.has('…') ? '…' : '...'
+function ellipsize(faceOf: FaceOf, clean: string, box: Box): { size: number; lines: number; text: string } {
+  const mark = faceOf('…').has('…') ? '…' : '...'
   const size = box.minSize
   const attempt = (candidate: string) => {
-    const l = layout(face, candidate.split(' '), size, box.width)
+    const l = layout(faceOf, candidate.split(' '), size, box.width)
     return fits(l, size, box) ? { size, lines: l.lines, text: candidate } : null
   }
   const words = clean.split(' ')

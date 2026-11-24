@@ -13,8 +13,10 @@ export function descriptorOf(card: ResolvedCard): Pick<Metadata, 'openGraph' | '
   const image =
     card.kind === 'own' ? card.image : { url: card.url, width: card.size.width, height: card.size.height, type: card.type, alt: card.alt }
   const base = { url: image.url, width: image.width, height: image.height, alt: image.alt ?? '' }
+  // `og:image:secure_url` is Facebook's "https:// URL for the image": set only when the image is, never to an http URL.
+  const secure = /^https:\/\//i.test(image.url) ? { secureUrl: image.url } : {}
   return {
-    openGraph: { images: [{ ...base, type: image.type }] },
+    openGraph: { images: [{ ...base, ...secure, type: image.type }] },
     twitter: { card: 'summary_large_image', images: [base] },
   }
 }
