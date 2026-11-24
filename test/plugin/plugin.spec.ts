@@ -1,4 +1,5 @@
 /** Mutation table (production line -> the test that goes RED). Silent-failure surface: a misconfigured plugin that boots and serves nothing, or one that changes the schema.
+ * - index.ts:71  ignore `options.serverURL` (use the config's only) -> "ogImagePlugin: serverURL option > builds card URLs on options.serverURL" RED
  * - index.ts:64  no `default` stack required -> "refuses no default stack" RED
  * - index.ts:82  accept a target on a missing collection -> "3: a target whose collection does not exist throws" RED
  * - index.ts:83  accept an unknown template -> "2: a target naming an unknown template throws" RED
@@ -150,6 +151,17 @@ describe('ogImagePlugin: config transform', () => {
   it('refuses a config with no absolute serverURL', () => {
     expect(() => apply(options(), { ...baseConfig(), serverURL: '' })).toThrow(/absolute `serverURL`/)
     expect(() => apply(options(), { ...baseConfig(), serverURL: 'ftp://x' })).toThrow(/absolute `serverURL`/)
+  })
+})
+
+describe('ogImagePlugin: serverURL option', () => {
+  it('builds card URLs on options.serverURL, so the Payload config needs none of its own', () => {
+    const cfg = { ...baseConfig(), serverURL: '' }
+    const out = ogImagePlugin(options({ serverURL: 'https://cards.test' }))(cfg) as { custom: Record<string, { serverUrl: string }> }
+    expect(Object.values(out.custom)[0]?.serverUrl).toBe('https://cards.test')
+  })
+  it('refuses a relative options.serverURL even when the config has an absolute one', () => {
+    expect(() => apply(options({ serverURL: '/relative' }))).toThrow(/absolute `serverURL`/)
   })
 })
 

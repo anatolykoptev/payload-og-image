@@ -33,6 +33,11 @@ export type OgImagePluginOptions = {
   seoImage?: { path: string; isDeliberate?: (image: unknown) => boolean }
   /** Hosts a hero image may be fetched from (exact hostnames, https). Default none: nothing is fetched at render time. */
   allowedImageHosts?: string[]
+  /**
+   * The absolute origin card URLs are built on. Default: the Payload config's `serverURL`. Pass it when setting the config's own `serverURL` would
+   * change more than you want (it also makes Payload store absolute upload URLs).
+   */
+  serverURL?: string
   /** The colour a transparent hero is flattened onto before it is cut to the card (a hex colour or colour name). Default white. */
   heroBackground?: string
   /** Characters every stack must draw, checked at start-up. Default `Aa’‘“”–—…`. */
@@ -63,12 +68,12 @@ function validate(o: OgImagePluginOptions, config: Config): string {
       if (!o.fonts.some((f) => f.family === family)) fail(`stack "${name}" names the family "${family}", which no registered font provides`)
   }
   if (!Object.hasOwn(o.stacks, 'default')) fail('options.stacks needs a "default" stack: the fallback card and unmapped text fields use it')
-  const serverUrl = config.serverURL
+  const serverUrl = o.serverURL ?? config.serverURL
   try {
     const u = new URL(serverUrl ?? '')
     if (u.protocol !== 'https:' && u.protocol !== 'http:') throw new Error('protocol')
   } catch {
-    fail('the Payload config needs an absolute `serverURL` (card URLs are absolute)')
+    fail('the Payload config (or the `serverURL` option) needs an absolute `serverURL` (card URLs are absolute)')
   }
 
   const templates = new Map<string, Template<any>>()

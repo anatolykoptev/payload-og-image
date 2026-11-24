@@ -29,7 +29,7 @@ serverExternalPackages: ['fontkit']
 import { ogImagePlugin } from 'payload-og-image'
 
 export default buildConfig({
-  serverURL: 'https://example.com', // card URLs are absolute
+  serverURL: 'https://example.com', // card URLs are absolute (or pass `serverURL` to ogImagePlugin: the config's own also makes Payload store absolute upload URLs)
   plugins: [ogImagePlugin(ogOptions)],
   // ...
 })
