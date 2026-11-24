@@ -36,6 +36,7 @@
  * - runtime.ts:120  the editor credential authenticates as a hard-coded `users` -> "draftNeverCached: a never-published document > the editor credential belongs to the first configured editor collection" RED
  * - runtime.ts:109  the fake find ignores `_status` -> "draftNeverCached: a never-published document > passes on the production source" RED (and dev spec "draft never cached" RED)
  * - runtime.ts:107  the fake find answers an unsupported where clause instead of throwing -> "the fake find fails loudly on a where clause it cannot honour" RED
+ * - runtime.ts:115 the fake config lists no globals -> "the fake Payload lists the site's globals in its config" RED
  * - kit.ts:255 accept a 200 for a never-published document -> "rejects a route that serves a never-published document to the public" RED
  * - payloadSource.ts:35 (production) drop the `_status: published` filter -> dev spec "draft never cached" RED ("a never-published document answered 200 for a public request") */
 import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
@@ -341,6 +342,20 @@ describe('draftNeverCached: a never-published document', () => {
     )
     await site(rt).module.GET(new Request('https://example.test/og/posts/a/card.png'), { params: Promise.resolve(p('a')) })
     expect(seen).toMatch(/unsupported where clause/)
+  })
+  it("the fake Payload lists the site's globals in its config, as a site() that reads `payload.config.globals` expects", async () => {
+    let listed: string[] = []
+    const rt = installTestRuntime(
+      options({
+        site: async ({ payload }) => {
+          listed = (payload.config.globals ?? []).map((g: { slug: string }) => g.slug)
+          return { name: 'Site' }
+        },
+      }),
+      docs(),
+    )
+    await site(rt).module.GET(new Request('https://example.test/og/posts/a/card.png'), { params: Promise.resolve(p('a')) })
+    expect(listed).toEqual(['site-settings'])
   })
   it('rejects a draftOnly slug that is also published (the check would prove nothing)', async () => {
     const rt = installTestRuntime(options(), withDraftOnly())

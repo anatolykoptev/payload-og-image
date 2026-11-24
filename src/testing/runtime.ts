@@ -111,7 +111,8 @@ export function installTestRuntime(options: OgImagePluginOptions, docs: KitDocs,
 
   // The parts of Payload the production source touches: auth, find (the table above), collections, findGlobal.
   const fakePayload = {
-    config: { admin: { user: options.editors?.[0] ?? 'users' } },
+    // `globals` as Payload lists them: a site's `site()` often asks which of its globals have drafts.
+    config: { admin: { user: options.editors?.[0] ?? 'users' }, globals: Object.keys(docs.globals ?? {}).map((slug) => ({ slug })) },
     collections: Object.fromEntries(
       Object.entries(options.targets).map(([name, t]) => [t.collection ?? name, { config: { versions: { drafts: true } } }]),
     ),
