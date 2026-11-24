@@ -1,0 +1,6 @@
+payload-og-image
+Copyright 2026 Anatoly Koptev
+
+This product includes software developed by the Payload, Next.js, satori, resvg
+and fontkit projects under their own licences (MPL-2.0 for satori and resvg as
+bundled in next/og, MIT for fontkit). Those projects are used unmodified.

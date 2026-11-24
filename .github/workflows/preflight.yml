@@ -1,0 +1,29 @@
+name: preflight
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  preflight:
+    # While the repository is private this runs on the repository's own self-hosted runner
+    # (arm64). When it goes public, switch to `ubuntu-24.04-arm` (free for public repositories).
+    runs-on: [self-hosted, linux, arm64]
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v7
+      # No `version:` — the action reads `packageManager` from package.json; passing both is an error.
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - run: pnpm install --frozen-lockfile
+      - run: make preflight
