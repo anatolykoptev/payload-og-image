@@ -12,3 +12,17 @@ export const loadTestFonts = () => {
   ])
   return loaded
 }
+
+import sharp from 'sharp'
+
+/** A real, tiny PNG whose bytes depend on `text`, so two different cards never share bytes. */
+export const realPng = async (text: string): Promise<Uint8Array> => {
+  let h = 7
+  for (const ch of text) h = (h * 31 + ch.charCodeAt(0)) >>> 0
+  const background = { r: h & 255, g: (h >> 8) & 255, b: (h >> 16) & 255 }
+  return new Uint8Array(
+    await sharp({ create: { width: 8, height: 8, channels: 3, background } })
+      .png()
+      .toBuffer(),
+  )
+}

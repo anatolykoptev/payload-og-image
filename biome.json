@@ -23,7 +23,13 @@
   },
   "overrides": [
     {
-      "includes": ["src/template.ts", "src/internal/resolve.ts", "test/internal/resolve.spec.ts"],
+      "includes": [
+        "src/template.ts",
+        "src/internal/resolve.ts",
+        "test/internal/resolve.spec.ts",
+        "src/internal/handler.ts",
+        "test/internal/handler.spec.ts"
+      ],
       "linter": {
         "rules": {
           "suspicious": {
