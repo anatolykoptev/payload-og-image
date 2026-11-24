@@ -36,7 +36,7 @@ const fallback = defineTemplate<{ site: string }>({ id: 'fb', revision: '1', ren
 
 function setup() {
   const events = { emit: vi.fn() }
-  const published = new Map([['a', { id: 1, slug: 'a', title: 'Hello', subtitle: '日本語 🚀 launch' }]])
+  const published = new Map([['a', { id: 1, slug: 'a', title: 'Hello', subtitle: '日本語 🚀 launch x\u0301' }]])
   const h = createCardHandler({
     targets: {
       posts: defineTarget<any, any>({
@@ -97,7 +97,8 @@ describe('a card is drawn without any request to a third party', () => {
     const missing = events.emit.mock.calls.map(([e]) => e).filter((e) => e.name === 'glyph_missing')
     expect(missing).toHaveLength(1)
     expect(missing[0]).toMatchObject({ kind: 'posts', slug: 'a' })
-    expect([...missing[0].detail.chars].sort()).toEqual(['★', '日', '本', '語', '🚀'].sort())
+    // U+0301 is in Inter and not in Archivo: the renderer may look a cluster `x` + U+0301 up in Archivo, so the mark goes.
+    expect([...missing[0].detail.chars].sort()).toEqual(['★', '日', '本', '語', '🚀', '\u0301'].sort())
     expect(events.emit.mock.calls.some(([e]) => e.name === 'render_error')).toBe(false)
   })
 

@@ -2,9 +2,11 @@
  * - nextOg.ts:23  draw outside `withoutNetwork` -> "a character no face draws is never fetched: the draw is refused, not sent" RED (the spy is called)
  * - noNetwork.ts:53  do not throw when a refusal was swallowed (a font download) -> "a refused font download fails the draw (the renderer would carry on with tofu)" RED
  * - noNetwork.ts:10  refuse `data:` URLs too -> "a clean card renders: the renderer reads its own WebAssembly from a data: URL" RED
+ * - noNetwork.ts:23-53  scope the refusal with a module-level depth counter instead of the async context -> "only the draw is refused: host fetches around and between overlapping draws pass" RED
  * - noNetwork.ts:32  refuse outside a draw -> "fetch outside a draw passes through untouched" RED */
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { nextOgRenderer } from '../../src/render/nextOg.js'
+import { withoutNetwork } from '../../src/render/noNetwork.js'
 import { loadTestFonts } from '../helpers.js'
 
 const el = (children: string) =>
@@ -69,5 +71,31 @@ describe('the renderer makes no network request', () => {
     await nextOgRenderer({ palette: false }).render(el('Hello'), { ...SIZE, fonts }) // installs the guard over the spy
     await fetch('https://example.test/other')
     expect(net.calls()).toEqual(['https://example.test/other'])
+  })
+
+  it('only the draw is refused: host fetches around and between overlapping draws pass', async () => {
+    const net = offline()
+    let release!: () => void
+    const gate = new Promise<void>((r) => {
+      release = r
+    })
+    const draw = (url: string) =>
+      withoutNetwork(async () => {
+        await gate
+        await fetch(url) // refused: the draw's own async chain
+      })
+    const one = draw('https://cdn.test/draw-1')
+    // Started in the same async chain as the draw, right after it was called (nothing awaited yet).
+    const sameChain = fetch('https://host.test/same-chain')
+    const two = draw('https://cdn.test/draw-2')
+    // While both draws are in flight: another request of the host.
+    const during = fetch('https://host.test/during')
+    release()
+    const [a, b] = await Promise.allSettled([one, two])
+    expect([a.status, b.status]).toEqual(['rejected', 'rejected'])
+    // And right after the draws settled, still in the awaiting chain.
+    const after = fetch('https://host.test/after')
+    await Promise.all([sameChain, during, after])
+    expect(net.calls().sort()).toEqual(['https://host.test/after', 'https://host.test/during', 'https://host.test/same-chain'])
   })
 })
