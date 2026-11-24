@@ -129,6 +129,7 @@ describe('ogImagePlugin: config transform', () => {
     ['a crawler sample above 1', { crawlerEvents: { sample: 2 } }, /crawlerEvents\.sample/],
     ['a NaN crawler sample', { crawlerEvents: { sample: Number.NaN } }, /crawlerEvents\.sample/],
     ['a url as an image host', { allowedImageHosts: ['https://cdn.test'] }, /bare hostname/],
+    ['a css injection as the hero background', { heroBackground: 'red; background:url(x)' }, /heroBackground/],
     ['a css injection as a brand colour', { brand: { ink: 'red; background:url(x)' } }, /brand\.ink/],
     [
       'a static card colliding with a target kind',

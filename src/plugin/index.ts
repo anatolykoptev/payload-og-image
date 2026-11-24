@@ -33,6 +33,8 @@ export type OgImagePluginOptions = {
   seoImage?: { path: string; isDeliberate?: (image: unknown) => boolean }
   /** Hosts a hero image may be fetched from (exact hostnames, https). Default none: nothing is fetched at render time. */
   allowedImageHosts?: string[]
+  /** The colour a transparent hero is flattened onto before it is cut to the card (a hex colour or colour name). Default white. */
+  heroBackground?: string
   /** Characters every stack must draw, checked at start-up. Default `Aa’‘“”–—…`. */
   requiredSample?: string
   onEvent?: OnEvent
@@ -119,6 +121,8 @@ function validate(o: OgImagePluginOptions, config: Config): string {
       fail(`allowedImageHosts entry "${String(host)}" must be a bare hostname`)
   for (const [k, v] of Object.entries(o.brand ?? {}))
     if (typeof v !== 'string' || !COLOUR.test(v)) fail(`brand.${k} must be a hex colour or a colour name`)
+  if (o.heroBackground !== undefined && (typeof o.heroBackground !== 'string' || !COLOUR.test(o.heroBackground)))
+    fail('heroBackground must be a hex colour or a colour name')
   if (o.requiredSample !== undefined && typeof o.requiredSample !== 'string') fail('requiredSample must be a string')
   return serverUrl as string
 }

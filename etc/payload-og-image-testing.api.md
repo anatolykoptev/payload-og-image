@@ -112,6 +112,7 @@ export type OgImagePluginOptions = {
         isDeliberate?: (image: unknown) => boolean;
     };
     allowedImageHosts?: string[];
+    heroBackground?: string;
     requiredSample?: string;
     onEvent?: OnEvent;
     crawlerEvents?: {

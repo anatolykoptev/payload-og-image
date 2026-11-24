@@ -138,7 +138,7 @@ props: async ({ doc, site, related }) => {
 `related` is published-only and access-respecting (it is `null` for a missing, unpublished or forbidden document); an
 editor previewing a draft also gets the draft of a related document. `Target.depth` is gone: there is nothing to tune.
 Say which upload collection a hero lives in with `heroCollection` on the target; a hero file is read only inside that
-collection's folder. Remote heroes (`allowedImageHosts`) are fetched over https on the default port with a dedicated
+collection's folder. A transparent hero is flattened onto `heroBackground` (default white) before it is cut. Remote heroes (`allowedImageHosts`) are fetched over https on the default port with a dedicated
 agent (never an environment proxy), from a vetted public address only (IANA special-purpose ranges are refused), with no
 redirect.
 

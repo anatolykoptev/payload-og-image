@@ -1,4 +1,5 @@
 import { getPayload, type Payload, type SanitizedConfig } from 'payload'
+import type { OgImagePluginOptions } from '../plugin/index.js'
 import { payloadSource } from '../plugin/payloadSource.js'
 import { createFallbackTemplate, fallbackTemplate } from '../render/fallback.js'
 import { payloadHeroLoader } from '../render/hero.js'
@@ -54,6 +55,22 @@ const disabledHandler = {
   },
 }
 
+/** The production hero loader: reads only the hero's own upload collection (`Target.heroCollection`), or the one upload collection there is. */
+export function heroLoaderFor(payload: Payload, o: Pick<OgImagePluginOptions, 'allowedImageHosts' | 'heroBackground'>) {
+  return payloadHeroLoader({
+    staticDirs: async (collection) => {
+      const uploads = Object.entries(payload.collections).flatMap(([slug, c]) => {
+        const up = c.config.upload
+        return up && typeof up === 'object' && typeof up.staticDir === 'string' ? [{ slug, dir: up.staticDir }] : []
+      })
+      const own = collection === undefined ? (uploads.length === 1 ? uploads : []) : uploads.filter((u) => u.slug === collection)
+      return own.map((u) => u.dir)
+    },
+    allowedHosts: o.allowedImageHosts,
+    background: o.heroBackground,
+  })
+}
+
 export function buildRuntime(state: OgState, payload: Payload, over: RuntimeOverrides = {}): OgRuntime {
   const o = state.options
   if (o.disabled) {
@@ -63,21 +80,7 @@ export function buildRuntime(state: OgState, payload: Payload, over: RuntimeOver
   const siteCache = state.siteCache
   const source = over.source ?? payloadSource(payload, state, () => siteCache.get())
   const renderer = over.renderer ?? nextOgRenderer()
-  const heroLoader =
-    over.heroLoader ??
-    payloadHeroLoader({
-      // Only the hero's own upload collection (`Target.heroCollection`) is ever read; with none named, the one upload collection if
-      // there is exactly one, else nothing.
-      staticDirs: async (collection) => {
-        const uploads = Object.entries(payload.collections).flatMap(([slug, c]) => {
-          const up = c.config.upload
-          return up && typeof up === 'object' && typeof up.staticDir === 'string' ? [{ slug, dir: up.staticDir }] : []
-        })
-        const own = collection === undefined ? (uploads.length === 1 ? uploads : []) : uploads.filter((u) => u.slug === collection)
-        return own.map((u) => u.dir)
-      },
-      allowedHosts: o.allowedImageHosts,
-    })
+  const heroLoader = over.heroLoader ?? heroLoaderFor(payload, o)
   const isDraftRequest =
     over.isDraftRequest ??
     (async () => {
