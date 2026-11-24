@@ -46,7 +46,7 @@
     }
   },
   "bin": {
-    "og-parity": "./dist/testing/parity.js"
+    "og-parity": "dist/testing/parity.js"
   },
   "scripts": {
     "api:check": "api-extractor run -c api-extractor.json && api-extractor run -c api-extractor.next.json && api-extractor run -c api-extractor.testing.json",

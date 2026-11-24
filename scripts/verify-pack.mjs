@@ -21,6 +21,8 @@ const inTarball = new Set(packed.files.map((f) => f.path))
 
 const pkg = JSON.parse(readFileSync('package.json', 'utf8'))
 for (const [name, file] of Object.entries(pkg.bin ?? {})) {
+  // npm 11 drops a bin whose path starts with `./` at publish ("script name ... was invalid"): v0.1.1 shipped without og-parity.
+  if (file.startsWith('./')) errors.push(`bin "${name}" -> ${file}: write it without the leading ./`)
   if (!inTarball.has(file.replace(/^\.\//, ''))) errors.push(`bin "${name}" -> ${file} is not in the tarball`)
 }
 
