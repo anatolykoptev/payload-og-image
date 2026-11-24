@@ -15,6 +15,21 @@ function defaultSink(e: OgEvent, count: number): void {
   console.warn(`[payload-og] ${parts.join(' ')}`)
 }
 
+const noop = () => undefined
+
+/**
+ * Calls a user's sink so that nothing it does can reach serving: a throw is swallowed, and so is the
+ * rejection of an async sink (an unhandled rejection would otherwise take the process down).
+ */
+export function safeCall(sink: OnEvent, e: OgEvent): void {
+  try {
+    const out = sink(e) as unknown
+    if (out && typeof (out as PromiseLike<unknown>).then === 'function') (out as Promise<unknown>).then(noop, noop)
+  } catch {
+    // observability must not break serving
+  }
+}
+
 /**
  * The one place events leave the package. Counts every event by name; hands each to `onEvent`
  * (or to the default console sink). A throwing sink never fails a request.
@@ -25,12 +40,8 @@ export function createEventSink(onEvent?: OnEvent): { emit: OnEvent; counters():
     emit(e) {
       const n = (counts[e.name] ?? 0) + 1
       counts[e.name] = n
-      try {
-        if (onEvent) onEvent(e)
-        else defaultSink(e, n)
-      } catch {
-        // observability must not break serving
-      }
+      if (onEvent) safeCall(onEvent, e)
+      else safeCall((ev) => defaultSink(ev, n), e)
     },
     counters: () => ({ ...counts }),
   }

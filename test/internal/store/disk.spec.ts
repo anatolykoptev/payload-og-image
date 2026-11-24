@@ -1,18 +1,21 @@
 /** Mutation table (reviewer neuters each once in a scratch copy). Silent-failure surface: a torn or foreign file is served or deleted without error.
- * - disk.ts:178   get(): replace `isCompletePng(bytes)` with `true`                  -> "a torn file (...) is a miss and is deleted" RED
- * - disk.ts:116      doPrune(): drop the CARD_FILE/TEMP_FILE ownership filter            -> "never counts or deletes files it does not own" RED
- * - disk.ts:141       doPrune(): keep the newest 1 instead of keepPerPage                 -> "keeps the newest two versions of a page" RED
- * - disk.ts:211     put(): await store.prune() inline instead of scheduling             -> "put never prunes on the hot path" RED
- * - disk.ts:214   put(): never schedule a prune                                       -> "put schedules a prune off the hot path" RED
- * - disk.ts:145  doPrune(): leave live temp files out of bytes                           -> "counts fresh temp files toward the cap" RED
- * - disk.ts:144  doPrune(): leave live temp files out of count                           -> "counts fresh temp files toward maxFiles" RED
- * - disk.ts:131  doPrune(): never sweep old temp files                               -> "sweeps temp files older than an hour" RED
- * - disk.ts:201     put(): drop the ENOENT mkdir-and-retry                              -> "recreates a directory that vanished" RED
- * - disk.ts:207       disable on every error (drop the PERMANENT split)                   -> "a non-permanent write error is skipped once and keeps the store on" RED
- * - disk.ts:61       emit store_disabled on every failure (drop the `if (off) return`)   -> "concurrent failing writes emit ONE store_disabled" RED
- * - disk.ts:185        drop the PAGE_ID/VERSION validation                                 -> "a non-hex page id or version never becomes a file name" RED
- * - disk.ts:82     drop the free-space check                                           -> "warns once at boot when the cap exceeds free space" RED
- * - disk.ts:186     put(): drop the isCompletePng check                                 -> "put refuses bytes that are not a whole PNG" RED */
+ * - disk.ts:181  get(): accept any bytes -> "a torn file (...) is a miss and is deleted" RED
+ * - disk.ts:112  drop the ownership filter -> "never counts or deletes files it does not own" RED
+ * - disk.ts:137  keep the newest 1 instead of keepPerPage -> "keeps the newest two versions of a page" RED
+ * - disk.ts:217  put(): await a (throttled) prune inline instead of scheduling -> "put schedules a prune off the hot path" RED
+ * - disk.ts:155  never schedule a prune -> "put schedules a prune off the hot path" RED
+ * - disk.ts:213  drop the prune after a failed write -> "a failed write still schedules a prune" RED
+ * - disk.ts:140  live temp files not counted (count) -> "counts fresh temp files toward maxFiles" RED
+ * - disk.ts:141  live temp files not counted (bytes) -> "counts fresh temp files toward the cap" RED
+ * - disk.ts:127  never sweep old temp files -> "sweeps temp files older than an hour" RED
+ * - disk.ts:204  drop the ENOENT mkdir-and-retry -> "recreates a directory that vanished after boot" RED
+ * - disk.ts:210  disable on every error -> "a non-permanent write error is skipped once and keeps the store on" RED
+ * - disk.ts:57  drop the once-guard -> "concurrent failing writes emit ONE store_disabled" RED
+ * - disk.ts:48  call the sink unguarded -> "an async sink that rejects is not an unhandled rejection" RED
+ * - disk.ts:188  drop hex validation in put -> "a non-hex page id or version never becomes a file name" RED
+ * - disk.ts:78  drop the free-space check -> "warns once at boot when the cap exceeds free space" RED
+ * - disk.ts:189  put(): drop the isCompletePng check -> "put refuses bytes that are not a whole PNG" RED */
+import { readdirSync } from 'node:fs'
 import { chmod, mkdir, mkdtemp, readdir, rm, utimes, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
@@ -115,8 +118,40 @@ describe('diskStore', () => {
     await s.put(P, V('4'), await png())
     await utimes(path.join(dir, `${P}-${V('4')}.png`), 1000, 1000)
     await s.put(P, V('5'), await png())
+    // Synchronously after put returns: an awaited (even throttled) prune inside put would already have deleted the older file.
+    expect(readdirSync(dir)).toHaveLength(2)
     expect(await until(async () => (await readdir(dir)).length === 1)).toBe(true)
     expect(await readdir(dir)).toEqual([`${P}-${V('5')}.png`])
+  })
+
+  it('a failed write still schedules a prune, so a full disk can free space', async () => {
+    const dir = await tmp()
+    const old = [`${'1'.repeat(16)}-${V('1')}.png`, `${'2'.repeat(16)}-${V('2')}.png`]
+    for (const [i, name] of old.entries()) {
+      await writeFile(path.join(dir, name), await png())
+      await utimes(path.join(dir, name), 1000 + i, 1000 + i)
+    }
+    const squat = `${P}-${V('a')}.png`
+    await mkdir(path.join(dir, squat)) // makes the write fail with a non-permanent error (EISDIR)
+    const s = diskStore({ dir, maxFiles: 1, pruneEveryMs: 0 })
+    await s.put(P, V('a'), await png())
+    expect(await until(async () => (await readdir(dir)).length === 1)).toBe(true)
+    expect(await readdir(dir)).toEqual([squat])
+  })
+
+  it('an async sink that rejects is not an unhandled rejection', async () => {
+    const unhandled: unknown[] = []
+    const on = (reason: unknown) => unhandled.push(reason)
+    process.on('unhandledRejection', on)
+    try {
+      const dir = await tmp()
+      await chmod(dir, 0o500)
+      await diskStore({ dir, onEvent: async () => Promise.reject(new Error('sink down')) }).put(P, V('a'), await png())
+      await sleep(20)
+    } finally {
+      process.off('unhandledRejection', on)
+    }
+    expect(unhandled).toEqual([])
   })
 
   it('sweeps temp files older than an hour', async () => {

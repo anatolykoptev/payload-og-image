@@ -1,8 +1,8 @@
 /** Mutation table (production line -> the test that goes RED). Silent-failure surface: duplicate renders and unbounded memory give no error.
- * - memo.ts:31     skip the `entries.get(key)` join                          -> "single flight" RED
- * - memo.ts:43  keep a rejected entry                                      -> "a failed make is forgotten" RED
- * - memo.ts:22 evict pending entries too (drop the `e.settled` check)     -> "never evicts a pending entry" RED
- * - memo.ts:39   count nothing on settle (`bytes += 0`)                     -> "stays within maxBytes" RED */
+ * - memo.ts:31  skip the join -> "single flight" RED
+ * - memo.ts:43  keep a rejected entry -> "a failed make is forgotten" RED
+ * - memo.ts:22  evict pending entries too -> "never evicts a pending entry" RED
+ * - memo.ts:39  count nothing on settle -> "stays within maxBytes" / "delete releases the bytes" RED */
 import { describe, expect, it, vi } from 'vitest'
 import { createMemo } from '../../src/internal/memo.js'
 
