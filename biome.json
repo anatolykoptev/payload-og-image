@@ -35,7 +35,10 @@
         "src/internal/state.ts",
         "src/next/*.ts",
         "test/plugin/*.ts",
-        "test/next/*.ts"
+        "test/next/*.ts",
+        "src/testing/*.ts",
+        "test/testing/*.ts",
+        "dev/tests/*.ts"
       ],
       "linter": {
         "rules": {

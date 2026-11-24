@@ -15,17 +15,28 @@ export function createOgRoute(o: {
     GET(r: Request, c: RouteContext): Promise<Response>;
 };
 
-// Warning: (ae-forgotten-export) The symbol "Args" needs to be exported by the entry point next.d.ts
-//
 // @public
-export function ogMetadata(a: Args): Promise<Pick<Metadata, 'openGraph' | 'twitter'>>;
+export function ogMetadata(a: OgMetadataArgs): Promise<Pick<Metadata, 'openGraph' | 'twitter'>>;
+
+// @public (undocumented)
+export type OgMetadataArgs = {
+    config: Promise<SanitizedConfig> | SanitizedConfig;
+    target: string;
+    doc: {
+        id: string | number;
+    } | null | undefined;
+} | {
+    config: Promise<SanitizedConfig> | SanitizedConfig;
+    static: string;
+};
+
+// @public (undocumented)
+export type RouteContext = {
+    params: Promise<Record<string, string | undefined>>;
+};
 
 // @public
 export const withHead: <C>(get: (r: Request, c: C) => Promise<Response> | Response) => (r: Request, c: C) => Promise<Response>;
-
-// Warnings were encountered during analysis:
-//
-// dist/next/route.d.ts:12:5 - (ae-forgotten-export) The symbol "RouteContext" needs to be exported by the entry point next.d.ts
 
 // (No @packageDocumentation comment for this package)
 
