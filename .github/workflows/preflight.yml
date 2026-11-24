@@ -1,0 +1,33 @@
+name: preflight
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  preflight:
+    # Untrusted code never reaches the self-hosted runner: a pull request from a fork runs only when the
+    # repository is public (and then on a hosted runner). A private repository runs on its own arm64
+    # runner; a public one on the free hosted arm64 image.
+    if: ${{ !github.event.repository.private || github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+    runs-on: ${{ github.event.repository.private && fromJSON('["self-hosted","linux","arm64"]') || 'ubuntu-24.04-arm' }}
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      # No `version:` — the action reads `packageManager` from package.json; passing both is an error.
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - run: pnpm install --frozen-lockfile
+      - run: make preflight

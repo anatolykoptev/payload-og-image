@@ -1,0 +1,23 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/api-extractor/v7/api-extractor.schema.json",
+  "mainEntryPointFilePath": "<projectFolder>/dist/exports/index.d.ts",
+  "bundledPackages": [],
+  "compiler": { "tsconfigFilePath": "<projectFolder>/tsconfig.build.json" },
+  "apiReport": {
+    "enabled": true,
+    "reportFileName": "payload-og-image.api.md",
+    "reportFolder": "<projectFolder>/etc/",
+    "reportTempFolder": "<projectFolder>/temp/"
+  },
+  "docModel": { "enabled": false },
+  "dtsRollup": { "enabled": false },
+  "tsdocMetadata": { "enabled": false },
+  "messages": {
+    "compilerMessageReporting": { "default": { "logLevel": "warning" } },
+    "extractorMessageReporting": {
+      "default": { "logLevel": "warning" },
+      "ae-missing-release-tag": { "logLevel": "none" }
+    },
+    "tsdocMessageReporting": { "default": { "logLevel": "none" } }
+  }
+}

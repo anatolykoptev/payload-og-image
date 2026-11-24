@@ -1,0 +1,5 @@
+{
+  "extends": "./api-extractor.json",
+  "mainEntryPointFilePath": "<projectFolder>/dist/exports/next.d.ts",
+  "apiReport": { "reportFileName": "payload-og-image-next.api.md" }
+}
