@@ -21,6 +21,22 @@ pnpm api:update            # accept an intended public-surface change into etc/*
 pnpm dev                   # dev app (sqlite) in dev/
 ```
 
+## Threat model
+
+The card store directory (`store: { dir }`) must be private to the application user and live on a volume only
+the application writes. Anyone who can write that directory can already change the application, so the store
+defends against corrupt or foreign files appearing in it (torn writes, symlinks, odd file types), not against a
+local attacker racing it with directory swaps after boot.
+
+## Release checklist
+
+- Before the repository goes public, deregister the self-hosted runner from it. Otherwise a fork could target
+  that runner by editing the workflow. Switch nothing else by hand: `preflight.yml` already picks a hosted runner
+  once the repository is public.
+- Keep "Require approval for all outside collaborators" (fork pull request workflows) turned on.
+- Set the `NPM_TOKEN` secret, and expect `scripts/verify-pack.mjs` to fail until every entry point exports its
+  agreed names.
+
 ## Licence
 
 Apache-2.0. See `LICENSE` and `NOTICE`.
