@@ -79,6 +79,10 @@ export function ogMode(doc: Record<string, any>): 'inherit' | 'generated' | 'cus
   return m === 'generated' || m === 'custom' || m === 'off' ? m : 'inherit'
 }
 
+/** `og.nonce`: a positive safe integer, else 0 (absent, negative, fractional or not a number all hash as 0.1). */
+const ogNonce = (og: Record<string, unknown>): number =>
+  typeof og.nonce === 'number' && Number.isSafeInteger(og.nonce) && og.nonce > 0 ? og.nonce : 0
+
 /** A card key (slug) longer than this is no document of ours: the route refuses it, so a page must not advertise it either. */
 export const MAX_SLUG = 256
 
@@ -190,6 +194,7 @@ export async function resolveCard(i: ResolveInput): Promise<ResolvedCard> {
     heroBackground: i.heroBackground,
     fontsDigest: fontsKey(i.fontsDigest, i.stacks),
     host: i.host,
+    nonce: ogNonce(og),
   })
   const cardTitle = typeof props.title === 'string' ? props.title : ''
   return {

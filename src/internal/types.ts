@@ -76,6 +76,8 @@ export type VersionInput = {
   heroes: Upload[]
   fontsDigest: string
   host: string
+  /** A per-document counter an editor bumps to give a card a new URL. 0 or absent hashes exactly as 0.1. */
+  nonce?: number
 }
 
 export interface CardStore {
