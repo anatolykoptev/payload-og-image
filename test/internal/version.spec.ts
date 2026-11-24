@@ -10,10 +10,16 @@
  * - version.ts:14  toJSON applied twice (a hook returning itself loops)  -> "calls toJSON once, with the property key" RED
  * - version.ts:16  array holes via map (skipped)                         -> "keeps array holes as null" RED
  * - version.ts:18  drop only `undefined` members (keep functions)        -> "calls toJSON once ... survives a toJSON that returns itself" RED
- * - version.ts:38  pageId drops the \u0000 separator                     -> "separates kind and slug unambiguously" RED */
+ * - version.ts:38  pageId drops the \u0000 separator                     -> "separates kind and slug unambiguously" RED
+ * - version.ts:56  accept non-plain objects (Map/Set/class) -> "normalizeProps > rejects a Map/Set/class instance, naming the path" and "two different Maps would have hashed alike" RED
+ * - version.ts:43  accept NaN/Infinity -> "rejects NaN" / "rejects Infinity nested in an array" RED
+ * - version.ts:46  Date not converted -> "passes plain JSON through ... Date into its ISO string" RED
+ * - version.ts:51  no cycle check -> "rejects a cycle" RED
+ * - version.ts:50  accept function/bigint -> "rejects a function" / "rejects a bigint" RED
+ * - version.ts:64  path not extended per member -> every "naming the path" test RED */
 import { createHash } from 'node:crypto'
 import { describe, expect, it } from 'vitest'
-import { canonicalJson, cardVersion, pageId } from '../../src/internal/version.js'
+import { canonicalJson, cardVersion, normalizeProps, pageId } from '../../src/internal/version.js'
 
 const base = {
   templateId: 'post',
@@ -95,5 +101,41 @@ describe('canonicalJson / pageId', () => {
     expect(pageId({ kind: 'a', slug: 'b/c' })).not.toBe(pageId({ kind: 'a/b', slug: 'c' }))
     // Same concatenation, different split: only the separator tells these apart.
     expect(pageId({ kind: 'a', slug: 'bc' })).not.toBe(pageId({ kind: 'ab', slug: 'c' }))
+  })
+})
+
+describe('normalizeProps', () => {
+  it('passes plain JSON through, drops undefined members, nulls holes, and turns a Date into its ISO string', () => {
+    const holey = new Array(2)
+    holey[1] = 'x'
+    expect(
+      normalizeProps({ a: 1, b: [true, null, 'x'], c: { d: undefined, e: 0 }, f: new Date('2026-01-01T00:00:00Z'), g: holey }),
+    ).toEqual({
+      a: 1,
+      b: [true, null, 'x'],
+      c: { e: 0 },
+      f: '2026-01-01T00:00:00.000Z',
+      g: [null, 'x'],
+    })
+  })
+  it.each([
+    ['a Map', { m: new Map([['a', 1]]) }, /props\.m is a Map/],
+    ['a Set', { s: new Set([1]) }, /props\.s is a Set/],
+    ['a class instance', { c: new (class Money {})() }, /props\.c is a Money/],
+    ['a function', { f: () => 1 }, /props\.f is a function/],
+    ['a bigint', { n: 1n }, /props\.n is a bigint/],
+    ['NaN', { n: Number.NaN }, /props\.n is NaN/],
+    ['Infinity nested in an array', { a: [{ n: Number.POSITIVE_INFINITY }] }, /props\.a\[0\]\.n is Infinity/],
+    ['an invalid Date', { d: new Date('x') }, /props\.d is an invalid Date/],
+  ])('rejects %s, naming the path', (_, props, message) => expect(() => normalizeProps(props)).toThrow(message))
+  it('rejects a cycle', () => {
+    const a: Record<string, unknown> = {}
+    a.self = a
+    expect(() => normalizeProps(a)).toThrow(/circular/)
+  })
+  it('two different Maps would have hashed alike; now neither is accepted', () => {
+    const v = (m: Map<string, number>) => () => cardVersion({ ...base, props: normalizeProps({ title: 'A', m }) })
+    expect(v(new Map([['a', 1]]))).toThrow(/Map/)
+    expect(v(new Map([['b', 2]]))).toThrow(/Map/)
   })
 })

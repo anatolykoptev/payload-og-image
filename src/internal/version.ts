@@ -26,6 +26,46 @@ const omitted = (v: unknown) => v === undefined || typeof v === 'function' || ty
 const hasToJson = (v: unknown): v is { toJSON(key: string): unknown } =>
   v !== null && typeof v === 'object' && typeof (v as { toJSON?: unknown }).toJSON === 'function'
 
+const isPlain = (v: object) => {
+  const proto = Object.getPrototypeOf(v)
+  return proto === Object.prototype || proto === null
+}
+
+/**
+ * Props are a defined model: string, finite number, boolean, null, array, plain object, and a Date (taken as
+ * its ISO string). Anything else (Map, Set, class instances, functions, bigint, NaN/Infinity, cycles) throws,
+ * naming the path, because it would hash alike (`{}`) or not at all. Object members that are `undefined` are
+ * dropped and array holes become null. The result is what is both hashed and handed to the template.
+ */
+export function normalizeProps(value: unknown, path = 'props', seen: object[] = []): unknown {
+  if (value === null || typeof value === 'string' || typeof value === 'boolean') return value
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value)) throw new Error(`payload-og-image: ${path} is ${value}; props must be finite numbers`)
+    return value
+  }
+  if (value instanceof Date) {
+    if (Number.isNaN(value.getTime())) throw new Error(`payload-og-image: ${path} is an invalid Date`)
+    return value.toISOString()
+  }
+  if (typeof value !== 'object') throw new Error(`payload-og-image: ${path} is a ${typeof value}; props must be plain JSON`)
+  if (seen.includes(value)) throw new Error(`payload-og-image: ${path} is a circular reference`)
+  const next = [...seen, value]
+  if (Array.isArray(value)) {
+    return Array.from(value, (el, i) => (el === undefined ? null : normalizeProps(el, `${path}[${i}]`, next)))
+  }
+  if (!isPlain(value)) {
+    const name = (value as object).constructor?.name ?? 'object'
+    throw new Error(
+      `payload-og-image: ${path} is a ${name}; props must be plain JSON (string, finite number, boolean, null, array, plain object, Date)`,
+    )
+  }
+  const out: Record<string, unknown> = {}
+  for (const [k, member] of Object.entries(value)) {
+    if (member !== undefined) out[k] = normalizeProps(member, `${path}.${k}`, next)
+  }
+  return out
+}
+
 /** `id:updatedAt`. The id makes a replaced or deleted upload change the version, which `updatedAt` alone misses. */
 export const heroTag = (h: Upload) => `${String(h.id)}:${h.updatedAt ?? ''}`
 
