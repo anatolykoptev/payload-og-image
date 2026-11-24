@@ -1,27 +1,28 @@
 /** Mutation table (production line -> the test that goes RED). Silent-failure surface: a draft cached, a stale or request-chosen version stored, a degraded card pinned.
- * - handler.ts:213  delete the draft branch -> "6", "7", "7b", "16", "20" RED
- * - handler.ts:232  store keyed by the request ?v -> "3: a stale ?v is served short, stored under the CURRENT v" RED
- * - handler.ts:220  immutable without the `current` check -> "3" RED
- * - handler.ts:230  decide the downgrade inside the memo closure (store and memoise it) -> "17" RED
- * - handler.ts:224  call heroLoader before store.get -> "4: a store hit renders nothing and loads no hero" RED
- * - handler.ts:271  fail open when the draft check throws -> "20" RED
+ * - handler.ts:218  delete the draft branch -> "6", "7", "7b", "16", "20" RED
+ * - handler.ts:237  store keyed by the request ?v -> "3: a stale ?v is served short, stored under the CURRENT v" RED
+ * - handler.ts:225  immutable without the `current` check -> "3" RED
+ * - handler.ts:235  decide the downgrade inside the memo closure (store and memoise it) -> "17" RED
+ * - handler.ts:229  call heroLoader before store.get -> "4: a store hit renders nothing and loads no hero" RED
+ * - handler.ts:276  fail open when the draft check throws -> "20" RED
  * - handler.ts:154  memoise the fallback in draft mode -> "21" RED
  * - handler.ts:68  match If-None-Match only as one whole tag -> "13" RED
  * - handler.ts:165  no slug length cap -> "24: an over-long or missing slug is a 404 before any lookup" RED
- * - handler.ts:280  let a pre-card error escape GET (rethrow) -> "19", "19b" RED
+ * - handler.ts:285  let a pre-card error escape GET (rethrow) -> "19", "19b" RED
  * - handler.ts:109  ctx stack lookup without the `default` rule -> "22" RED
- * - handler.ts:182  always pass the request to site() -> "18" RED
- * - handler.ts:186  ask for a draft on a normal request -> "2" (draft not called) RED
- * - handler.ts:258  drop the shed branch -> "8" (shed event) RED
+ * - handler.ts:183  always pass the request to site() -> "18" RED
+ * - handler.ts:191  ask for a draft on a normal request -> "2" (draft not called) RED
+ * - handler.ts:263  drop the shed branch -> "8" (shed event) RED
  * - handler.ts:171  (equivalent mutant) `urlKind in kindIndex`: the later `Object.hasOwn(d.targets, ...)` guard still answers 404 -> "15b"
  * - handler.ts:148  fallback keeps unsupported glyphs in the site name -> "10b: the fallback drops site-name characters no font draws" RED
- * - handler.ts:245  give a downgraded card the real etag -> "26: a downgraded (hero-less) card carries no etag" RED
+ * - handler.ts:250  give a downgraded card the real etag -> "26: a downgraded (hero-less) card carries no etag" RED
  * - handler.ts:163  ignore `params.id` -> "27: an :id route (params.id, no slug) is served" RED
- * - handler.ts:248  emit a hit/render event for a fresh render too -> "28: a fresh render is counted once" RED
+ * - handler.ts:253  emit a hit/render event for a fresh render too -> "28: a fresh render is counted once" RED
  * - handler.ts:168  let a static card answer on a pinned route -> "29: a route pinned to a target never answers for a static card" RED
  * - handler.ts:181  run the document lookup outside the admission gate -> "31: lookups before admission are bounded" RED
- * - handler.ts:251  answer 304 before the bytes exist (early return) -> "30: a revalidation is answered 304 only when the current bytes are available" RED
- * - handler.ts:138  do not tell the hero loader which upload collection to read -> "32: the hero loader is told which upload collection the hero belongs to" RED */
+ * - handler.ts:256  answer 304 before the bytes exist (early return) -> "30: a revalidation is answered 304 only when the current bytes are available" RED
+ * - handler.ts:138  do not tell the hero loader which upload collection to read -> "32: the hero loader is told which upload collection the hero belongs to" RED
+ * - handler.ts:183  Promise.all instead of allSettled (a fonts failure frees the admission slot while the site read runs) -> "33: the admission slot is held until BOTH the fonts and the site read have settled" RED */
 import { describe, expect, it, vi } from 'vitest'
 import { createGate } from '../../src/internal/gate.js'
 import { CACHE, createCardHandler } from '../../src/internal/handler.js'
@@ -504,6 +505,36 @@ describe('card handler', () => {
     const { h, heroLoader } = setup({ targets })
     await h.GET(req('/og/posts/h/card.png'), ctx('h'))
     expect((heroLoader.mock.calls[0] as unknown[])[2]).toEqual({ collection: 'media' })
+  })
+  it('33: the admission slot is held until BOTH the fonts and the site read have settled (a fonts failure cannot free it while a database read goes on)', async () => {
+    let release!: () => void
+    const siteHeld = new Promise<void>((r) => {
+      release = r
+    })
+    const site = vi.fn(async () => {
+      await siteHeld
+      return { name: 'S' }
+    })
+    const source = {
+      published: async (_t: string, s: string) => ({ id: 1, slug: s, title: s }),
+      publishedById: async () => null,
+      draft: async () => null,
+      site,
+    }
+    const { h } = setup({
+      source,
+      fonts: async () => Promise.reject(new Error('fonts down')),
+      admission: createGate({ concurrency: 1, queue: 0 }),
+    })
+    const first = h.GET(req('/og/posts/a/card.png'), ctx('a'))
+    await tick()
+    await tick()
+    // fonts already rejected, the site read is still running: the only slot must still be taken
+    const second = await h.GET(req('/og/posts/b/card.png'), ctx('b'))
+    expect([second.status, second.headers.get('cache-control')]).toEqual([503, 'no-store'])
+    expect(site).toHaveBeenCalledTimes(1) // the second request never reached the database
+    release()
+    expect((await first).status).toBe(503)
   })
   it('25: a hostile slug never reaches an event field', async () => {
     const { h, events } = setup()
