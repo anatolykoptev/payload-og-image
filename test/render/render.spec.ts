@@ -14,24 +14,33 @@
  * - template.ts:66  accept a size above the cap -> "a template size above the pixel cap is refused when it is defined" RED
  * - (none):0  nextOg.ts `isCompletePng(out)` guard: next/og never yields an invalid PNG here, so no test can reach it; it is the last line before a card may be cached immutable
  * - hero.ts:104  leave an error response body open -> "an error response has its body cancelled, not left open" RED
- * - guardedFetch.ts:13  leave 10/8 out of the blocked ranges -> "isPublicAddress(\"10.1.2.3\") is false", "pinnedLookup refuses a name that resolves only to 10.0.0.9" RED
- * - guardedFetch.ts:55  accept IPv4-mapped IPv6 -> "isPublicAddress(\"::ffff:8.8.8.8\") is false" RED
- * - guardedFetch.ts:78  pin to any resolved address, not a vetted one -> "pinnedLookup ..." (5 tests) RED
+ * - guardedFetch.ts:19  leave 10/8 out of the blocked ranges -> "isPublicAddress(\"10.1.2.3\") is false", "pinnedLookup refuses a name that resolves only to 10.0.0.9" RED
+ * - guardedFetch.ts:70  accept IPv4-mapped IPv6 -> "isPublicAddress(\"::ffff:8.8.8.8\") is false" RED
+ * - guardedFetch.ts:93  pin to any resolved address, not a vetted one -> "pinnedLookup ..." (5 tests) RED
  * - hero.ts:97  allow a non-default port -> "an IP literal is refused unless allowlisted exactly ... only the default port is used" RED
  * - hero.ts:99  allow a private IP literal -> same test RED
  * - hero.ts:184  default to the unguarded global fetch -> "the default fetch is refused for an allowlisted name that resolves to 127.0.0.1 / 10.20.30.40 / ::1" RED
- * - hero.ts:190  search every upload collection -> "a hero is read only inside its own upload collection" RED */
+ * - hero.ts:190  search every upload collection -> "a hero is read only inside its own upload collection" RED
+ * - guardedFetch.ts:43  leave 64:ff9b:1::/48 out of the blocked ranges -> "isPublicAddress(\"64:ff9b:1::1\") is false" RED
+ * - guardedFetch.ts:26  leave AS112-v4 out -> "isPublicAddress(\"192.31.196.1\") is false" RED
+ * - guardedFetch.ts:46  narrow 2001::/23 to 2001::/32 -> "isPublicAddress(\"2001:10::1\") is false" / "2001:1::2" RED
+ * - guardedFetch.ts:111  send the request on the global agent (which HTTPS_PROXY / NODE_USE_ENV_PROXY would reroute) -> "uses a dedicated https.Agent ..." RED
+ * - guardedFetch.ts:126  build the Response outside a catch (a status 600 or a bad header throws inside the callback) -> "a status outside 200-599 is a rejected fetch, not a crash" goes RED by hanging until the 30 s test timeout (the rejection never comes) */
 import { execFileSync } from 'node:child_process'
 import { chmod, mkdir, mkdtemp, symlink, writeFile } from 'node:fs/promises'
+import http from 'node:http'
+import https from 'node:https'
+import net from 'node:net'
 import os from 'node:os'
 import path from 'node:path'
+import { Readable } from 'node:stream'
 import sharp from 'sharp'
 import { describe, expect, it, vi } from 'vitest'
 import { postCard } from '../../dev/src/og/exampleTemplate.js'
 import { isCompletePng } from '../../src/internal/store/png.js'
 import { encodePng } from '../../src/render/encode.js'
 import { createFallbackTemplate, fallbackTemplate } from '../../src/render/fallback.js'
-import { isPublicAddress, pinnedLookup } from '../../src/render/guardedFetch.js'
+import { guardedFetch, isPublicAddress, pinnedLookup } from '../../src/render/guardedFetch.js'
 import { payloadHeroLoader } from '../../src/render/hero.js'
 import { nextOgRenderer } from '../../src/render/nextOg.js'
 import { defineTemplate } from '../../src/template.js'
@@ -319,6 +328,22 @@ describe('SSRF guard for remote heroes', () => {
     ['64:ff9b::7f00:1', false],
     ['2002:7f00:1::', false],
     ['[::1]', false],
+    ['64:ff9b:1::1', false],
+    ['2001:10::1', false],
+    ['2001:1::2', false],
+    ['3fff::1', false],
+    ['5f00::1', false],
+    ['fec0::1', false],
+    ['100:0:0:1::1', false],
+    ['192.0.0.8', false],
+    ['192.31.196.1', false],
+    ['192.52.193.1', false],
+    ['192.88.99.1', false],
+    ['192.175.48.1', false],
+    ['255.255.255.255', false],
+    ['198.19.255.255', false],
+    ['198.20.0.1', true],
+    ['2a00:1450:4001::1', true],
     ['not-an-ip', false],
     ['', false],
   ])('isPublicAddress(%j) is %s', (addr, ok) => expect(isPublicAddress(addr)).toBe(ok))
@@ -405,5 +430,89 @@ describe('a hero is read only inside its own upload collection', () => {
     expect(await load(hero({ filename: 'only-private.jpg' }), BOX, { collection: 'media' })).toBeNull()
     expect(await load(hero(), BOX)).toBeNull() // no collection named: nothing is read
     expect(dirs).toHaveBeenCalledWith('media')
+  })
+})
+
+describe('guardedFetch: its own agent, no proxy, and a failed response is a rejection', () => {
+  const fakeRequest = (status: number, headers: Record<string, string> = {}) => {
+    const seen: { options?: any } = {}
+    const spy = vi.spyOn(https, 'request').mockImplementation(((_url: unknown, options: any, cb: (res: any) => void) => {
+      seen.options = options
+      const res = Object.assign(Readable.from([Buffer.from('x')]), { statusCode: status, headers })
+      return { on: () => undefined, end: () => setImmediate(() => cb(res)), destroy: () => undefined } as never
+    }) as never)
+    return { seen, spy }
+  }
+  const publicHost = async () => [{ address: '93.184.216.34', family: 4 }]
+
+  it('uses a dedicated https.Agent (never the global agent that HTTPS_PROXY / NODE_USE_ENV_PROXY would reroute) with the pinned lookup', async () => {
+    vi.stubEnv('NODE_USE_ENV_PROXY', '1')
+    vi.stubEnv('HTTPS_PROXY', 'http://127.0.0.1:9')
+    const { seen, spy } = fakeRequest(200)
+    try {
+      const res = await guardedFetch('https://cdn.test/a.jpg', {}, publicHost)
+      expect(res.status).toBe(200)
+      expect(seen.options.agent).toBeInstanceOf(https.Agent)
+      expect(seen.options.agent).not.toBe(https.globalAgent)
+      expect(typeof seen.options.lookup).toBe('function')
+    } finally {
+      spy.mockRestore()
+      vi.unstubAllEnvs()
+    }
+  })
+
+  it('does not go through a proxy even when the process-wide proxy is switched on', async () => {
+    const connections: string[] = []
+    const proxy = net.createServer((sock) => {
+      connections.push('connect')
+      sock.destroy()
+    })
+    await new Promise<void>((r) => proxy.listen(0, '127.0.0.1', r))
+    const { port } = proxy.address() as net.AddressInfo
+    // Node 24+: switch the GLOBAL agents to the env proxy at run time (older Node has no such switch, and nothing to prove).
+    const restore = (http as unknown as { setGlobalProxyFromEnv?: (env: Record<string, string>) => () => void }).setGlobalProxyFromEnv?.({
+      HTTPS_PROXY: `http://127.0.0.1:${port}`,
+    })
+    try {
+      const attempt = guardedFetch('https://cdn.test/a.jpg', { signal: AbortSignal.timeout(400) }, async () => [
+        { address: '1.1.1.1', family: 4 },
+      ])
+      await attempt.then(
+        (r) => r.body?.cancel(),
+        () => undefined,
+      )
+      expect(connections).toEqual([])
+    } finally {
+      restore?.()
+      await new Promise((r) => proxy.close(r))
+    }
+  })
+
+  it.each([
+    ['a status outside 200-599', 600],
+    ['status 99', 99],
+  ])('%s is a rejected fetch, not a crash', async (_, status) => {
+    const { spy } = fakeRequest(status)
+    try {
+      await expect(guardedFetch('https://cdn.test/a.jpg', {}, publicHost)).rejects.toThrow()
+    } finally {
+      spy.mockRestore()
+    }
+  })
+  it('a redirect answer is a rejected fetch', async () => {
+    const { spy } = fakeRequest(302, { location: 'https://evil.test/' })
+    try {
+      await expect(guardedFetch('https://cdn.test/a.jpg', {}, publicHost)).rejects.toThrow(/redirect/)
+    } finally {
+      spy.mockRestore()
+    }
+  })
+  it('a header the Response cannot hold is a rejected fetch', async () => {
+    const { spy } = fakeRequest(200, { 'bad header name': 'x' })
+    try {
+      await expect(guardedFetch('https://cdn.test/a.jpg', {}, publicHost)).rejects.toThrow()
+    } finally {
+      spy.mockRestore()
+    }
   })
 })

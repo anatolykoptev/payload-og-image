@@ -36,6 +36,7 @@
         "src/next/*.ts",
         "test/plugin/*.ts",
         "test/next/*.ts",
+        "test/render/render.spec.ts",
         "src/testing/*.ts",
         "test/testing/*.ts",
         "dev/tests/*.ts"

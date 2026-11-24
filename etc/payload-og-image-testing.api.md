@@ -142,6 +142,7 @@ export function ogKit(rt: TestRuntime): {
         params: Params;
         target: string;
         slug: string;
+        draftOnly?: string;
     }): Promise<void>;
     storeHitSkipsRender(a: {
         module: RouteModule;
@@ -201,10 +202,14 @@ export type PropValue = string | number | boolean | null | undefined | readonly 
     [key: string]: PropValue;
 };
 
+// @public
+export type RelatedFn = (collection: string, id: string | number) => Promise<Record<string, any> | null>;
+
 // @public (undocumented)
 export type ResolverArgs<D> = {
     doc: D;
     site: SiteInfo;
+    related: RelatedFn;
 };
 
 // @public (undocumented)
@@ -256,7 +261,6 @@ export type Target<D = any, P = any> = {
     heroCollection?: string;
     share?: (a: ResolverArgs<D>) => unknown[];
     select?: Record<string, true>;
-    depth?: number;
 };
 
 // @public (undocumented)

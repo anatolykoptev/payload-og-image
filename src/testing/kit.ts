@@ -4,6 +4,7 @@ import type { Metadata } from 'next'
 import sharp from 'sharp'
 import { missingGlyphs } from '../internal/fonts.js'
 import { CACHE, type RouteContext } from '../internal/handler.js'
+import { analyzeRouteSource } from './routeSource.js'
 import type { TestRuntime } from './runtime.js'
 
 export type RouteModule = { GET(r: Request, c: RouteContext): Promise<Response>; HEAD?(r: Request, c: RouteContext): Promise<Response> }
@@ -172,14 +173,8 @@ export function ogKit(rt: TestRuntime) {
           .filter((seg) => !/^\(.*\)$/.test(seg))
           .map((seg) => seg.replace(/^\[\.\.\.(.+)\]$/, ':$1').replace(/^\[(.+)\]$/, ':$1'))
           .join('/')}`
-      // Parse what the file exports and calls, with comments removed: a mention in a comment or a string is not a route.
-      const isCardRoute = (source: string) => {
-        const code = source.replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, '')
-        const exportsGet = /export\s+(?:const|let|var)\s+GET\b|export\s+(?:async\s+)?function\s+GET\b|export\s*\{[^}]*\bGET\b[^}]*\}/.test(
-          code,
-        )
-        return exportsGet && /\bcreateOgRoute\s*\(/.test(code)
-      }
+      // A card route exports, as GET, the GET of a `createOgRoute()` call imported from payload-og-image/next (parsed, not grepped).
+      const isCardRoute = (source: string) => analyzeRouteSource(source).exportsGetFromCreateOgRoute
       const routes = new Map<string, string>()
       for (const f of files) if (isCardRoute(await readFile(f, 'utf8'))) routes.set(fromFile(f), f)
       const configured = new Map<string, string>()
@@ -210,7 +205,7 @@ export function ogKit(rt: TestRuntime) {
      * A draft-mode request is never cached or stored and never changes the published card: an editor gets the draft's pixels, a
      * draft-mode request without an editor gets the published pixels, and neither touches the memo or the store.
      */
-    async draftNeverCached(a: { module: RouteModule; params: Params; target: string; slug: string }): Promise<void> {
+    async draftNeverCached(a: { module: RouteModule; params: Params; target: string; slug: string; draftOnly?: string }): Promise<void> {
       if (!rt.docs.drafts?.[a.target]?.some((d) => d.slug === a.slug)) {
         fail(
           'draftNeverCached',
@@ -243,6 +238,28 @@ export function ogKit(rt: TestRuntime) {
         fail('draftNeverCached', `3 draft-mode requests rendered ${rt.renders() - base.renders} times: one was served from a memo`)
       if (rt.storeReads() !== base.reads) fail('draftNeverCached', 'a draft-mode request read the store')
       if (rt.stored().length !== base.writes) fail('draftNeverCached', 'a draft-mode request put a card in the store')
+      if (a.draftOnly !== undefined) {
+        if (
+          !rt.docs.drafts?.[a.target]?.some((d) => d.slug === a.draftOnly) ||
+          rt.docs.published[a.target]?.some((d) => d.slug === a.draftOnly)
+        ) {
+          fail('draftNeverCached', `draftOnly "${a.draftOnly}" must exist in docs.drafts.${a.target} and NOT in docs.published.${a.target}`)
+        }
+        const hidden = { ...a.params, slug: a.draftOnly }
+        for (const [label, draft, editor] of [
+          ['public', false, false],
+          ['draft mode without an editor', true, false],
+        ] as const) {
+          rt.draftMode(draft, editor)
+          const r = await call(a.module, hidden)
+          if (r.status !== 404)
+            fail('draftNeverCached', `a never-published document answered ${r.status} for a ${label} request: its draft reached a visitor`)
+        }
+        rt.draftMode(true, true)
+        const mine = await call(a.module, hidden)
+        if (mine.status !== 200 || mine.headers.get('x-og-cache') !== 'draft')
+          fail('draftNeverCached', `an editor previewing a never-published document got ${mine.status}, expected its draft card`)
+      }
       rt.draftMode(false)
       const after = await call(a.module, a.params)
       if (!same(published, await bytesOf(after)) || etagOf(after) !== etagOf(warm))

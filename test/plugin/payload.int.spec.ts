@@ -1,22 +1,27 @@
 /** Mutation table (production line -> the test that goes RED), against a REAL Payload instance (SQLite).
- * - payloadSource.ts:32  drop the published-status filter -> "a drafts-enabled collection with public read still never returns a draft-only doc" RED
+ * - payloadSource.ts:35  drop the published-status filter -> "a drafts-enabled collection with public read still never returns a draft-only doc" RED
  * - payloadSource.ts:68  published read with overrideAccess: true -> "published() respects collection access" RED
- * - payloadSource.ts:101  hand out a draft without an editor -> "draft() never hands a draft to an anonymous request, even where the collection is publicly readable" RED
- * - payloadSource.ts:109  draft read with overrideAccess: true -> "draft() runs with the editor's own access" RED
- * - payloadSource.ts:113  draft site data without an editor check -> "site(request): published/cached site data unless the request carries an editor" RED
- * - payloadSource.ts:35  always pass a select (a half-empty document) -> "a target with no `select` gets every field" RED
- * - payloadSource.ts:36  leave the editor's share-image field out of `select` -> "a target `select` also keeps the root of the editor's share-image field" RED
- * - payloadSource.ts:74  return published docs with populated relations as they come -> "a published read never surfaces a draft-only related document" RED
- * - payloadSource.ts:81  count any authenticated user as an editor -> "editors are users of the admin collection only" and "the `editors` option names the collections whose users are editors" RED
- * - payloadSource.ts:77  hard-code the editor collections -> the same two tests RED
- * - payloadSource.ts:114  do not tell site() who the editor is -> "editors are users of the admin collection only ... site() is told who the editor is" RED
- * - payloadSource.ts:107  leave the share-image root out of a DRAFT read's select -> "a draft read keeps the root of the editor's share-image field" RED */
+ * - payloadSource.ts:134  hand out a draft without an editor -> "draft() never hands a draft to an anonymous request, even where the collection is publicly readable" RED
+ * - payloadSource.ts:144  draft read with overrideAccess: true -> "draft() runs with the editor's own access" RED
+ * - payloadSource.ts:167  draft site data without an editor check -> "site(request): published/cached site data unless the request carries an editor" RED
+ * - payloadSource.ts:38  always pass a select (a half-empty document) -> "a target with no `select` gets every field" RED
+ * - payloadSource.ts:39  leave the editor's share-image field out of `select` -> "a target `select` also keeps the root of the editor's share-image field" RED
+ * - payloadSource.ts:114  count any authenticated user as an editor -> "editors are users of the admin collection only" and "the `editors` option names the collections whose users are editors" RED
+ * - payloadSource.ts:110  hard-code the editor collections -> the same two tests RED
+ * - payloadSource.ts:168  do not tell site() who the editor is -> "editors are users of the admin collection only ... site() is told who the editor is" RED
+ * - payloadSource.ts:140  leave the share-image root out of a DRAFT read's select -> "a draft read keeps the root of the editor's share-image field" RED
+ * - payloadSource.ts:32  read relations at depth 1 -> "reads are depth 0 ...", "related(): ...", "end to end: a target that draws a related title ..." RED
+ * - payloadSource.ts:158  related() without the published filter -> "related(): the published document, never a draft-only one" RED
+ * - payloadSource.ts:149  related() treats any previewing request as an editor -> same test RED
+ * - payloadSource.ts:102  leave the upload fields as bare ids -> "uploads are read by id with the caller's access" RED
+ * - payloadSource.ts:103  read an upload with overrideAccess: true -> same test RED (a private upload would be populated) */
 import { mkdtemp, readFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { sqliteAdapter } from '@payloadcms/db-sqlite'
 import { lexicalEditor } from '@payloadcms/richtext-lexical'
 import { buildConfig, getPayload, type Payload } from 'payload'
+import sharp from 'sharp'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { buildRuntime } from '../../src/internal/runtime.js'
 import { CUSTOM_KEY, type OgState } from '../../src/internal/state.js'
@@ -31,6 +36,20 @@ const post = defineTemplate<{ title: string; label: string }>({
   textFields: ['title'],
   render: (p) => ({ type: 'div', props: { children: p.title } }) as never,
 })
+
+const post2 = defineTemplate<{ title: string; label: string }>({
+  id: 'post',
+  revision: '1',
+  textFields: ['title', 'label'],
+  stacks: { label: 'default' },
+  render: (p) => ({ type: 'div', props: { children: [p.title, p.label] } }) as never,
+})
+const tinyPng = async () =>
+  new Uint8Array(
+    await sharp({ create: { width: 8, height: 8, channels: 3, background: '#123456' } })
+      .png()
+      .toBuffer(),
+  )
 
 let payload: Payload
 let state: OgState
@@ -49,6 +68,14 @@ beforeAll(async () => {
       { slug: 'users', auth: true, fields: [] },
       // A second auth collection: its users are customers, never editors.
       { slug: 'customers', auth: true, fields: [] },
+      // Uploads: one anyone may read, one only a logged-in user may.
+      { slug: 'media', access: { read: () => true }, upload: { staticDir: path.join(dir, 'media') }, fields: [] },
+      {
+        slug: 'privateMedia',
+        access: { read: ({ req: { user } }) => Boolean(user) },
+        upload: { staticDir: path.join(dir, 'private') },
+        fields: [],
+      },
       // Public read of everything: only the published-status filter keeps a draft-only note out.
       {
         slug: 'notes',
@@ -88,6 +115,9 @@ beforeAll(async () => {
           { name: 'slug', type: 'text' },
           { name: 'extra', type: 'text' },
           { name: 'related', type: 'relationship', relationTo: 'notes' },
+          { name: 'heroImage', type: 'upload', relationTo: 'media' },
+          { name: 'meta', type: 'group', fields: [{ name: 'image', type: 'upload', relationTo: 'media' }] },
+          { name: 'secretImage', type: 'upload', relationTo: 'privateMedia' },
         ],
       },
     ],
@@ -128,6 +158,23 @@ beforeAll(async () => {
   await payload.create({
     collection: 'posts',
     data: { title: 'Points at a draft', slug: 'rel-draft', related: draftNote?.id as number, _status: 'published' },
+  })
+  const png = await sharp({ create: { width: 4, height: 4, channels: 3, background: '#123456' } })
+    .png()
+    .toBuffer()
+  const file = (name: string) => ({ data: png, mimetype: 'image/png', name, size: png.length })
+  const hero = await payload.create({ collection: 'media', data: {}, file: file('h.png') })
+  const secret = await payload.create({ collection: 'privateMedia', data: {}, file: file('s.png'), overrideAccess: true })
+  await payload.create({
+    collection: 'posts',
+    data: {
+      title: 'With uploads',
+      slug: 'with-uploads',
+      heroImage: hero.id,
+      meta: { image: hero.id },
+      secretImage: secret.id,
+      _status: 'published',
+    },
   })
   await payload.create({
     collection: 'posts',
@@ -211,20 +258,67 @@ describe('payloadSource against a real Payload', () => {
     expect(doc).toHaveProperty('extra') // selected because `extra.deep` is the SEO image path
     expect(doc).toHaveProperty('title')
   })
-  it('a published read never surfaces a draft-only related document (populated relations are de-populated to their id)', async () => {
+  it('reads are depth 0: a relation is a bare id, whatever defaultPopulate says, so a draft-only related document cannot reach a published card', async () => {
     const draftRel = await src().published('posts', 'rel-draft')
-    // the relation exists: read raw with full access
-    const raw = (
-      await payload.find({ collection: 'posts', where: { slug: { equals: 'rel-draft' } }, depth: 1, limit: 1, overrideAccess: true })
-    ).docs[0]
-    expect(typeof raw?.related).toBe('object')
-    console.log('RAWREL', JSON.stringify(raw), 'DRAFT', JSON.stringify(draftRel?.related))
-    expect(typeof draftRel?.related).not.toBe('object') // the draft-only note is a bare id, its text is not on the doc
+    expect(typeof draftRel?.related).toBe('number') // a bare id, not a populated document
     expect(JSON.stringify(draftRel)).not.toContain('Draft-only note')
     const pubRel = await src().published('posts', 'rel-pub')
-    expect(pubRel?.related).toMatchObject({ title: 'Published note' }) // a published relation stays populated
+    expect(typeof pubRel?.related).toBe('number')
     const id = (draftRel as { id: number }).id
     expect(JSON.stringify(await src().publishedById('posts', id))).not.toContain('Draft-only note')
+  })
+  it('related(): the published document, never a draft-only one (defaultPopulate: { title } on the drafts collection changes nothing)', async () => {
+    const draftRel = (await src().published('posts', 'rel-draft')) as { related: number }
+    const pubRel = (await src().published('posts', 'rel-pub')) as { related: number }
+    expect(await src().related('notes', draftRel.related, { previewing: false })).toBeNull()
+    expect(await src().related('notes', pubRel.related, { previewing: false })).toMatchObject({ title: 'Published note' })
+    // an anonymous request in draft mode is still the public
+    expect(await src().related('notes', draftRel.related, { previewing: true, request: anon })).toBeNull()
+    // an editor previewing sees the draft
+    expect(await src().related('notes', draftRel.related, { previewing: true, request: editor() })).toMatchObject({
+      title: 'Draft-only note',
+    })
+    // a customer is not an editor
+    expect(
+      await src().related('notes', draftRel.related, {
+        previewing: true,
+        request: new Request('https://x.test/x', { headers: customerHeaders }),
+      }),
+    ).toBeNull()
+    // a collection the public may not read, or an id that does not exist: null, never a throw
+    expect(await src().related('secrets', 1, { previewing: false })).toBeNull()
+    expect(await src().related('notes', 999999, { previewing: false })).toBeNull()
+  })
+  it('end to end: a target that draws a related title shows the published one and never the draft-only one', async () => {
+    const targets = {
+      posts: defineTarget<any, any>({
+        path: '/og/:kind/:slug/card.png',
+        template: 'post',
+        props: async ({ doc, related }: any) => ({
+          title: doc.title,
+          label: doc.related ? ((await related('notes', doc.related))?.title ?? '') : '',
+        }),
+      }),
+    }
+    const labelOf = async (slug: string) => {
+      const seen: string[] = []
+      const rt = buildRuntime({ ...state, options: { ...state.options, targets, templates: [post2] } } as OgState, payload, {
+        renderer: { render: async (el: any) => (seen.push(JSON.stringify(el)), tinyPng()) },
+        isDraftRequest: async () => false,
+      })
+      await rt.handler().GET(new Request(`https://x.test/og/posts/${slug}/card.png`), { params: Promise.resolve({ kind: 'posts', slug }) })
+      return seen.join('')
+    }
+    expect(await labelOf('rel-pub')).toContain('Published note')
+    expect(await labelOf('rel-draft')).not.toContain('Draft-only note')
+  })
+  it("uploads are read by id with the caller's access: the hero and a grouped share image are populated; an upload the public may not read is null", async () => {
+    const doc = await src().published('posts', 'with-uploads')
+    expect(doc?.heroImage).toMatchObject({ filename: 'h.png' })
+    expect(doc?.meta?.image).toMatchObject({ filename: 'h.png' })
+    expect(doc?.secretImage).toBeNull()
+    const asEditor = await src().draft('posts', { slug: 'with-uploads' }, editor())
+    expect(asEditor?.secretImage).toMatchObject({ filename: 's.png' }) // an editor may read it
   })
   it('editors are users of the admin collection only: a customer from another auth collection never gets a draft or draft site data', async () => {
     const asCustomer = new Request('https://x.test/x', { headers: customerHeaders })

@@ -1,12 +1,13 @@
 /** Mutation table (production line -> the test that goes RED). Silent-failure surface: a route that answers for the wrong target, a HEAD that is not GET's twin, a log that forges lines.
- * - runtime.ts:130  build the crawler wrapper per request (its counter never reaches `sample`) -> "crawlerEvents: one request in `sample` becomes a crawler event" RED
- * - runtime.ts:84  accept an unconfigured pinned target -> "a pinned target that is not configured fails" RED
+ * - runtime.ts:136  build the crawler wrapper per request (its counter never reaches `sample`) -> "crawlerEvents: one request in `sample` becomes a crawler event" RED
+ * - runtime.ts:89  accept an unconfigured pinned target -> "a pinned target that is not configured fails" RED
  * - runtime.ts:59  ignore `disabled` -> "disabled: every card route answers 404 no-store" RED
  * - withHead.ts:13  leave the body un-cancelled -> "keeps a non-200 status ... cancels the body unread" RED
  * - withHead.ts:12  run the wrapped GET with the request's own method -> "answers HEAD from GET ... the GET copy is a GET" RED
  * - runtime.ts:40  emit a crawler event for every request (ignore the sample fraction) -> "a `sample` fraction of requests becomes a crawler event" RED
  * - runtime.ts:103  do not hand the plugin's admission gate to the handler -> "the plugin's `admission` option bounds the lookups before the memo" RED
- * - route.ts:24  let a runtime/pinned-target failure escape the route -> "a pinned target that is not configured is a 503 no-store" and "without the plugin in the config" RED */
+ * - route.ts:33  let a runtime/pinned-target failure escape the route -> "a pinned target that is not configured is a 503 no-store" and "without the plugin in the config" RED
+ * - route.ts:8  format an error without a catch (a hostile message getter / toString throws) -> "createOgRoute error formatting" RED */
 import { getPayload, type Payload } from 'payload'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { buildRuntime, getRuntime, setTestRuntime } from '../../src/internal/runtime.js'
@@ -55,6 +56,7 @@ function runtime(over: Partial<OgImagePluginOptions> = {}) {
       publishedById: async () => null,
       draft: async () => null,
       site: async () => ({ name: 'Site' }),
+      related: async () => null,
     },
     store: memoryStore(),
     renderer: { render: async (el: any) => realPng(String(el?.props?.children ?? '')) },
@@ -181,6 +183,31 @@ describe('createOgRoute', () => {
     expect([r.status, r.headers.get('cache-control')]).toEqual([503, 'no-store'])
     expect(warn.mock.calls[0]?.[0]).toMatch(/event=render_error.*add ogImagePlugin/)
     warn.mockRestore()
+  })
+})
+
+describe('createOgRoute error formatting', () => {
+  it('a rejection value whose message and toString both throw still gives a 503 no-store, never an exception', async () => {
+    setTestRuntime(null)
+    const hostile = {
+      get message(): string {
+        throw new Error('message getter')
+      },
+      toString() {
+        throw new Error('toString')
+      },
+    }
+    vi.mocked(getPayload).mockRejectedValue(hostile)
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    try {
+      const { req, ctx } = get('https://x.test/x', 'a')
+      const r = await createOgRoute({ config: {} as never }).GET(req, ctx)
+      expect([r.status, r.headers.get('cache-control')]).toEqual([503, 'no-store'])
+      expect(warn.mock.calls[0]?.[0]).toContain('unprintable error')
+    } finally {
+      warn.mockRestore()
+      vi.mocked(getPayload).mockReset()
+    }
   })
 })
 

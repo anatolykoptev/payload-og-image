@@ -1,17 +1,17 @@
 /** Mutation table (production line -> the test that goes RED). Silent-failure surface: a misconfigured plugin that boots and serves nothing, or one that changes the schema.
- * - index.ts:57  no `default` stack required -> "refuses no default stack" RED
- * - index.ts:75  accept a target on a missing collection -> "3: a target whose collection does not exist throws" RED
- * - index.ts:76  accept an unknown template -> "2: a target naming an unknown template throws" RED
- * - index.ts:79  skip the duplicate-kind check -> "4: two targets with the same kind throw" RED
- * - index.ts:126  drop the existing afterChange hooks -> "5: siteGlobals get an afterChange hook ... after the existing hooks" RED
- * - index.ts:131  add a field to a collection -> "6: the plugin is schema-neutral" RED
- * - index.ts:150  skip the glyph self-test -> "throws outside production when a stack cannot draw the sample" RED
- * - index.ts:159  always throw, even in production -> "in production it logs through the event sink instead of throwing" RED
- * - index.ts:135  run the self-test when disabled -> "7: disabled keeps the config valid and runs no start-up checks" RED
- * - index.ts:99  accept a relative store dir -> "refuses a relative store dir" RED
- * - index.ts:104  accept a crawler sample outside (0, 1] -> "refuses a crawler sample of 0 / above 1 / NaN" RED
- * - index.ts:112  accept `editors` naming a collection that is not an auth collection -> "refuses editors naming a non-auth collection" RED
- * - index.ts:109  skip validating `admission` -> "refuses a bad admission gate" RED */
+ * - index.ts:64  no `default` stack required -> "refuses no default stack" RED
+ * - index.ts:82  accept a target on a missing collection -> "3: a target whose collection does not exist throws" RED
+ * - index.ts:83  accept an unknown template -> "2: a target naming an unknown template throws" RED
+ * - index.ts:85  skip the duplicate-kind check -> "4: two targets with the same kind throw" RED
+ * - index.ts:137  drop the existing afterChange hooks -> "5: siteGlobals get an afterChange hook ... after the existing hooks" RED
+ * - index.ts:142  add a field to a collection -> "6: the plugin is schema-neutral" RED
+ * - index.ts:161  skip the glyph self-test -> "throws outside production when a stack cannot draw the sample" RED
+ * - index.ts:170  always throw, even in production -> "in production it logs through the event sink instead of throwing" RED
+ * - index.ts:146  run the self-test when disabled -> "7: disabled keeps the config valid and runs no start-up checks" RED
+ * - index.ts:105  accept a relative store dir -> "refuses a relative store dir" RED
+ * - index.ts:115  accept a crawler sample outside (0, 1] -> "refuses a crawler sample of 0 / above 1 / NaN" RED
+ * - index.ts:111  accept `editors` naming a collection that is not an auth collection -> "refuses editors naming a non-auth collection" RED
+ * - index.ts:108  skip validating `admission` -> "refuses a bad admission gate" RED */
 import { readFile } from 'node:fs/promises'
 import type { Config } from 'payload'
 import { describe, expect, it, vi } from 'vitest'
@@ -145,7 +145,6 @@ describe('ogImagePlugin: config transform', () => {
       { static: { a: { path: '/og/x.png', kind: 'index', slug: 'a', template: 'ghost', props: () => ({}) } } },
       /unknown template "ghost"/,
     ],
-    ['a target depth that is not an integer', { targets: { posts: defineTarget<any, any>({ ...posts, depth: 1.5 }) } }, /depth/],
   ])('refuses %s', (_, over, message) => expect(() => apply(options(over as Partial<OgImagePluginOptions>))).toThrow(message))
   it('refuses a config with no absolute serverURL', () => {
     expect(() => apply(options(), { ...baseConfig(), serverURL: '' })).toThrow(/absolute `serverURL`/)
