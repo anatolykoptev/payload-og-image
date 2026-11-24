@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.1](https://github.com/anatolykoptev/payload-og-image/compare/v0.1.0...v0.1.1) (2026-11-24)
+
+
+### Bug Fixes
+
+* **ci:** lint skips the generated CHANGELOG ([#17](https://github.com/anatolykoptev/payload-og-image/issues/17)) ([a196824](https://github.com/anatolykoptev/payload-og-image/commit/a19682478e19f714fdf94b9e0c6faa08a3b3cf61))
+
 ## 0.1.0 (2026-11-24)
 
 
