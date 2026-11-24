@@ -10,7 +10,8 @@
     "url": "git+https://github.com/anatolykoptev/payload-og-image.git"
   },
   "files": [
-    "dist"
+    "dist",
+    "NOTICE"
   ],
   "main": "./dist/exports/index.js",
   "types": "./dist/exports/index.d.ts",
