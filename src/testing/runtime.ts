@@ -1,10 +1,12 @@
 import type { Payload } from 'payload'
-import type { DocSource, HeroLoader, Renderer, RouteContext } from '../internal/handler.js'
+import sharp from 'sharp'
+import type { HeroLoader, Renderer, RouteContext } from '../internal/handler.js'
 import { buildRuntime, type OgRuntime, setTestRuntime } from '../internal/runtime.js'
 import { createState, type OgState } from '../internal/state.js'
 import { memoryStore } from '../internal/store/memory.js'
 import type { CardStore } from '../internal/types.js'
 import type { OgImagePluginOptions } from '../plugin/index.js'
+import { payloadSource } from '../plugin/payloadSource.js'
 import { nextOgRenderer } from '../render/nextOg.js'
 
 export type KitDocs = {
@@ -24,14 +26,23 @@ export type TestRuntime = {
   readonly rendererKind: 'real' | 'stub'
   setGlobal(slug: string, data: Record<string, any>): void
   setDoc(target: string, doc: Record<string, any>): void
-  /** Draft mode on or off, and whether the request carries an authenticated editor. */
+  /**
+   * Draft mode on or off, and whether requests carry an authenticated editor. The editor is a real credential the production
+   * `payloadSource` checks (`payload.auth`, the admin user collection): the kit adds it through `requestHeaders()`.
+   */
   draftMode(on: boolean, editor?: boolean): void
+  /** Headers every request the kit (or a page) makes carries in the current mode: the editor credential, or none. */
+  requestHeaders(): Record<string, string>
   /** How many times the renderer ran since the last reset. */
   renders(): number
   /** How many times a hero was prepared since the last reset. */
   heroLoads(): number
   /** `[pageId, v]` of every card put in the store since the last reset. */
   stored(): Array<{ pageId: string; v: string }>
+  /** How many times the store was read since the last reset. */
+  storeReads(): number
+  /** The render gate's current occupancy (to know when it is full without sleeping). */
+  gateStats(): { active: number; waiting: number }
   /** Forget the memo but keep the store (what a restart does to a process while the volume survives). */
   clearMemo(): void
   /** Forget memo AND store, keeping counters and draft mode: the next card is drawn from the current documents. */
@@ -46,45 +57,57 @@ export type TestRuntime = {
 
 export type TestRuntimeOptions = { renderer?: 'real' | 'stub'; serverUrl?: string }
 
+const EDITOR_AUTH = 'JWT kit-editor'
+
 /**
- * Installs a runtime built exactly like production's (same handler, resolver, gate and memo) over in-memory
- * documents, a memory store and either the real renderer or a stub that draws the props. A hero whose
- * `filename` starts with `missing` cannot be read (that is how a site fixture models a missing upload file).
+ * Installs a runtime built exactly like production's (same handler, resolver, gate, memo, and the same `payloadSource`:
+ * its editor check, published-only reads and cached `site()`) over in-memory documents served by a small fake Payload, a
+ * recording memory store and either the real renderer or a stub that draws the element's JSON.
+ *
+ * A hero whose `filename` starts with `missing` cannot be read (how a fixture models a missing upload file); any other hero
+ * is a small image whose colour depends on its id and `updatedAt`, so replacing a hero changes the card's pixels.
  */
 export function installTestRuntime(options: OgImagePluginOptions, docs: KitDocs, o: TestRuntimeOptions = {}): TestRuntime {
   const serverUrl = o.serverUrl ?? 'https://example.test'
   let state: OgState
-  let store: CardStore
   let memoryOnly: CardStore
+  let store: CardStore
   let renders = 0
   let heroLoads = 0
+  let storeReads = 0
   let puts: Array<{ pageId: string; v: string }> = []
   let draft = { on: false, editor: false }
   let hold: Promise<void> | undefined
   let runtime: OgRuntime
 
-  const fakePayload = {
-    findGlobal: async ({ slug }: { slug: string }) => structuredClone(docs.globals?.[slug] ?? {}),
-    collections: {},
-  } as unknown as Payload
+  const targetOfCollection = (collection: string) =>
+    Object.entries(options.targets).find(([name, t]) => (t.collection ?? name) === collection)?.[0] ?? collection
 
-  const source: DocSource = {
-    published: async (t, slug) =>
-      structuredClone(docs.published[t]?.find((d) => d[options.targets[t]?.slugField ?? 'slug'] === slug) ?? null),
-    publishedById: async (t, id) => structuredClone(docs.published[t]?.find((d) => String(d.id) === String(id)) ?? null),
-    draft: async (t, key) => {
-      if (!draft.editor) return null
-      const pool = docs.drafts?.[t] ?? []
-      const found = key.slug !== undefined ? pool.find((d) => d.slug === key.slug) : pool.find((d) => String(d.id) === String(key.id))
-      return structuredClone(found ?? null)
+  // The parts of Payload the production source touches: auth, find (published/draft pools), collections, findGlobal.
+  const fakePayload = {
+    config: { admin: { user: 'users' } },
+    collections: Object.fromEntries(
+      Object.entries(options.targets).map(([name, t]) => [t.collection ?? name, { config: { versions: { drafts: true } } }]),
+    ),
+    findGlobal: async ({ slug }: { slug: string }) => structuredClone(docs.globals?.[slug] ?? {}),
+    auth: async ({ headers }: { headers: Headers }) => ({
+      user: headers.get('authorization') === EDITOR_AUTH ? { id: 1, collection: 'users' } : null,
+    }),
+    find: async (args: { collection: string; where: any; draft?: boolean }) => {
+      const name = targetOfCollection(args.collection)
+      const slugField = options.targets[name]?.slugField ?? 'slug'
+      const clauses: any[] = args.where?.and ?? [args.where]
+      const key = clauses.find((c) => c && !('_status' in c))
+      const match = (d: Record<string, any>) => {
+        const [field, cond] = Object.entries(key)[0] as [string, { equals: unknown }]
+        return String(d[field === 'id' ? 'id' : slugField]) === String(cond.equals)
+      }
+      const pub = docs.published[name]?.find(match)
+      const dr = args.draft === true ? docs.drafts?.[name]?.find(match) : undefined
+      const found = dr ?? pub
+      return { docs: found ? [structuredClone({ ...found, _status: dr ? 'draft' : 'published' })] : [] }
     },
-    // Like production: draft site data only for an editor, otherwise the runtime's CACHED site(), so a site global
-    // missing from `siteGlobals` stays stale here exactly as it would in the app.
-    site: async (request) =>
-      request && draft.editor
-        ? options.site({ payload: fakePayload, draft: true })
-        : (state.siteCache as NonNullable<OgState['siteCache']>).get(),
-  }
+  } as unknown as Payload
 
   const inner: Renderer =
     o.renderer === 'real'
@@ -92,11 +115,11 @@ export function installTestRuntime(options: OgImagePluginOptions, docs: KitDocs,
       : {
           // The stub draws the element's JSON: any change to what a template would draw changes the bytes.
           render: async (el) =>
-            (await import('sharp'))
-              .default({ create: { width: 8, height: 8, channels: 3, background: colourOf(JSON.stringify(el)) } })
-              .png()
-              .toBuffer()
-              .then((b) => new Uint8Array(b)),
+            new Uint8Array(
+              await sharp({ create: { width: 8, height: 8, channels: 3, background: colourOf(JSON.stringify(el)) } })
+                .png()
+                .toBuffer(),
+            ),
         }
   const renderer: Renderer = {
     async render(el, a) {
@@ -105,10 +128,20 @@ export function installTestRuntime(options: OgImagePluginOptions, docs: KitDocs,
       return inner.render(el, a)
     },
   }
+  const heroImages = new Map<string, string>()
   const heroLoader: HeroLoader = async (hero) => {
     heroLoads += 1
     if (typeof hero.filename === 'string' && hero.filename.startsWith('missing')) return null
-    return TINY_PNG
+    const tag = `${String(hero.id)}:${hero.updatedAt ?? ''}`
+    let url = heroImages.get(tag)
+    if (!url) {
+      const png = await sharp({ create: { width: 8, height: 8, channels: 3, background: colourOf(tag) } })
+        .png()
+        .toBuffer()
+      url = `data:image/png;base64,${png.toString('base64')}`
+      heroImages.set(tag, url)
+    }
+    return url
   }
 
   const build = (keepStore: boolean) => {
@@ -116,24 +149,27 @@ export function installTestRuntime(options: OgImagePluginOptions, docs: KitDocs,
     if (!keepStore) {
       memoryOnly = memoryStore()
       store = {
-        get: (p, v) => memoryOnly.get(p, v),
+        async get(p, v) {
+          storeReads += 1
+          return memoryOnly.get(p, v)
+        },
         async put(p, v, b) {
           puts.push({ pageId: p, v })
           await memoryOnly.put(p, v, b)
         },
       }
     }
-    runtime = buildRuntime(state, fakePayload, {
-      source,
+    const current = state
+    runtime = buildRuntime(current, fakePayload, {
+      source: payloadSource(fakePayload, current, () => (current.siteCache as NonNullable<OgState['siteCache']>).get()),
       store,
       renderer,
       heroLoader,
       isDraftRequest: async () => draft.on,
-      requestForPage: async () => new Request(serverUrl),
+      requestForPage: async () => new Request(serverUrl, { headers: rt.requestHeaders() }),
     })
     setTestRuntime(runtime)
   }
-  build(false)
 
   const rt: TestRuntime = {
     options,
@@ -158,14 +194,18 @@ export function installTestRuntime(options: OgImagePluginOptions, docs: KitDocs,
     draftMode(on, editor = false) {
       draft = { on, editor }
     },
+    requestHeaders: (): Record<string, string> => (draft.editor ? { authorization: EDITOR_AUTH } : {}),
     renders: () => renders,
     heroLoads: () => heroLoads,
     stored: () => [...puts],
+    storeReads: () => storeReads,
+    gateStats: () => state.gate.stats(),
     clearMemo: () => build(true),
     clearCaches: () => build(false),
     reset() {
       renders = 0
       heroLoads = 0
+      storeReads = 0
       puts = []
       draft = { on: false, editor: false }
       hold = undefined
@@ -182,6 +222,7 @@ export function installTestRuntime(options: OgImagePluginOptions, docs: KitDocs,
       }
     },
   }
+  build(false)
   return rt
 }
 
@@ -190,5 +231,3 @@ const colourOf = (text: string) => {
   for (const ch of text) h = (h * 31 + ch.charCodeAt(0)) >>> 0
   return { r: h & 255, g: (h >> 8) & 255, b: (h >> 16) & 255 }
 }
-
-const TINY_PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNgYGD4DwABBAEAwS2OUAAAAABJRU5ErkJggg=='
