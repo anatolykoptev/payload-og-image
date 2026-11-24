@@ -33,3 +33,26 @@ jobs:
           node-version: 24
       - run: pnpm install --frozen-lockfile
       - run: make preflight
+      # What lives in the Next layer (HEAD, route wiring, the page cache) is only seen over HTTP: build the dev app,
+      # serve it with `next start` and probe a card, a stale ?v, an unknown slug and a REST upload. Needs the build above.
+      - run: node scripts/probe-dev-server.mjs
+
+  # An early warning, not a gate: the suite against the current Payload beta. It never fails the workflow.
+  payload-beta:
+    if: ${{ !github.event.repository.private || github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+    runs-on: ${{ github.event.repository.private && fromJSON('["self-hosted","linux","arm64"]') || 'ubuntu-24.04-arm' }}
+    continue-on-error: true
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - run: pnpm install --frozen-lockfile
+      # The lockfile is not committed back: this job only reads. `pnpm add` keeps the release-age cooldown, so it takes
+      # the newest beta that is old enough.
+      - run: pnpm add --save-dev --save-exact payload@beta @payloadcms/db-sqlite@beta @payloadcms/next@beta @payloadcms/richtext-lexical@beta @payloadcms/ui@beta
+      - run: pnpm test
