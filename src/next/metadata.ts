@@ -2,6 +2,7 @@ import type { Metadata } from 'next'
 import type { SanitizedConfig } from 'payload'
 import type { ResolvedCard } from '../internal/resolve.js'
 import { getRuntime } from '../internal/runtime.js'
+import { variantTargetName } from '../internal/variants.js'
 
 export type OgMetadataArgs =
   | { config: Promise<SanitizedConfig> | SanitizedConfig; target: string; doc: { id: string | number } | null | undefined }
@@ -41,5 +42,51 @@ export async function ogMetadata(a: OgMetadataArgs): Promise<Pick<Metadata, 'ope
     if (process.env.NODE_ENV !== 'production') throw error
     rt?.emit({ name: 'render_error', detail: { message: `metadata: ${String((error as Error)?.message ?? error)}` } })
     return {}
+  }
+}
+
+/** One image of a page: the wide `og:image` first (`variant: null`), then each declared variant by name. */
+export type OgImage = { url: string; width: number; height: number; variant: string | null }
+
+export type OgImagesArgs = {
+  config: Promise<SanitizedConfig> | SanitizedConfig
+  target: string
+  doc: { id: string | number } | null | undefined
+  /** Which declared variants to list, in this order. Default: every declared variant, in declaration order. A name the target does not declare throws (in production: `[]` and an event). */
+  variants?: string[]
+}
+
+const imageOf = (card: ResolvedCard, variant: string | null): OgImage | undefined => {
+  if (card.kind === 'none') return undefined
+  const i = card.kind === 'own' ? card.image : { url: card.url, width: card.size.width, height: card.size.height }
+  return { url: i.url, width: i.width, height: i.height, variant }
+}
+
+/**
+ * Every size of a page's share image, for a schema.org `image` array (Google asks for 16:9, 4:3 and 1:1): the wide image
+ * `ogMetadata` advertises first (the editor's own image when there is one), then the target's variants. It is not for
+ * `og:image`: put one image there (see docs/reference.md). A size that would be blank is left out. `[]` when the page has no image.
+ * Failure handling is `ogMetadata`'s: in production an event and `[]`, in development and test it throws.
+ */
+export async function ogImages(a: OgImagesArgs): Promise<OgImage[]> {
+  let rt: Awaited<ReturnType<typeof getRuntime>> | undefined
+  try {
+    if (a.doc == null) return []
+    rt = await getRuntime(a.config)
+    const declared = rt.variantsOf(a.target)
+    const names = a.variants ?? declared
+    for (const n of names)
+      if (!declared.includes(n))
+        throw new Error(`payload-og-image: target "${a.target}" has no variant "${n}" (variants: ${declared.join(', ') || 'none'})`)
+    const id = a.doc.id
+    const cards = await Promise.all([
+      rt.resolveForMetadata({ target: a.target, id }),
+      ...names.map((n) => rt?.resolveForMetadata({ target: variantTargetName(a.target, n), id }) as Promise<ResolvedCard>),
+    ])
+    return cards.flatMap((c, i) => imageOf(c, i === 0 ? null : (names[i - 1] as string)) ?? [])
+  } catch (error) {
+    if (process.env.NODE_ENV !== 'production') throw error
+    rt?.emit({ name: 'render_error', detail: { message: `images: ${String((error as Error)?.message ?? error)}` } })
+    return []
   }
 }

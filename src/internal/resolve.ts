@@ -178,8 +178,9 @@ export async function resolveCard(i: ResolveInput): Promise<ResolvedCard> {
   const title = typeof i.doc.title === 'string' ? i.doc.title.trim() : ''
   // The editor's image wins without asking the target for alternatives (and without running its code).
   // Mode `custom` is the editor's image alone (target.share() is not asked); `generated` skips the image step.
+  // A variant is another size of the generated card: an upload has one size, so a variant never uses it.
   const own =
-    mode === 'generated'
+    mode === 'generated' || i.target.variantOf !== undefined
       ? undefined
       : (shareImageOf(editor, i.serverUrl) ?? (mode === 'custom' ? undefined : firstShareImage(i.target.share?.(args) ?? [], i.serverUrl)))
   if (own) return { kind: 'own', image: { ...own, alt: own.alt ?? title } }
