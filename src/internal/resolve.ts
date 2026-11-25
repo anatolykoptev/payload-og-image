@@ -37,6 +37,10 @@ export type ResolveInput = {
   stacks: Stacks
   /** Normalised hero background when not the default white. */
   heroBackground?: string
+  /** True when the site set `heroBackground` (white included), so a transparent hero is flattened. */
+  heroFlattened?: boolean
+  /** Whether a hero has a see-through pixel; asked only for a hero the site did not flatten. */
+  heroHasAlpha?: (hero: Upload, o?: { collection?: string }) => Promise<boolean>
   /** Effective card / hero palette tags when not the default (see `paletteTags`). */
   cardPalette?: string
   heroPalette?: string
@@ -189,12 +193,16 @@ export async function resolveCard(i: ResolveInput): Promise<ResolvedCard> {
   const slug = routable(nonEmpty(getPath(i.doc, i.target.slugField ?? 'slug')))
   if (slug === undefined) return { kind: 'none' }
   const key = { kind: i.target.kind ?? i.targetName, slug }
+  // A transparent hero nobody flattens is drawn with its alpha (0.4.1); its bytes differ from 0.4.0's, so its URL must too.
+  const heroTransparent =
+    hero !== null && !i.heroFlattened && i.heroHasAlpha ? await i.heroHasAlpha(hero, { collection: i.target.heroCollection }) : false
   const v = cardVersion({
     templateId,
     templateRevision: template.revision,
     props,
     heroes: hero ? [hero] : [],
     heroBackground: i.heroBackground,
+    heroTransparent,
     cardPalette: i.cardPalette,
     heroPalette: i.heroPalette,
     fontsDigest: fontsKey(i.fontsDigest, i.stacks),

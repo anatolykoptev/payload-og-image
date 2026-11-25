@@ -226,7 +226,8 @@ props: async ({ doc, site, related }) => {
 `related` is published-only and access-respecting (it is `null` for a missing, unpublished or forbidden document); an
 editor previewing a draft also gets the draft of a related document. `Target.depth` is gone: there is nothing to tune.
 Say which upload collection a hero lives in with `heroCollection` on the target; a hero file is read only inside that
-collection's folder. A transparent hero is flattened onto `heroBackground` (`#rgb` or `#rrggbb`, default white; names and alpha forms are refused at start-up) before it is cut. It is part of the version of a card with a hero, so changing it gives new URLs. Remote heroes (`allowedImageHosts`) are fetched over https on the default port with a dedicated
+collection's folder. A transparent hero keeps its transparency, so the card shows through it exactly as it would through a direct `<img>`; set
+`heroBackground` (`#rgb` or `#rrggbb`; names and alpha forms are refused at start-up) to flatten it onto that colour after it is cut. It is part of the version of a card with a hero, so changing it gives new URLs. Before 0.4.1 a transparent hero was always flattened, onto white by default; a card whose hero has a see-through pixel and whose site sets no `heroBackground` gets a new URL once. The pixels of a hero match a direct `<img>` when the template's `heroBox` is the image's own size; at any other size the image is scaled twice (once to the box, once when drawn), and the edge pixels differ by a few levels. Remote heroes (`allowedImageHosts`) are fetched over https on the default port with a dedicated
 agent (never an environment proxy), from a vetted public address only (IANA special-purpose ranges are refused), with no
 redirect.
 

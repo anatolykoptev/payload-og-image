@@ -70,6 +70,8 @@ export type CardKey = { kind: string; slug: string }
 export type VersionInput = {
   /** Normalised hero background when it is not the default white; hashed with each hero only. */
   heroBackground?: string
+  /** The hero has a see-through pixel and no `heroBackground` flattens it (the alpha is kept, as of 0.4.1); hashed with each hero only. */
+  heroTransparent?: boolean
   /** Effective card palette when not the default (`'false'` or the colour count); hashed for every card. */
   cardPalette?: string
   /** Effective hero palette when not the default; hashed with each hero only. */

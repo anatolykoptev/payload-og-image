@@ -1,4 +1,5 @@
 /** Mutation table (production line -> the test that goes RED). Silent-failure surface: a transparent hero flattened onto the wrong colour changes every such card with no error.
+ * - hero.ts:171 flatten onto white when no ground is set -> "a transparent hero keeps its alpha when the site set none" RED, and heroAlpha.spec "drawn at its own size ... 0 px" RED
  * - runtime.ts:70 `background: o.heroBackground` removed -> "a transparent hero is flattened onto heroBackground" RED
  * - index.ts:124 `heroBackground` never validated -> plugin.spec "a css injection as the hero background" RED */
 import { mkdtemp, writeFile } from 'node:fs/promises'
@@ -33,7 +34,7 @@ describe('heroLoaderFor', () => {
     expect(await px('#369')).toEqual([51, 102, 153, 255])
     expect(await px('#336699')).toEqual([51, 102, 153, 255])
   })
-  it('a transparent hero is flattened onto heroBackground (white by default)', async () => {
+  it('a transparent hero is flattened onto heroBackground, and keeps its alpha when the site set none', async () => {
     const dir = await mkdtemp(path.join(os.tmpdir(), 'og-hero-'))
     await writeFile(
       path.join(dir, 't.png'),
@@ -47,6 +48,7 @@ describe('heroLoaderFor', () => {
     expect(
       await pixel((await heroLoaderFor(payload, { heroBackground: '#f1f3ef' })(hero, box, { collection: 'media' })) as string),
     ).toEqual([241, 243, 239, 255])
-    expect(await pixel((await heroLoaderFor(payload, {})(hero, box, { collection: 'media' })) as string)).toEqual([255, 255, 255, 255])
+    // Only the alpha is pinned: the colour under a clear pixel is whatever the palette quantiser left.
+    expect((await pixel((await heroLoaderFor(payload, {})(hero, box, { collection: 'media' })) as string))[3]).toBe(0)
   })
 })

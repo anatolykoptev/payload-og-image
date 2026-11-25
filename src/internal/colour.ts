@@ -14,5 +14,5 @@ export function normaliseHeroBackground(v: unknown): string {
   throw new Error(`payload-og-image: heroBackground must be #rgb or #rrggbb, got ${JSON.stringify(v)}`)
 }
 
-/** The colour a hero is flattened onto when `heroBackground` is not set. */
+/** An explicit `heroBackground` of this colour hashes with no tag, as it did in 0.4.0 (when white was also the unset default and is what such a hero was flattened onto). */
 export const DEFAULT_HERO_BACKGROUND = '#ffffff'

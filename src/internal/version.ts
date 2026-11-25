@@ -3,6 +3,9 @@ import type { CardKey, Upload, VersionInput } from './types.js'
 
 export const VERSION_FORMAT = 1
 
+/** Bumped when the bytes a transparent, unflattened hero draws change. 2: the alpha is kept (0.4.1); before, it was flattened onto white. */
+export const HERO_ALPHA_REVISION = 2
+
 const sha = (t: string) => createHash('sha256').update(t).digest('hex')
 
 /**
@@ -85,7 +88,14 @@ export const cardVersion = (i: VersionInput) =>
       i.templateId,
       i.templateRevision,
       i.props,
-      i.heroes.map((h) => heroTag(h) + (i.heroBackground ? `|bg:${i.heroBackground}` : '') + (i.heroPalette ? `|hp:${i.heroPalette}` : '')),
+      i.heroes.map(
+        (h) =>
+          heroTag(h) +
+          (i.heroBackground ? `|bg:${i.heroBackground}` : '') +
+          // Only a transparent hero without a ground: every other hero draws the bytes it always did, so its URL does not move.
+          (i.heroTransparent ? `|ha:${HERO_ALPHA_REVISION}` : '') +
+          (i.heroPalette ? `|hp:${i.heroPalette}` : ''),
+      ),
       i.fontsDigest,
       i.host,
       '',

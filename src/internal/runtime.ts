@@ -115,6 +115,7 @@ export function buildRuntime(state: OgState, payload: Payload, over: RuntimeOver
       fonts: state.fonts,
       stacks: o.stacks,
       heroBackground: heroBackgroundOf(o),
+      heroFlattened: o.heroBackground !== undefined,
       cardPalette: paletteTags(o.palette).card,
       heroPalette: paletteTags(o.palette).hero,
       serverUrl: state.serverUrl,

@@ -1,0 +1,81 @@
+/** Mutation table (production line -> the test that goes RED). Silent-failure surface: a transparent hero drawn with a pale fringe, or a card whose bytes changed and whose URL did not.
+ * - hero.ts:171 `cut.flatten(...)` applied with a default white when no ground is set -> "drawn at its own size, a transparent hero is the pixels of a direct <img>" RED
+ * - hero.ts:186 `hasAlpha` always false -> "hasAlpha: a see-through pixel is true; opaque, jpeg and unreadable are false" RED
+ * - hero.ts:186 `hasAlpha` ignores `isOpaque` (true for any alpha channel) -> same test RED (the opaque RGBA PNG) */
+import { mkdtemp, writeFile } from 'node:fs/promises'
+import os from 'node:os'
+import path from 'node:path'
+import sharp from 'sharp'
+import { describe, expect, it } from 'vitest'
+import { payloadHeroLoader } from '../../src/render/hero.js'
+import { nextOgRenderer } from '../../src/render/nextOg.js'
+import { loadTestFonts } from '../helpers.js'
+
+// A 256 px icon like a product mark: a gradient tile with a soft shadow, so it has fully transparent and semi-transparent pixels.
+const ICON = `<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256"><defs><filter id="b"><feGaussianBlur stdDeviation="6"/></filter><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#6d5dfc"/><stop offset="1" stop-color="#22d3ee"/></linearGradient></defs><rect x="30" y="36" width="196" height="196" rx="44" fill="#000" fill-opacity="0.45" filter="url(#b)"/><rect x="28" y="24" width="200" height="200" rx="44" fill="url(#g)"/></svg>`
+const CARD = { width: 320, height: 120 }
+
+const dirWith = async (files: Record<string, Buffer>) => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'og-alpha-'))
+  for (const [name, bytes] of Object.entries(files)) await writeFile(path.join(dir, name), bytes)
+  return dir
+}
+const loaderFor = (dir: string, background?: string) => payloadHeroLoader({ staticDirs: async () => [dir], colours: false, background })
+const upload = (filename: string) => ({ id: filename, filename, url: `/m/${filename}`, updatedAt: 'u' })
+
+/** The card with the image drawn at 52 px on a dark ground, as raw RGBA, with no palette so every pixel is the renderer's. */
+async function drawn(src: string) {
+  const { fonts } = await loadTestFonts()
+  const el = {
+    type: 'div',
+    props: {
+      style: { display: 'flex', width: CARD.width, height: CARD.height, background: '#1e2a38', padding: 20 },
+      children: { type: 'img', props: { src, width: 52, height: 52 } },
+    },
+  }
+  const png = await nextOgRenderer({ palette: false }).render(el as never, { ...CARD, fonts })
+  return sharp(png).raw().toBuffer()
+}
+const differing = (a: Buffer, b: Buffer) => {
+  let n = 0
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) n += 1
+  return n
+}
+
+describe('a transparent hero', () => {
+  it('drawn at its own size, a transparent hero is the pixels of a direct <img> (0 differing), where flattening onto white is not', async () => {
+    const png = await sharp(Buffer.from(ICON)).png().toBuffer()
+    const { data, info } = await sharp(png).raw().toBuffer({ resolveWithObject: true })
+    let clear = 0
+    let semi = 0
+    for (let i = 3; i < data.length; i += info.channels) {
+      if (data[i] === 0) clear += 1
+      else if (data[i] !== 255) semi += 1
+    }
+    expect([clear > 15_000, semi > 5_000]).toEqual([true, true]) // the fixture is the case the issue describes
+    const dir = await dirWith({ 'icon.png': png })
+    const box = { width: 256, height: 256 }
+    const direct = await drawn(`data:image/png;base64,${png.toString('base64')}`)
+    const viaLoader = (await loaderFor(dir)(upload('icon.png'), box)) as string
+    expect(differing(await drawn(viaLoader), direct)).toBe(0)
+    const flattened = (await loaderFor(dir, '#ffffff')(upload('icon.png'), box)) as string
+    expect(differing(await drawn(flattened), direct)).toBeGreaterThan(1000) // 0.4.0: a pale fringe round the icon
+  })
+  it('hasAlpha: a see-through pixel is true; opaque, jpeg and unreadable are false', async () => {
+    const solid = { create: { width: 8, height: 8, channels: 4 as const, background: { r: 9, g: 9, b: 9, alpha: 1 } } }
+    const dir = await dirWith({
+      'clear.png': await sharp(Buffer.from(ICON)).png().toBuffer(),
+      'rgba-opaque.png': await sharp(solid).png().toBuffer(), // has an alpha channel, no see-through pixel
+      'plain.jpg': await sharp(solid).jpeg().toBuffer(),
+    })
+    const l = loaderFor(dir)
+    expect(l.hasAlpha).toBeTypeOf('function')
+    const has = (name: string) => (l.hasAlpha as NonNullable<typeof l.hasAlpha>)(upload(name))
+    expect([await has('clear.png'), await has('rgba-opaque.png'), await has('plain.jpg'), await has('missing.png')]).toEqual([
+      true,
+      false,
+      false,
+      false,
+    ])
+  })
+})
