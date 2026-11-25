@@ -11,6 +11,20 @@ automatically from this repository, with provenance.
 **Compatibility:** Payload `^3.93.0`, Next.js `^16.4.5`, React `^19.3.1`, sharp `^0.35.4`, Node
 `^22.23.5 || ^24.22.3 || >=26.13.1`. ESM only. Node runtime only: edge and serverless platforms need `store: { memory: true }` and are untested.
 
+## Payload 3 and 4
+
+The plugin's own Local API calls all state `overrideAccess: false` (the visitor's access, the signed-in editor's for drafts and
+previews), so they read the same on both majors. Payload 4 changes the Local API default from `overrideAccess: true` to `false`,
+and that reaches **your** code that the plugin calls: inside `options.site({ payload })` (and a target's `props` through `related()`
+or your own reads) a call that leaves `overrideAccess` out now runs with no user and the collection's access. State what you mean:
+
+```ts
+site: async ({ payload }) => ({
+  // trusted site data, the same for every visitor: read it as the system, as Payload 3 did by default
+  name: ((await payload.findGlobal({ slug: 'site-settings', overrideAccess: true })).businessName as string) || 'Example',
+}),
+```
+
 ## Install
 
 ```sh
