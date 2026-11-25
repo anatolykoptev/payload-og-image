@@ -1,6 +1,6 @@
 export type { RouteContext } from '../internal/handler.js'
-export type { OgMetadataArgs } from '../next/metadata.js'
-export { ogMetadata } from '../next/metadata.js'
+export type { OgImage, OgImagesArgs, OgMetadataArgs } from '../next/metadata.js'
+export { ogImages, ogMetadata } from '../next/metadata.js'
 export { OG_SITE_TAG, ogTag } from '../next/revalidate.js'
 export { createOgRoute } from '../next/route.js'
 export { withHead } from '../next/withHead.js'

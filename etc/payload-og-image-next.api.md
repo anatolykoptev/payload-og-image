@@ -19,6 +19,27 @@ export function createOgRoute(o: {
 export const OG_SITE_TAG = "og:site";
 
 // @public
+export type OgImage = {
+    url: string;
+    width: number;
+    height: number;
+    variant: string | null;
+};
+
+// @public
+export function ogImages(a: OgImagesArgs): Promise<OgImage[]>;
+
+// @public
+export type OgImagesArgs = {
+    config: Promise<SanitizedConfig> | SanitizedConfig;
+    target: string;
+    doc: {
+        id: string | number;
+    } | null | undefined;
+    variants?: string[];
+};
+
+// @public
 export function ogMetadata(a: OgMetadataArgs): Promise<Pick<Metadata, 'openGraph' | 'twitter'>>;
 
 // @public (undocumented)

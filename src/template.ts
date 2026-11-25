@@ -4,6 +4,7 @@ import type { Box } from './internal/fonts.js'
 import { assertFormatOption, type CardFormat, type JpegOptions, pathProblem, type WebpOptions } from './internal/format.js'
 import { MAX_SIDE } from './internal/limits.js'
 import type { SiteInfo, Size, Upload } from './internal/types.js'
+import { VARIANT_NAME } from './internal/variants.js'
 
 export type { Box }
 
@@ -133,6 +134,13 @@ export type Target<D = any, P = any> = {
   jpeg?: JpegOptions
   /** This target's WebP settings (`quality`, 1 to 100); wins over the plugin's `webp`. */
   webp?: WebpOptions
+  /**
+   * Other sizes of the same card, by name (`[a-z0-9-]+`), for schema.org `image` (Google asks for 16:9, 4:3 and 1:1). Each has its own route
+   * `path` and its own `template` (which sets the size); it shares this target's collection, props, hero and format, and is served as the
+   * hidden target `<name>~<variant>` of kind `<kind>-<variant>`. A variant is never the page's `og:image` (see `ogImages`), and it always draws the
+   * template: an editor's own share image is not used for it.
+   */
+  variants?: Record<string, { path: string; template: string | ((a: ResolverArgs<D>) => string) }>
 }
 
 export function defineTarget<D, P>(t: Target<D, P>): Target<D, P> {
@@ -151,6 +159,14 @@ export function defineTarget<D, P>(t: Target<D, P>): Target<D, P> {
   if (t.alt !== undefined && typeof t.alt !== 'function') throw new Error('payload-og-image: target alt must be a function')
   if (t.kind !== undefined && !/^[A-Za-z0-9_~-][A-Za-z0-9._~-]*$/.test(t.kind)) {
     throw new Error(`payload-og-image: target kind "${t.kind}" must be one URL-safe path segment`)
+  }
+  if (t.variants !== undefined) {
+    if (t.variants === null || typeof t.variants !== 'object' || Array.isArray(t.variants))
+      throw new Error('payload-og-image: target variants must be an object of { path, template } by name')
+    for (const [name, v] of Object.entries(t.variants)) {
+      if (!VARIANT_NAME.test(name)) throw new Error(`payload-og-image: variant name "${name}" must match [a-z0-9-]+`)
+      defineTarget({ ...t, variants: undefined, ...v })
+    }
   }
   return t
 }

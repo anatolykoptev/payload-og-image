@@ -58,7 +58,7 @@ export type IndexableRoute = {
 };
 
 // @public
-export function installTestRuntime(options: OgImagePluginOptions, docs: KitDocs, o?: TestRuntimeOptions): TestRuntime;
+export function installTestRuntime(given: OgImagePluginOptions, docs: KitDocs, o?: TestRuntimeOptions): TestRuntime;
 
 // @public
 export type JpegOptions = {
@@ -108,7 +108,7 @@ export type OgFieldsOption = {
 };
 
 // @public
-export function ogImagePlugin(o: OgImagePluginOptions): (config: Config) => Config;
+export function ogImagePlugin(options: OgImagePluginOptions): (config: Config) => Config;
 
 // @public (undocumented)
 export type OgImagePluginOptions = {
@@ -355,6 +355,10 @@ export type Target<D = any, P = any> = {
     format?: CardFormat;
     jpeg?: JpegOptions;
     webp?: WebpOptions;
+    variants?: Record<string, {
+        path: string;
+        template: string | ((a: ResolverArgs<D>) => string);
+    }>;
 };
 
 // @public (undocumented)

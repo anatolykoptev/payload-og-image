@@ -8,6 +8,7 @@ import { buildRuntime, heroLoaderOptionsOf, type OgRuntime, setTestRuntime } fro
 import { createState, type OgState } from '../internal/state.js'
 import { memoryStore } from '../internal/store/memory.js'
 import type { CardStore } from '../internal/types.js'
+import { withVariants } from '../internal/variants.js'
 import type { OgImagePluginOptions } from '../plugin/index.js'
 import { payloadSource } from '../plugin/payloadSource.js'
 import { payloadHeroLoader } from '../render/hero.js'
@@ -85,7 +86,8 @@ const EDITOR_AUTH = 'JWT kit-editor'
  * A hero whose `filename` starts with `missing` cannot be read (how a fixture models a missing upload file); any other hero
  * is a small image whose colour depends on its id and `updatedAt`, so replacing a hero changes the card's pixels.
  */
-export function installTestRuntime(options: OgImagePluginOptions, docs: KitDocs, o: TestRuntimeOptions = {}): TestRuntime {
+export function installTestRuntime(given: OgImagePluginOptions, docs: KitDocs, o: TestRuntimeOptions = {}): TestRuntime {
+  const options = withVariants(given) // the kit sees the hidden variant targets exactly as the plugin does
   const serverUrl = o.serverUrl ?? 'https://example.test'
   let state: OgState
   let memoryOnly: CardStore

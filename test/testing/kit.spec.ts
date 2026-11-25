@@ -56,7 +56,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { installTestRuntime, ogKit } from '../../src/exports/testing.js'
 import { CACHE } from '../../src/internal/handler.js'
 import { setTestRuntime } from '../../src/internal/runtime.js'
-import { ogMetadata } from '../../src/next/metadata.js'
+import { ogImages, ogMetadata } from '../../src/next/metadata.js'
 import { withHead } from '../../src/next/withHead.js'
 import type { OgImagePluginOptions } from '../../src/plugin/index.js'
 import { defineTarget, defineTemplate } from '../../src/template.js'
@@ -492,6 +492,47 @@ describe('restHeadParity', () => {
       apiRoute: '/cms/api/',
     })
     expect(seen[0]).toEqual(['media', 'file', 'a.png'])
+  })
+})
+
+describe('size variants in the kit', () => {
+  const sq = defineTemplate<{ title: string; label: string; site: string }>({
+    ...post,
+    id: 'post-square',
+    size: { width: 600, height: 600 },
+  })
+  const withVariant = () =>
+    options({
+      templates: [post, sq],
+      targets: {
+        posts: defineTarget<any, any>({
+          path: '/og/:kind/:slug/card.png',
+          template: 'post',
+          props: ({ doc, site }: any) => ({ title: doc.title, label: 'Blog', site: site.name }),
+          variants: { square: { path: '/og/:kind/:slug/square.png', template: 'post-square' } },
+        }),
+      },
+    })
+  it('the kit runtime expands variants: ogImages lists the square, and routesMatchPaths wants (and accepts) its route file', async () => {
+    const rt = installTestRuntime(withVariant(), docs())
+    expect(Object.keys(rt.options.targets)).toEqual(['posts', 'posts~square'])
+    const list = await ogImages({ config: {} as never, target: 'posts', doc: { id: 1 }, variants: ['square'] })
+    expect(list.map((i) => [i.variant, i.width, i.height])).toEqual([
+      [null, 1200, 630],
+      ['square', 600, 600],
+    ])
+    const app = await mkdtemp(path.join(os.tmpdir(), 'og-app-'))
+    const route = async (dir: string) => {
+      await mkdir(path.join(app, dir), { recursive: true })
+      await writeFile(
+        path.join(app, dir, 'route.ts'),
+        "import { createOgRoute } from 'payload-og-image/next'\nexport const GET = createOgRoute({ config: {} as never }).GET\n",
+      )
+    }
+    await route('(frontend)/og/[kind]/[slug]/card.png')
+    await reject(ogKit(rt).routesMatchPaths({ appDir: app }), /declares \/og\/:kind\/:slug\/square\.png, but no route file/)
+    await route('(frontend)/og/[kind]/[slug]/square.png')
+    await ogKit(rt).routesMatchPaths({ appDir: app })
   })
 })
 

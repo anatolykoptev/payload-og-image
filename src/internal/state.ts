@@ -7,6 +7,7 @@ import type { cachedSite } from './site.js'
 import { diskStore } from './store/disk.js'
 import { memoryStore } from './store/memory.js'
 import type { CardStore } from './types.js'
+import { withVariants } from './variants.js'
 
 export const CUSTOM_KEY = 'payload-og-image'
 
@@ -31,7 +32,8 @@ export type OgState = {
   invalidateSite(): void
 }
 
-export function createState(options: OgImagePluginOptions, serverUrl: string): OgState {
+export function createState(given: OgImagePluginOptions, serverUrl: string): OgState {
+  const options = withVariants(given) // a safety net: the plugin and the test kit expand first (they need the siblings earlier), and expanding twice changes nothing
   const events = createEventSink(options.onEvent)
   let fontsPromise: ReturnType<typeof loadFonts> | undefined
   let store: (CardStore & { readonly enabled?: boolean }) | undefined
