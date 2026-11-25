@@ -1,6 +1,6 @@
 /** Mutation table (production line -> the test that goes RED). Silent-failure surface: a declared variant that boots and serves nothing, or a page that lists a size the route does not serve.
  * - plugin/index.ts:212 `targets: expandVariants(options.targets ?? {})` -> `options.targets` -> "the route serves the variant at its template's size", "ogImages lists the wide image, then each variant ...", "the plugin expands ..." RED
- * - resolve.ts `isVariant(i.target)` dropped from `own` -> "a variant ignores the editor's own share image ..." RED
+ * - resolve.ts `i.variant === true` dropped from `own` -> "a variant ignores the editor's own share image ..." RED
  * - variants.ts kind `${kind}-${variant}` -> `kind` -> "a variant's kind collides ..." and the route test RED
  * - next/metadata.ts ogImages: variants skipped -> "ogImages lists ..." RED */
 import { readFile } from 'node:fs/promises'
@@ -105,8 +105,10 @@ describe('size variants', () => {
     expect(Object.keys(targets)).toEqual(['posts', 'posts~square', 'posts~4x3'])
     expect(targets['posts~square']).toMatchObject({ kind: 'posts-square', path: '/og/:kind/:slug/square.png', template: 'square' })
     expect(targets['posts~square']?.variants).toBeUndefined()
-    expect(targets.posts?.variants).toBeUndefined() // the parent is expanded once: a second pass finds nothing to do
-    expect(withVariants({ targets })).toEqual({ targets }) // idempotent
+    expect(targets.posts?.variants).toBeDefined() // the parent keeps its declaration
+    const again = withVariants({ targets }).targets
+    expect(Object.keys(again)).toEqual(Object.keys(targets)) // expanding twice changes nothing
+    expect(again['posts~square']).toBe(targets['posts~square'])
   })
 
   it("the route serves the variant at its template's size, and the parent at its own", async () => {
@@ -180,6 +182,35 @@ describe('size variants', () => {
     expect(plain).toEqual(expected(url))
     boot()
     expect(await ogMetadata({ config, target: 'posts', doc: { id: 1 } })).toEqual(plain)
+  })
+})
+
+describe('size variants across module instances', () => {
+  it('a state built by one copy of the module resolves in a freshly imported copy: the variant still draws, never the own image', async () => {
+    const { state } = boot()
+    vi.resetModules() // Next may load the package once for the page and once for the route handler; Payload's cache shares one state
+    const fresh = await import('../../src/internal/runtime.js')
+    const metadata = await import('../../src/next/metadata.js')
+    expect(fresh.buildRuntime).not.toBe(buildRuntime)
+    const rt = fresh.buildRuntime(state, {} as Payload, {
+      source,
+      store: memoryStore(),
+      renderer: { render: async () => new Uint8Array() },
+      heroLoader: async () => null,
+      isDraftRequest: async () => false,
+    })
+    fresh.setTestRuntime(rt)
+    try {
+      expect(rt.variantsOf('posts')).toEqual(['square', '4x3'])
+      const list = await metadata.ogImages({ config: {} as never, target: 'posts', doc: { id: 2 } }) // doc 2 has an editor image
+      expect(list.map((i) => [i.variant, i.url.includes('/media/own.jpg')])).toEqual([
+        [null, true],
+        ['square', false],
+        ['4x3', false],
+      ])
+    } finally {
+      fresh.setTestRuntime(null)
+    }
   })
 })
 

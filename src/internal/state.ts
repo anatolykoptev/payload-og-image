@@ -33,7 +33,7 @@ export type OgState = {
 }
 
 export function createState(given: OgImagePluginOptions, serverUrl: string): OgState {
-  const options = withVariants(given) // the one place a state's targets are expanded, whoever builds the state (plugin, test kit)
+  const options = withVariants(given) // a safety net: the plugin and the test kit expand first (they need the siblings earlier), and expanding twice changes nothing
   const events = createEventSink(options.onEvent)
   let fontsPromise: ReturnType<typeof loadFonts> | undefined
   let store: (CardStore & { readonly enabled?: boolean }) | undefined
