@@ -216,12 +216,12 @@ export function payloadHeroLoader(o: HeroLoaderOptions): HeroLoader {
       return null
     }
   }
-  // The probe runs before the store lookup (the card's URL needs it), so it is cheap in the steady state: a JPEG is never read, an
-  // answer is remembered per upload (collection and tag) in a bounded LRU, and concurrent askers share one read.
+  // The probe runs before the store lookup (the card's URL needs it), so it is cheap in the steady state: an answer is remembered
+  // per upload (collection and tag) in a bounded LRU, and concurrent askers share one read. Every format is read once, JPEG
+  // too: the stored mimeType is a label, and a transparent PNG labelled image/jpeg must not keep its old URL.
   const known = new Map<string, boolean>()
   const inflight = new Map<string, Promise<boolean>>()
   load.hasAlpha = (hero, where) => {
-    if (hero.mimeType === 'image/jpeg') return Promise.resolve(false) // no alpha channel to find
     const key = `${where?.collection ?? ''}\u0000${heroTag(hero)}`
     const seen = known.get(key)
     if (seen !== undefined) {

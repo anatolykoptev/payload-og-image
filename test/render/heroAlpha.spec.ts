@@ -6,7 +6,7 @@
  * - hero.ts `known.set` removed (no memory) -> "hasAlpha asks the file once per upload ..." RED and handler.spec "a store hit in the steady state reads no hero file" RED
  * - hero.ts `inflight` removed -> same first test RED (two concurrent askers read twice)
  * - hero.ts the LRU touch on a hit removed, or no eviction -> "the memory is a bounded LRU" RED
- * - hero.ts the JPEG shortcut removed -> "a JPEG upload is never read" RED
+ * - hero.ts a mimeType shortcut that skips the read -> "an upload is judged by its bytes, not its mimeType label" RED
  * - hero.ts:186 `hasAlpha` ignores `isOpaque` (true for any alpha channel) -> same test RED (the opaque RGBA PNG) */
 import { mkdtemp, writeFile } from 'node:fs/promises'
 import os from 'node:os'
@@ -142,16 +142,19 @@ describe('a transparent hero', () => {
     expect(reads).toHaveLength(1)
   })
 
-  it('a JPEG upload is never read', async () => {
-    const { has, reads } = await countingLoader({
+  it('an upload is judged by its bytes, not its mimeType label', async () => {
+    const tiny = { create: { width: 4, height: 4, channels: 4 as const, background: { r: 1, g: 2, b: 3, alpha: 0.5 } } }
+    const { has } = await countingLoader({
       m: {
         'p.jpg': await sharp({ create: { width: 8, height: 8, channels: 3, background: '#123456' } })
           .jpeg()
           .toBuffer(),
+        'mislabelled.png': await sharp(tiny).png().toBuffer(),
       },
     })
     expect(await has({ ...upload('p.jpg'), mimeType: 'image/jpeg' } as never, 'm')).toBe(false)
-    expect(reads).toHaveLength(0)
+    // A transparent PNG whose stored label says JPEG (an imported or hand-edited row) still moves its card's URL.
+    expect(await has({ ...upload('mislabelled.png'), mimeType: 'image/jpeg' } as never, 'm')).toBe(true)
   })
 
   it('the memory is a bounded LRU: the least recently asked upload is the one forgotten', async () => {
