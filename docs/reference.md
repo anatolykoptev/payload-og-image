@@ -390,6 +390,36 @@ outside production, a `render_error` event in production).
 `og-parity --old <dir> --new <dir>` compares two directories of rendered cards (`<card>.png` plus
 `<card>.layout.json`) pixel for pixel, for a migration that must not change a card.
 
+## MCP tools
+
+A site that already runs `@payloadcms/plugin-mcp` can let an agent look at its cards. `payload-og-image/mcp` returns tool
+definitions in the plugin's own custom-tool shape; it builds no server. One line of wiring, `zod` being the plugin's own dependency:
+
+```ts
+import { ogImageMcpTools } from 'payload-og-image/mcp'
+
+mcpPlugin({ /* collections, globals... */ mcp: { tools: [...ogImageMcpTools({ describedBy: 'meta.description' })] } })
+```
+
+Enable each tool for an API key in the admin, as for any custom tool. All three are read-only and read what the card route
+reads: published documents only, as the public, never a draft and never an editor, whatever the key's user may see.
+
+- `og_card`: for a page, the card URL with its version, which target or static card, whether it is stored (a store lookup, nothing
+  is drawn) and its size, the hero (whether it is transparent, the ground it is flattened onto, whether its file can be read), and
+  why there is no card or why it is not stored. Give `target` with `id` or `slug`, a `static` key, or a `path`: a card route path or
+  URL, or a page path when the site maps pages with the `locate` option (`(pathname) => ({ target, slug })`); the plugin knows its
+  own card paths only.
+- `og_audit`: with no `scope`, the scopes (each target and `static`) and their document counts; with one, a page of at most 100
+  rows with the card URL, stored or not, its size, and, when `describedBy` names a field path, whether the document has a meta
+  description (the gap that leaves a share without text). No card is drawn and no stored card is read, only stat'ed; a row's version is
+  built from the document, so a hero file is read once per upload (`checkHeroes` also reads every hero to find cards that would be
+  drawn without it).
+- `og_preview`: the card as an image. A stored card is read from the store; otherwise it is drawn through the route's own admission
+  gate and render queue (a full queue answers `shed`, retry later), memoised and stored under its versioned key, exactly as a crawler's
+  request would. A card over `maxPreviewBytes` (1.5 MiB) is described, not sent.
+
+`stored` means a file exists under the exact version in the store (a stat; the PNG is not re-validated).
+
 ## Not implemented
 
 Pre-warming, locales, JPEG/WebP output, size variants, local emoji, another renderer, object-storage stores.

@@ -22,6 +22,14 @@ export type DocSource = {
   /** Published only: never a draft, whatever the request. */
   published(target: string, slug: string): Promise<Record<string, any> | null>
   publishedById(target: string, id: string | number): Promise<Record<string, any> | null>
+  /**
+   * One page of a target's published documents, by id: the same published-only, access-respecting read as `published`, with
+   * the uploads populated. `alsoSelect` names fields a caller needs beyond what the target reads (when the target restricts it).
+   */
+  listPublished?(
+    target: string,
+    a: { page: number; limit: number; alsoSelect?: string[] },
+  ): Promise<{ docs: Record<string, any>[]; totalDocs: number }>
   /** The draft, or null unless the request carries an authenticated editor. */
   draft(target: string, key: { slug?: string; id?: string | number }, request: Request): Promise<Record<string, any> | null>
   /**
@@ -42,6 +50,8 @@ export type HeroLoader = {
    * new URL (its bytes changed in 0.5.0). A loader without it (a test seam) reports none.
    */
   hasAlpha?: (hero: Upload, o?: { collection?: string }) => Promise<boolean>
+  /** Whether the hero's file can be read at all (a read, no decode): false is why a card would be drawn without it. */
+  readable?: (hero: Upload, o?: { collection?: string }) => Promise<boolean>
 }
 export type Renderer = { render(el: ReactElement, o: { width: number; height: number; fonts: LoadedFont[] }): Promise<Uint8Array> }
 export type HandlerDeps = {

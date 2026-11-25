@@ -235,6 +235,15 @@ export function diskStore(o: DiskStoreOptions): DiskStore {
       emit({ name: 'store_corrupt', v, bytes: bytes.byteLength })
       return null
     },
+    async stat(pageId, v) {
+      if (!PAGE_ID.test(pageId) || !VERSION.test(v) || !(await usable())) return null
+      try {
+        const st = await lstat(path.join(root, `${pageId}-${v}.png`)) // lstat: a symlink at a card name is foreign
+        return st.isFile() ? { bytes: st.size } : null
+      } catch {
+        return null
+      }
+    },
     async put(pageId, v, bytes) {
       if (!PAGE_ID.test(pageId) || !VERSION.test(v) || !(await usable())) return
       if (!isCompletePng(bytes)) {

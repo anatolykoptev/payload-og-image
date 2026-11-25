@@ -18,6 +18,10 @@ export type GeneratedCard = {
   heroCollection: string | undefined
   /** The ground this card's own target or template set for a transparent hero (normalised); the loader flattens onto it. Undefined: the plugin's. */
   heroBackground: string | undefined
+  /** The hero has a see-through pixel and nothing flattens it, so the card shows through it (what the version's `ha` tag records). */
+  heroTransparent: boolean
+  /** The colour the hero is flattened onto, whoever set it (the card's own, else the plugin's, white included); undefined when none flattens it. */
+  heroGround: string | undefined
   alt: string
   url: string
   size: Size
@@ -236,6 +240,8 @@ export async function resolveCard(i: ResolveInput): Promise<ResolvedCard> {
     hero,
     heroCollection: i.target.heroCollection,
     heroBackground: background,
+    heroTransparent,
+    heroGround: background ?? (i.heroFlattened ? (i.heroBackground ?? DEFAULT_HERO_BACKGROUND) : undefined),
     alt: altOf(i.target, args, props, cardTitle),
     url: `${i.serverUrl.replace(/\/+$/, '')}${cardPath(i.target, i.targetName, slug)}?v=${v}`,
     size: template.size,

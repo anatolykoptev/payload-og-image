@@ -138,10 +138,13 @@ export function installTestRuntime(options: OgImagePluginOptions, docs: KitDocs,
     auth: async ({ headers }: { headers: Headers }) => ({
       user: headers.get('authorization') === EDITOR_AUTH ? { id: 1, collection: editorCollection } : null,
     }),
-    find: async (args: { collection: string; where: unknown; draft?: boolean }) => {
+    find: async (args: { collection: string; where?: unknown; draft?: boolean; page?: number; limit?: number; sort?: string }) => {
       const name = targetOfCollection(args.collection)
-      const found = table(name, args.draft === true).filter((d) => matches(args.where, d))
-      return { docs: found.slice(0, 1).map((d) => structuredClone(d)) }
+      const found = table(name, args.draft === true).filter((d) => args.where === undefined || matches(args.where, d))
+      if (args.sort === 'id') found.sort((a: any, b: any) => String(a.id).localeCompare(String(b.id), undefined, { numeric: true }))
+      const limit = args.limit ?? 1
+      const from = ((args.page ?? 1) - 1) * limit
+      return { docs: found.slice(from, from + limit).map((d) => structuredClone(d)), totalDocs: found.length }
     },
   } as unknown as Payload
   const inner: Renderer =
@@ -187,6 +190,10 @@ export function installTestRuntime(options: OgImagePluginOptions, docs: KitDocs,
     }
     return url
   }
+  heroLoader.readable = async (hero, where) =>
+    real && isReal(hero)
+      ? (real.readable as NonNullable<HeroLoader['readable']>)(hero, where)
+      : !(typeof hero.filename === 'string' && hero.filename.startsWith('missing'))
   heroLoader.hasAlpha = async (hero, where) =>
     real && isReal(hero) ? (real.hasAlpha as NonNullable<HeroLoader['hasAlpha']>)(hero, where) : o.transparentHero?.(hero) === true
 
@@ -199,6 +206,7 @@ export function installTestRuntime(options: OgImagePluginOptions, docs: KitDocs,
           storeReads += 1
           return memoryOnly.get(p, v)
         },
+        stat: (p, v) => memoryOnly.stat(p, v), // a stat is not a read: an audit must not move `storeReads`
         async put(p, v, b) {
           puts.push({ pageId: p, v })
           await memoryOnly.put(p, v, b)

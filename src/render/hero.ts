@@ -221,6 +221,13 @@ export function payloadHeroLoader(o: HeroLoaderOptions): HeroLoader {
   // too: the stored mimeType is a label, and a transparent PNG labelled image/jpeg must not keep its old URL.
   const known = new Map<string, boolean>()
   const inflight = new Map<string, Promise<boolean>>()
+  load.readable = async (hero, where) => {
+    try {
+      return (await read(hero, where)) !== null
+    } catch {
+      return false
+    }
+  }
   load.hasAlpha = (hero, where) => {
     const key = `${where?.collection ?? ''}\u0000${heroTag(hero)}`
     const seen = known.get(key)

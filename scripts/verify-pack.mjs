@@ -10,6 +10,7 @@ const EXPECTED = {
   'payload-og-image': ['defineTarget', 'defineTemplate', 'ogFields', 'ogImagePlugin'],
   'payload-og-image/next': ['OG_SITE_TAG', 'createOgRoute', 'ogMetadata', 'ogTag', 'withHead'],
   'payload-og-image/testing': ['installTestRuntime', 'ogKit'],
+  'payload-og-image/mcp': ['ogImageMcpTools'],
 }
 const run = (cmd, args, cwd) => execFileSync(cmd, args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'inherit'] })
 const errors = []
@@ -40,7 +41,8 @@ else
 const project = join(work, 'project')
 run('mkdir', ['-p', project], work)
 writeFileSync(join(project, 'package.json'), JSON.stringify({ name: 'verify', private: true, type: 'module' }))
-run('npm', ['install', '--no-audit', '--no-fund', tarball], project)
+// `zod` is an optional peer, needed by the mcp entry only (a site with @payloadcms/plugin-mcp has it).
+run('npm', ['install', '--no-audit', '--no-fund', tarball, 'zod@^3.25.50'], project)
 
 // A `//# sourceMappingURL=` comment must point at a file that ships: the package excludes `*.map`, and a dangling reference is
 // ENOENT noise for every consumer that inlines the package under vite/vitest.

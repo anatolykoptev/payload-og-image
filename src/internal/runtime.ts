@@ -7,6 +7,7 @@ import { createFallbackTemplate, fallbackTemplate } from '../render/fallback.js'
 import { payloadHeroLoader } from '../render/hero.js'
 import { nextOgRenderer } from '../render/nextOg.js'
 import { type CardHandler, createCardHandler, type DocSource, type HeroLoader, type Renderer, type RouteContext } from './handler.js'
+import { createInspector, type Inspector } from './inspect.js'
 import type { ResolvedCard } from './resolve.js'
 import { cachedSite } from './site.js'
 import { CUSTOM_KEY, type OgState } from './state.js'
@@ -18,6 +19,8 @@ export type OgRuntime = {
   /** An editor's live preview of a document being typed (see `CardHandler.preview`). */
   preview: CardHandler['preview']
   emit: OgState['events']['emit']
+  /** Read-only views of cards for tools (published only; nothing drawn except `serve`). */
+  inspect: Inspector
 }
 
 /** What a test substitutes for the real collaborators; everything else is wired exactly as in production. */
@@ -96,6 +99,15 @@ export function buildRuntime(state: OgState, payload: Payload, over: RuntimeOver
       resolveForMetadata: async () => ({ kind: 'none' }),
       preview: async () => ({ kind: 'none' }),
       emit: state.events.emit,
+      inspect: {
+        scopes: async () => [],
+        card: async () => ({ found: false, reason: 'payload-og-image is disabled' }),
+        audit: async () => {
+          throw new Error('payload-og-image is disabled')
+        },
+        serve: async () => ({ status: 'not_found', reason: 'payload-og-image is disabled' }),
+        locate: () => null,
+      },
     }
   }
   state.siteCache ??= cachedSite(async () => o.site({ payload, draft: false }))
@@ -110,7 +122,7 @@ export function buildRuntime(state: OgState, payload: Payload, over: RuntimeOver
       return (await draftMode()).isEnabled
     })
   const fallback = o.brand ? createFallbackTemplate(o.brand) : fallbackTemplate
-  const make = (fixedTarget?: string) => {
+  const make = (fixedTarget?: string, publicOnly = false) => {
     if (fixedTarget !== undefined && !Object.hasOwn(o.targets, fixedTarget))
       throw new Error(`payload-og-image: createOgRoute target "${fixedTarget}" is not a configured target`)
     return createCardHandler({
@@ -132,7 +144,8 @@ export function buildRuntime(state: OgState, payload: Payload, over: RuntimeOver
       admission: state.admission,
       memo: state.memo,
       events: state.events,
-      isDraftRequest,
+      // The inspector's handler answers the public only: no draft-mode cookie, no editor, whatever request context it runs in.
+      isDraftRequest: publicOnly ? async () => false : isDraftRequest,
       fixedTarget,
       seoImage: o.seoImage,
       fallback,
@@ -150,6 +163,16 @@ export function buildRuntime(state: OgState, payload: Payload, over: RuntimeOver
     }
     return h
   }
+  const store = over.store ?? state.store()
+  const publicHandler = make(undefined, true)
+  const inspect = createInspector({
+    targets: o.targets,
+    statics: o.static ?? {},
+    source,
+    store,
+    heroLoader,
+    handler: publicHandler,
+  })
   const requestForPage =
     over.requestForPage ??
     (async () => {
@@ -159,6 +182,7 @@ export function buildRuntime(state: OgState, payload: Payload, over: RuntimeOver
 
   return {
     emit: state.events.emit,
+    inspect,
     preview: (a) => handlerFor().preview(a),
     handler(fixedTarget) {
       const key = fixedTarget ?? ''

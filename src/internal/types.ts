@@ -88,5 +88,10 @@ export type VersionInput = {
 
 export interface CardStore {
   get(pageId: string, v: string): Promise<Uint8Array | null>
+  /**
+   * Whether a card is kept under this exact key, and its size: a stat, never a read of the bytes, and never a write or a delete
+   * (an audit asks it for many cards). It does not validate the PNG: `get` does that.
+   */
+  stat(pageId: string, v: string): Promise<{ bytes: number } | null>
   put(pageId: string, v: string, bytes: Uint8Array): Promise<void>
 }
