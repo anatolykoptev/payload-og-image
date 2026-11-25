@@ -516,7 +516,7 @@ posts: defineTarget({
 
 A variant has its own route `path` and `template` (the template sets the size). It shares the target's collection, `props()`, hero,
 format and slug field, and is served as a hidden target `posts~square` of kind `posts-square`: the same route, store, version and etag
-as any card, and its own URL. Add the route file for its path like the target's own. Names are `[a-z0-9-]+`; a variant whose kind
+as any card, and its own URL. Add the route file for its path like the target's own (a route pinned with `createOgRoute({ config, target: 'posts~square' })` serves the hidden target by its name and takes no `:kind`). Names are `[a-z0-9-]+`; a variant whose kind
 or target name is already taken is refused at start-up, as is a bad path or an unknown template. `og_audit` and the test kit see the
 hidden targets as targets of their own.
 
@@ -531,7 +531,7 @@ there is one), then the variants in declaration order or in the order of `varian
 const images = await ogImages({ config, target: 'posts', doc }) // [{ url, width, height, variant }, ...]
 ```
 
-A size that would be blank is left out; a name the target does not declare throws (in production: an event and `[]`).
+The document is read once for all sizes. A size that would be blank is left out; a size that fails to resolve is left out and, in production, an event (in development and test it throws); a name the target does not declare throws (in production: an event and `[]`). The test kit sees variants as targets, so `routesMatchPaths` wants a route file for each variant path.
 
 ### Square and 4:3 images for Google structured data
 

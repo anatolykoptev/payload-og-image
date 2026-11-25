@@ -141,8 +141,6 @@ export type Target<D = any, P = any> = {
    * template: an editor's own share image is not used for it.
    */
   variants?: Record<string, { path: string; template: string | ((a: ResolverArgs<D>) => string) }>
-  /** Set by the plugin on the sibling target a variant expands into. Never set it yourself. @internal */
-  variantOf?: { target: string; name: string }
 }
 
 export function defineTarget<D, P>(t: Target<D, P>): Target<D, P> {

@@ -5,6 +5,7 @@ import { firstShareImage, type ShareImage, shareImageOf } from './eligible.js'
 import { type LoadedFont, type Stacks, stripMissing } from './fonts.js'
 import { type CardFormat, encodingOf, formatOf, groundOf, type JpegOptions, mimeOf, variantOf, type WebpOptions } from './format.js'
 import type { CardEncoding, CardKey, CardMime, SiteInfo, Size, Upload } from './types.js'
+import { isVariant } from './variants.js'
 import { canonicalJson, cardVersion, normalizeProps, pageId } from './version.js'
 
 export type GeneratedCard = {
@@ -180,7 +181,7 @@ export async function resolveCard(i: ResolveInput): Promise<ResolvedCard> {
   // Mode `custom` is the editor's image alone (target.share() is not asked); `generated` skips the image step.
   // A variant is another size of the generated card: an upload has one size, so a variant never uses it.
   const own =
-    mode === 'generated' || i.target.variantOf !== undefined
+    mode === 'generated' || isVariant(i.target)
       ? undefined
       : (shareImageOf(editor, i.serverUrl) ?? (mode === 'custom' ? undefined : firstShareImage(i.target.share?.(args) ?? [], i.serverUrl)))
   if (own) return { kind: 'own', image: { ...own, alt: own.alt ?? title } }

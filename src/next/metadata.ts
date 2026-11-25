@@ -48,6 +48,7 @@ export async function ogMetadata(a: OgMetadataArgs): Promise<Pick<Metadata, 'ope
 /** One image of a page: the wide `og:image` first (`variant: null`), then each declared variant by name. */
 export type OgImage = { url: string; width: number; height: number; variant: string | null }
 
+/** What `ogImages` takes: the same page key as `ogMetadata`, and optionally which variants to list. */
 export type OgImagesArgs = {
   config: Promise<SanitizedConfig> | SanitizedConfig
   target: string
@@ -78,12 +79,16 @@ export async function ogImages(a: OgImagesArgs): Promise<OgImage[]> {
     for (const n of names)
       if (!declared.includes(n))
         throw new Error(`payload-og-image: target "${a.target}" has no variant "${n}" (variants: ${declared.join(', ') || 'none'})`)
-    const id = a.doc.id
-    const cards = await Promise.all([
-      rt.resolveForMetadata({ target: a.target, id }),
-      ...names.map((n) => rt?.resolveForMetadata({ target: variantTargetName(a.target, n), id }) as Promise<ResolvedCard>),
-    ])
-    return cards.flatMap((c, i) => imageOf(c, i === 0 ? null : (names[i - 1] as string)) ?? [])
+    const targets = [a.target, ...names.map((n) => variantTargetName(a.target, n))]
+    // One read of the document serves every size; a size that fails is an event of its own and the others still list.
+    const cards = await rt.resolveSizes({ targets, id: a.doc.id })
+    const live = rt
+    return cards.flatMap((c, i) => {
+      if (c.status === 'fulfilled') return imageOf(c.value, i === 0 ? null : (names[i - 1] as string)) ?? []
+      if (process.env.NODE_ENV !== 'production') throw c.reason
+      live.emit({ name: 'render_error', detail: { message: `images: ${targets[i]}: ${String((c.reason as Error)?.message ?? c.reason)}` } })
+      return []
+    })
   } catch (error) {
     if (process.env.NODE_ENV !== 'production') throw error
     rt?.emit({ name: 'render_error', detail: { message: `images: ${String((error as Error)?.message ?? error)}` } })

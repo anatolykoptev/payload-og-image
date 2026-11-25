@@ -58,7 +58,7 @@ export type IndexableRoute = {
 };
 
 // @public
-export function installTestRuntime(options: OgImagePluginOptions, docs: KitDocs, o?: TestRuntimeOptions): TestRuntime;
+export function installTestRuntime(given: OgImagePluginOptions, docs: KitDocs, o?: TestRuntimeOptions): TestRuntime;
 
 // @public
 export type JpegOptions = {
@@ -359,10 +359,6 @@ export type Target<D = any, P = any> = {
         path: string;
         template: string | ((a: ResolverArgs<D>) => string);
     }>;
-    variantOf?: {
-        target: string;
-        name: string;
-    };
 };
 
 // @public (undocumented)

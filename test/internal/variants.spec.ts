@@ -1,16 +1,17 @@
 /** Mutation table (production line -> the test that goes RED). Silent-failure surface: a declared variant that boots and serves nothing, or a page that lists a size the route does not serve.
  * - plugin/index.ts:212 `targets: expandVariants(options.targets ?? {})` -> `options.targets` -> "the route serves the variant at its template's size", "ogImages lists the wide image, then each variant ...", "the plugin expands ..." RED
- * - resolve.ts `i.target.variantOf !== undefined` dropped from `own` -> "a variant ignores the editor's own share image ..." RED
+ * - resolve.ts `isVariant(i.target)` dropped from `own` -> "a variant ignores the editor's own share image ..." RED
  * - variants.ts kind `${kind}-${variant}` -> `kind` -> "a variant's kind collides ..." and the route test RED
  * - next/metadata.ts ogImages: variants skipped -> "ogImages lists ..." RED */
 import { readFile } from 'node:fs/promises'
 import type { Config, Payload } from 'payload'
 import sharp from 'sharp'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { DocSource } from '../../src/internal/handler.js'
 import { buildRuntime, setTestRuntime } from '../../src/internal/runtime.js'
 import { CUSTOM_KEY, type OgState } from '../../src/internal/state.js'
 import { memoryStore } from '../../src/internal/store/memory.js'
+import { withVariants } from '../../src/internal/variants.js'
 import { ogImages, ogMetadata } from '../../src/next/metadata.js'
 import { createOgRoute } from '../../src/next/route.js'
 import { type OgImagePluginOptions, ogImagePlugin } from '../../src/plugin/index.js'
@@ -104,7 +105,8 @@ describe('size variants', () => {
     expect(Object.keys(targets)).toEqual(['posts', 'posts~square', 'posts~4x3'])
     expect(targets['posts~square']).toMatchObject({ kind: 'posts-square', path: '/og/:kind/:slug/square.png', template: 'square' })
     expect(targets['posts~square']?.variants).toBeUndefined()
-    expect(targets.posts?.variants).toBeDefined() // the parent keeps its declaration
+    expect(targets.posts?.variants).toBeUndefined() // the parent is expanded once: a second pass finds nothing to do
+    expect(withVariants({ targets })).toEqual({ targets }) // idempotent
   })
 
   it("the route serves the variant at its template's size, and the parent at its own", async () => {
@@ -178,6 +180,44 @@ describe('size variants', () => {
     expect(plain).toEqual(expected(url))
     boot()
     expect(await ogMetadata({ config, target: 'posts', doc: { id: 1 } })).toEqual(plain)
+  })
+})
+
+describe('size variants: one failing size', () => {
+  const broken = defineTarget<any, any>({
+    ...posts,
+    variants: {
+      ...posts.variants,
+      square: {
+        path: '/og/:kind/:slug/square.png',
+        template: () => {
+          throw new Error('template picker broke')
+        },
+      },
+    },
+  })
+  afterEach(() => vi.unstubAllEnvs())
+
+  it('in production the other sizes still list and the failure is an event of its own', async () => {
+    vi.stubEnv('NODE_ENV', 'production')
+    const events: any[] = []
+    const { config } = boot(options({ targets: { posts: broken }, onEvent: (e) => events.push(e) }))
+    const list = await ogImages({ config, target: 'posts', doc: { id: 1 } })
+    expect(list.map((i) => i.variant)).toEqual([null, '4x3'])
+    const e = events.filter((x) => x.name === 'render_error')
+    expect(e).toHaveLength(1)
+    expect(e[0].detail.message).toMatch(/posts~square: template picker broke/)
+  })
+  it('in development and test it throws', async () => {
+    const { config } = boot(options({ targets: { posts: broken } }))
+    await expect(ogImages({ config, target: 'posts', doc: { id: 1 } })).rejects.toThrow(/template picker broke/)
+  })
+  it('the document is read once for every size', async () => {
+    const read = vi.spyOn(source, 'publishedById')
+    const { config } = boot()
+    await ogImages({ config, target: 'posts', doc: { id: 1 } })
+    expect(read).toHaveBeenCalledTimes(1)
+    read.mockRestore()
   })
 })
 

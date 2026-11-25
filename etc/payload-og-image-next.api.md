@@ -29,7 +29,7 @@ export type OgImage = {
 // @public
 export function ogImages(a: OgImagesArgs): Promise<OgImage[]>;
 
-// @public (undocumented)
+// @public
 export type OgImagesArgs = {
     config: Promise<SanitizedConfig> | SanitizedConfig;
     target: string;

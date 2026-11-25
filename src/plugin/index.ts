@@ -17,7 +17,7 @@ import { assertPaletteOption } from '../internal/palette.js'
 import { buildKindIndex } from '../internal/resolve.js'
 import { CUSTOM_KEY, createState } from '../internal/state.js'
 import type { OnEvent, SiteInfo } from '../internal/types.js'
-import { expandVariants } from '../internal/variants.js'
+import { withVariants } from '../internal/variants.js'
 import type { StaticCard, Target, Template } from '../template.js'
 import { withEndpoints } from './endpoints.js'
 import { type OgFieldsOption, targetsCarryOg, withOgFields } from './fields.js'
@@ -209,7 +209,7 @@ function validate(o: OgImagePluginOptions, config: Config): string {
 export function ogImagePlugin(options: OgImagePluginOptions): (config: Config) => Config {
   return (config) => {
     // Variants become hidden sibling targets before anything reads `targets`: validation, the kind index, the fields and the runtime all see them.
-    const o = { ...options, targets: expandVariants(options.targets ?? {}) }
+    const o = withVariants({ ...options, targets: options.targets ?? {} })
     const serverUrl = validate(o, config)
     const state = createState(o, serverUrl)
     const globals = (config.globals ?? []).map((g) => {

@@ -241,10 +241,6 @@ export type Target<D = any, P = any> = {
         path: string;
         template: string | ((a: ResolverArgs<D>) => string);
     }>;
-    variantOf?: {
-        target: string;
-        name: string;
-    };
 };
 
 // @public (undocumented)
