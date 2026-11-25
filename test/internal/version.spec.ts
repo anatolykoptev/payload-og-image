@@ -5,6 +5,7 @@
  * - version.ts:75  drop `i.fontsDigest`                                  -> "changes with fonts (a face file swapped)" RED
  * - version.ts:75  hash other constants than '', 'og', 0                 -> "hashes the 0.2 slots as constants" RED
  * - version.ts:93  nonce slot `(i.nonce ?? 0) + 1` (default no longer the 0.1 value) -> "golden value pins the format", "hashes the 0.2 slots ...", "nonce 0 or absent hashes exactly as 0.1" RED
+ * - version.ts:93 `heroTransparent` dropped from the hash -> "a transparent hero without a ground moves the version; nothing else does" RED
  * - version.ts:70  heroTag uses only updatedAt (no id)                   -> "a different upload with the same updatedAt" RED
  * - version.ts:19  canonicalJson stops sorting keys                      -> "independent of key order" RED
  * - version.ts:14  drop the toJSON branch                                -> "does not collapse Date props" RED
@@ -85,6 +86,15 @@ describe('cardVersion', () => {
     // The hero palette belongs to the hero: a card without one does not move.
     expect(cardVersion({ ...base, heroPalette: 'false' })).toBe(cardVersion(base))
     expect(cardVersion({ ...base, heroes: [hero], heroPalette: 'false' })).not.toBe(cardVersion({ ...base, heroes: [hero] }))
+  })
+  it('a transparent hero without a ground moves the version; nothing else does', () => {
+    const hero = { id: 9, updatedAt: 'u1' }
+    // 0.4.0 values stay: an opaque hero, a card without a hero, and a flattened hero hash exactly as before.
+    expect(cardVersion({ ...base, heroes: [hero], heroTransparent: false })).toBe('d8e5879ff956')
+    expect(cardVersion({ ...base, heroes: [hero], heroTransparent: undefined })).toBe('d8e5879ff956')
+    expect(cardVersion({ ...base, heroTransparent: true })).toBe(cardVersion(base)) // no hero: nothing to revise
+    expect(cardVersion({ ...base, heroes: [hero], heroTransparent: true })).not.toBe('d8e5879ff956')
+    expect(cardVersion({ ...base, heroes: [hero], heroTransparent: true })).toMatchInlineSnapshot(`"57e9860b46e0"`)
   })
   it('golden value pins the format', () => expect(cardVersion(base)).toMatchInlineSnapshot(`"db1903285d83"`))
 })

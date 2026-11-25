@@ -35,7 +35,14 @@ export type DocSource = {
    */
   related(collection: string, id: string | number, ctx: { previewing: boolean; request?: Request }): Promise<Record<string, any> | null>
 }
-export type HeroLoader = (hero: Upload, box: Size, o?: { collection?: string }) => Promise<string | null>
+export type HeroLoader = {
+  (hero: Upload, box: Size, o?: { collection?: string }): Promise<string | null>
+  /**
+   * Whether the hero has a see-through pixel. Asked only while the site has set no `heroBackground`, to give such a card a
+   * new URL (its bytes changed in 0.5.0). A loader without it (a test seam) reports none.
+   */
+  hasAlpha?: (hero: Upload, o?: { collection?: string }) => Promise<boolean>
+}
 export type Renderer = { render(el: ReactElement, o: { width: number; height: number; fonts: LoadedFont[] }): Promise<Uint8Array> }
 export type HandlerDeps = {
   targets: Record<string, Target>
@@ -45,6 +52,8 @@ export type HandlerDeps = {
   stacks: Stacks
   /** Normalised hero background when not the default white: part of the version of a card with a hero. */
   heroBackground?: string
+  /** True when the site set `heroBackground` (white included): a transparent hero is then flattened, as before 0.5.0. */
+  heroFlattened?: boolean
   /** Effective palette tags when not the default: part of the version (the card's of every card, the hero's of a card with a hero). */
   cardPalette?: string
   heroPalette?: string
@@ -230,6 +239,8 @@ export function createCardHandler(d: HandlerDeps): CardHandler {
       fontsDigest: a.digest,
       stacks: d.stacks,
       heroBackground: d.heroBackground,
+      heroFlattened: d.heroFlattened,
+      heroHasAlpha: d.heroLoader.hasAlpha,
       cardPalette: d.cardPalette,
       heroPalette: d.heroPalette,
       seoImage: a.isStatic ? undefined : d.seoImage,

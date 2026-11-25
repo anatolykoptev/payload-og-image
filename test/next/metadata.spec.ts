@@ -1,6 +1,8 @@
 /** Mutation table (production line -> the test that goes RED). Silent-failure surface: a page advertising a card URL the route does not serve (a different v, a different image).
  * - runtime.ts:149  resolve from the document the page passed instead of re-reading by id (patched through metadata.ts and runtime.ts together) -> "4: the page passes a doc whose hero is a bare id ..." RED
  * - resolve.ts:169 leave heroBackground out of the version -> "a changed heroBackground is a new card URL" RED
+ * - runtime.ts:118 `heroFlattened: true` always -> "a transparent hero nobody flattens is a new card URL" RED
+ * - handler.ts:243 `heroHasAlpha` left out of the resolve input -> same test RED
  * - runtime.ts `cardPalette`/`heroPalette` left out of the handler deps -> "a palette option is part of the card URL only when it changes the output" RED
  * - version.ts `cardPalette`/`heroPalette` left out of the hash -> same test RED
  * - palette.ts `effectiveColours` removed (raw count hashed) -> same test RED
@@ -9,7 +11,7 @@
  * - metadata.ts:11  advertise a card that would be blank -> "3: a card that would be blank advertises nothing" RED */
 import type { Payload } from 'payload'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { DocSource } from '../../src/internal/handler.js'
+import type { DocSource, HeroLoader } from '../../src/internal/handler.js'
 import { buildRuntime, setTestRuntime } from '../../src/internal/runtime.js'
 import { createState } from '../../src/internal/state.js'
 import { memoryStore } from '../../src/internal/store/memory.js'
@@ -29,7 +31,11 @@ const post = defineTemplate<{ title: string; label: string }>({
 const jpeg = { id: 7, url: '/media/own.jpg', width: 1200, height: 630, mimeType: 'image/jpeg', alt: 'Own' }
 const heroUpload = { id: 9, url: '/media/h.jpg', updatedAt: 'u1', filename: 'h.jpg' }
 
-function setup(docs: Record<string, any>, over: Partial<OgImagePluginOptions> = {}) {
+function setup(
+  docs: Record<string, any>,
+  over: Partial<OgImagePluginOptions> = {},
+  heroLoader: HeroLoader = async () => 'data:image/png;base64,AAAA',
+) {
   const publishedById = vi.fn(async (_t: string, id: string | number) => docs[String(id)] ?? null)
   const source: DocSource = {
     published: async (_t, slug) => Object.values(docs).find((d: any) => d.slug === slug) ?? null,
@@ -71,7 +77,7 @@ function setup(docs: Record<string, any>, over: Partial<OgImagePluginOptions> = 
     source,
     store: memoryStore(),
     renderer: { render: async (el: any) => realPng(String(el?.props?.children ?? '')) },
-    heroLoader: async () => 'data:image/png;base64,AAAA',
+    heroLoader,
     isDraftRequest: async () => false,
   })
   setTestRuntime(rt)
@@ -143,6 +149,21 @@ describe('ogMetadata', () => {
     expect(await vOf({ heroBackground: '#ffffff' }, withHero)).toBe(await vOf({}, withHero))
     expect(await vOf({ heroBackground: '#fff' }, withHero)).toBe(await vOf({}, withHero))
     expect(await vOf({ heroBackground: '#336699' }, plain)).toBe(await vOf({}, plain))
+  })
+  it('a transparent hero nobody flattens is a new card URL (its bytes changed in 0.5.0); an opaque one, or a flattened one, keeps its URL', async () => {
+    const withAlpha = (alpha: boolean): HeroLoader =>
+      Object.assign(async () => 'data:image/png;base64,AAAA', { hasAlpha: async () => alpha })
+    const url = async (over: Partial<OgImagePluginOptions>, loader?: HeroLoader) => {
+      const { config } = setup({ 1: { id: 1, slug: 'a', title: 'A', heroImage: heroUpload } }, over, loader)
+      return ((await ogMetadata({ config, target: 'posts', doc: { id: 1 } })).openGraph as any).images[0].url as string
+    }
+    const opaque = await url({})
+    expect(await url({}, withAlpha(false))).toBe(opaque)
+    const transparent = await url({}, withAlpha(true))
+    expect(transparent).not.toBe(opaque)
+    // The site chose a ground (white too): the bytes are the ones 0.4.0 drew, so the URL is the one it had.
+    expect(await url({ heroBackground: '#ffffff' }, withAlpha(true))).toBe(opaque)
+    expect(await url({ heroBackground: '#336699' }, withAlpha(true))).toBe(await url({ heroBackground: '#336699' }, withAlpha(false)))
   })
   it('a palette option is part of the card URL only when it changes the output: defaults keep every existing URL', async () => {
     const vOf = async (over: Partial<OgImagePluginOptions>, doc: object) => {

@@ -44,7 +44,7 @@ export type OgImagePluginOptions = {
    * change more than you want (it also makes Payload store absolute upload URLs).
    */
   serverURL?: string
-  /** The colour a transparent hero is flattened onto before it is cut to the card: `#rgb` or `#rrggbb`. Default white. It is part of the version of a card with a hero. */
+  /** The colour a transparent hero is flattened onto: `#rgb` or `#rrggbb`. Unset: the hero keeps its transparency and the card shows through. It is part of the version of a card with a hero. */
   heroBackground?: string
   /**
    * How a card and a hero are palette-encoded. `card`: the renderer keeps the smaller of the truecolour PNG and a palette re-encoding

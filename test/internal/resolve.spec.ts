@@ -4,6 +4,7 @@
  * - resolve.ts:119  ignore `target.share()` -> "6: share() ..." RED; call it eagerly -> "does not call share() when the editor image already wins" RED
  * - resolve.ts:144  skip stripMissing -> "10: a title with an emoji ..." RED
  * - resolve.ts:149  skip `template.required` -> "9: a blank title advertises nothing" RED
+ * - resolve.ts:198  never ask `heroHasAlpha`, or ask it for a flattened hero -> "a transparent hero nobody flattens has its own version, asked in its upload collection" RED
  * - resolve.ts:114  hash the raw hero object -> "a hero without a file is no part of the version" RED
  * - resolve.ts:160  leave `host` out of the version -> "the host is part of the version" RED
  * - resolve.ts:159  leave the stacks out of the version -> "reordering a font stack is a new version" RED
@@ -296,6 +297,22 @@ describe('resolveCard', () => {
     expect(a.v).not.toBe(none.v)
     expect((await withHero({ ...real, updatedAt: 'u2' })).v).not.toBe(a.v)
     expect(a.hero).toEqual(real)
+  })
+  it('a transparent hero nobody flattens has its own version, asked in its upload collection', async () => {
+    const real = { id: 9, url: '/m/h.png', updatedAt: 'u1' }
+    const doc = { id: 1, slug: 'a', title: 'A', heroImage: real }
+    const target = defineTarget<any, any>({ ...posts, heroCollection: 'media' })
+    const ask = (alpha: boolean) => vi.fn(async () => alpha)
+    const opaque = await generated({ doc, target, heroHasAlpha: ask(false) })
+    const heroHasAlpha = ask(true)
+    const clear = await generated({ doc, target, heroHasAlpha })
+    expect(clear.v).not.toBe(opaque.v)
+    expect(heroHasAlpha).toHaveBeenCalledWith(real, { collection: 'media' })
+    expect(opaque.v).toBe((await generated({ doc, target })).v) // no probe at all: the 0.4.0 version
+    // A site that set a ground flattens the hero: no probe, the 0.4.0 version.
+    const flat = ask(true)
+    expect((await generated({ doc, target, heroFlattened: true, heroHasAlpha: flat })).v).toBe(opaque.v)
+    expect(flat).not.toHaveBeenCalled()
   })
   it('the template can be chosen per document, and an unknown one names the target', async () => {
     const target = defineTarget<any, any>({ ...posts, template: ({ doc }) => (doc.isPage ? 'page' : 'post') })

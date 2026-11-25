@@ -226,7 +226,8 @@ props: async ({ doc, site, related }) => {
 `related` is published-only and access-respecting (it is `null` for a missing, unpublished or forbidden document); an
 editor previewing a draft also gets the draft of a related document. `Target.depth` is gone: there is nothing to tune.
 Say which upload collection a hero lives in with `heroCollection` on the target; a hero file is read only inside that
-collection's folder. A transparent hero is flattened onto `heroBackground` (`#rgb` or `#rrggbb`, default white; names and alpha forms are refused at start-up) before it is cut. It is part of the version of a card with a hero, so changing it gives new URLs. Remote heroes (`allowedImageHosts`) are fetched over https on the default port with a dedicated
+collection's folder. A transparent hero keeps its transparency, so the card shows through it exactly as it would through a direct `<img>`; set
+`heroBackground` (`#rgb` or `#rrggbb`; names and alpha forms are refused at start-up) to flatten it onto that colour. It is part of the version of a card with a hero, so changing it gives new URLs. Before 0.5.0 a transparent hero was always flattened, onto white by default; a card whose hero has a see-through pixel and whose site sets no `heroBackground` gets a new URL once. The card's URL needs to know whether the hero has a see-through pixel, so the first request in a process reads the hero file once (by its bytes, whatever its stored mimeType says) and remembers the answer per upload. With `palette.hero: false` the pixels of a hero match a direct `<img>` when the template's `heroBox` is the image's own size (the default palette re-encodes the hero and moves pixels by a level); at any other size the image is scaled twice (once to the box, once when drawn), and the edge pixels differ by a few levels. Remote heroes (`allowedImageHosts`) are fetched over https on the default port with a dedicated
 agent (never an environment proxy), from a vetted public address only (IANA special-purpose ranges are refused), with no
 redirect.
 
@@ -329,6 +330,20 @@ never load the compiler. Limits of the reading: a name declared twice at the top
 `let` and reassigned later is not modelled (declare it `const`); `import * as og from 'payload-og-image/next'` with
 `og.createOgRoute(...)` is understood, and `export * from` is not followed. `everyRouteHasOwnCard` requires an `https` image URL for every image in the `og:image` and
 `twitter:image` lists, as the crawlers document it; pass `allowHttpImages: true` for a site that is only ever served on plain HTTP, such as a local dev server. See [`dev/tests/og.spec.ts`](https://github.com/anatolykoptev/payload-og-image/blob/main/dev/tests/og.spec.ts).
+
+**Give a kit spec a timeout.** vitest stops a test after 5 s, and a kit call that renders many cards can outlast that on a
+loaded runner: `queueSheds` sends the gate, the queue and three more cold requests (55 with the defaults) through your
+real route and waits for all of them. The kit itself adds almost nothing (about 10 ms against the stub renderer); the time
+is your site's cold requests, and a call that is still waiting after 10 s fails with a message naming what it waited for.
+Set the limit on the `describe` that holds the kit calls, and copy this line:
+
+```ts
+describe('og kit', { timeout: 60_000 }, () => {
+  // installTestRuntime(...) and the ogKit(rt) calls
+})
+```
+
+`sizeBudget` and `templatesRender` also draw real cards, so the same limit applies to them.
 
 `ogKit(rt).templatesRender({ props })` draws every registered template once with the real renderer, from the props
 you give for its id (`{ [templateId]: props }`), and fails naming a template that cannot be drawn or does not give a PNG

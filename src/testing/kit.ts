@@ -329,6 +329,7 @@ export function ogKit(rt: TestRuntime) {
     /**
      * More cold requests than the gate and its queue hold: exactly the excess is answered 503 with Retry-After, the rest succeed.
      * No sleeps: renders are held until the gate reports itself full and every excess request has been answered.
+     * It sends `concurrency + queue + 3` cold requests through the route, so give the spec `{ timeout: 60_000 }` (vitest's default is 5 s).
      */
     async queueSheds(a: { module: RouteModule; paramsFor: (i: number) => Params }): Promise<void> {
       rt.reset()
