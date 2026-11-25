@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.0](https://github.com/anatolykoptev/payload-og-image/compare/v0.6.0...v0.7.0) (2026-11-25)
+
+
+### Features
+
+* size variants for schema.org images ([#72](https://github.com/anatolykoptev/payload-og-image/issues/72)) ([74e2d18](https://github.com/anatolykoptev/payload-og-image/commit/74e2d1857c6f263ad03c237e508f49f8dc32333a))
+
 ## [0.6.0](https://github.com/anatolykoptev/payload-og-image/compare/v0.5.0...v0.6.0) (2026-11-25)
 
 
