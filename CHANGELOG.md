@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.0](https://github.com/anatolykoptev/payload-og-image/compare/v0.3.0...v0.4.0) (2026-11-25)
+
+
+### Features
+
+* **render:** palette option for the card and the hero ([#55](https://github.com/anatolykoptev/payload-og-image/issues/55)) ([4aa6800](https://github.com/anatolykoptev/payload-og-image/commit/4aa68001cb50accacbf76c14078ccfa1452d2e1a))
+
 ## [0.3.0](https://github.com/anatolykoptev/payload-og-image/compare/v0.2.0...v0.3.0) (2026-11-25)
 
 
