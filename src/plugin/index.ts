@@ -2,6 +2,16 @@ import path from 'node:path'
 import type { Config, Payload } from 'payload'
 import { normaliseHeroBackground } from '../internal/colour.js'
 import { type FontSpec, missingGlyphs, type Stacks } from '../internal/fonts.js'
+import {
+  assertFormatOption,
+  type CardFormat,
+  encodingOf,
+  formatOf,
+  groundOf,
+  type JpegOptions,
+  pathProblem,
+  type WebpOptions,
+} from '../internal/format.js'
 import { createGate } from '../internal/gate.js'
 import { assertPaletteOption } from '../internal/palette.js'
 import { buildKindIndex } from '../internal/resolve.js'
@@ -52,6 +62,16 @@ export type OgImagePluginOptions = {
    * no banding) or a colour count from 2 to 256. A value other than the default is part of the card version, so changing it gives new URLs.
    */
   palette?: { card?: false | number; hero?: false | number }
+  /**
+   * How cards are encoded: `'png'` (default), `'jpeg'` or `'webp'`. A target's own `format` wins. JPEG and WebP suit a photo-first card (a PNG of a full-bleed
+   * photograph is a megabyte or more); both are opaque, so anything see-through is flattened onto `heroBackground` (white by default). Not every link-preview crawler reads WebP: see docs/crawlers.md. The format is part of the card
+   * version, so switching gives new URLs. A card path whose extension names another format is refused: a JPEG target uses `.jpg`, a WebP one `.webp`.
+   */
+  format?: CardFormat
+  /** JPEG settings: `quality` from 1 to 100 (default 82, mozjpeg). A target's own `jpeg` wins. */
+  jpeg?: JpegOptions
+  /** WebP settings: `quality` from 1 to 100 (default 80, libwebp). A target's own `webp` wins. */
+  webp?: WebpOptions
   /** Characters every stack must draw, checked at start-up. Default `Aa’‘“”–—…`. */
   requiredSample?: string
   onEvent?: OnEvent
@@ -165,6 +185,17 @@ function validate(o: OgImagePluginOptions, config: Config): string {
     if (typeof v !== 'string' || !COLOUR.test(v)) fail(`brand.${k} must be a hex colour or a colour name`)
   if (o.heroBackground !== undefined) normaliseHeroBackground(o.heroBackground) // throws a named error at start-up
   assertPaletteOption(o.palette)
+  assertFormatOption('options', o)
+  for (const [name, t] of Object.entries(o.targets ?? {})) {
+    assertFormatOption(`target "${name}"`, t)
+    const problem = pathProblem(t.path, t.format ?? o.format ?? 'png')
+    if (problem) fail(`target "${name}" ${problem}`)
+  }
+  for (const [key, card] of Object.entries(o.static ?? {})) {
+    assertFormatOption(`static card "${key}"`, card)
+    const problem = pathProblem(card.path, card.format ?? o.format ?? 'png')
+    if (problem) fail(`static card "${key}" ${problem}`)
+  }
   if (o.requiredSample !== undefined && typeof o.requiredSample !== 'string') fail('requiredSample must be a string')
   return serverUrl as string
 }
@@ -217,7 +248,16 @@ async function selfTest(state: ReturnType<typeof createState>): Promise<void> {
     await state.store().get('0'.repeat(16), '0'.repeat(12)) // boots the store: its checks emit events
     try {
       const { drawFallbackCard } = await import('../render/selfTest.js') // lazy: it loads next/og and sharp
-      await drawFallbackCard({ brand: o.brand, fonts, stacks: o.stacks, host: new URL(state.serverUrl).host, siteName: sample })
+      // The fallback is served in the format of the card that failed: draw it in every format a card can have.
+      const formats = new Set<CardFormat>([
+        o.format ?? 'png',
+        ...Object.values(o.targets).map((t) => t.format ?? o.format ?? 'png'),
+        ...Object.values(o.static ?? {}).map((c) => c.format ?? o.format ?? 'png'),
+      ])
+      for (const format of formats) {
+        const encoding = encodingOf(format, formatOf(o, { format }).quality, groundOf(undefined, undefined))
+        await drawFallbackCard({ brand: o.brand, fonts, stacks: o.stacks, host: new URL(state.serverUrl).host, siteName: sample, encoding })
+      }
     } catch (error) {
       problems.push(`the fallback card cannot be drawn: ${String((error as Error)?.message ?? error)}`)
     }

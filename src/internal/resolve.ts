@@ -3,7 +3,8 @@ import type { OgOverrides, RelatedFn, ResolverArgs, Target, Template } from '../
 import { DEFAULT_HERO_BACKGROUND, normaliseHeroBackground } from './colour.js'
 import { firstShareImage, type ShareImage, shareImageOf } from './eligible.js'
 import { type LoadedFont, type Stacks, stripMissing } from './fonts.js'
-import type { CardKey, SiteInfo, Size, Upload } from './types.js'
+import { type CardFormat, encodingOf, formatOf, groundOf, type JpegOptions, mimeOf, variantOf, type WebpOptions } from './format.js'
+import type { CardEncoding, CardKey, CardMime, SiteInfo, Size, Upload } from './types.js'
 import { canonicalJson, cardVersion, normalizeProps, pageId } from './version.js'
 
 export type GeneratedCard = {
@@ -25,7 +26,9 @@ export type GeneratedCard = {
   alt: string
   url: string
   size: Size
-  type: 'image/png'
+  type: CardMime
+  /** How the card is encoded: the format, and for a JPEG or WebP its quality and the ground a see-through pixel is flattened onto. Part of the version. */
+  encoding: CardEncoding
   /** Characters no face in the stack draws; they were stripped from the props. */
   missing: string[]
 }
@@ -51,6 +54,10 @@ export type ResolveInput = {
   /** Effective card / hero palette tags when not the default (see `paletteTags`). */
   cardPalette?: string
   heroPalette?: string
+  /** The plugin's card format and JPEG settings; a target's own win. */
+  format?: CardFormat
+  jpeg?: JpegOptions
+  webp?: WebpOptions
   seoImage?: { path: string; isDeliberate?: (image: unknown) => boolean }
   /** Handed to the target's resolvers (default: always null). */
   related?: RelatedFn
@@ -215,6 +222,8 @@ export async function resolveCard(i: ResolveInput): Promise<ResolvedCard> {
   const flattened = background !== undefined || i.heroFlattened
   const heroTransparent =
     hero !== null && !flattened && i.heroHasAlpha ? await i.heroHasAlpha(hero, { collection: i.target.heroCollection }) : false
+  const { format, quality } = formatOf({ format: i.format, jpeg: i.jpeg, webp: i.webp }, i.target)
+  const encoding: CardEncoding = encodingOf(format, quality, groundOf(background, i.heroBackground))
   const v = cardVersion({
     templateId,
     templateRevision: template.revision,
@@ -225,6 +234,7 @@ export async function resolveCard(i: ResolveInput): Promise<ResolvedCard> {
     heroTransparent,
     cardPalette: i.cardPalette,
     heroPalette: i.heroPalette,
+    variant: variantOf(encoding),
     fontsDigest: fontsKey(i.fontsDigest, i.stacks),
     host: i.host,
     nonce: ogNonce(og),
@@ -245,7 +255,8 @@ export async function resolveCard(i: ResolveInput): Promise<ResolvedCard> {
     alt: altOf(i.target, args, props, cardTitle),
     url: `${i.serverUrl.replace(/\/+$/, '')}${cardPath(i.target, i.targetName, slug)}?v=${v}`,
     size: template.size,
-    type: 'image/png',
+    type: mimeOf(format),
+    encoding,
     missing: [...new Set(missing)],
   }
 }

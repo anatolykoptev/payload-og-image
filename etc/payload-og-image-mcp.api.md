@@ -38,6 +38,9 @@ export type AuditRow = {
     hasDescription?: boolean;
 };
 
+// @public (undocumented)
+export type CardMime = 'image/png' | 'image/jpeg' | 'image/webp';
+
 // @public
 export type CardRef = {
     target: string;
@@ -66,6 +69,7 @@ export type CardReport = {
             width: number;
             height: number;
         };
+        type: CardMime;
     };
     shares?: {
         url: string;

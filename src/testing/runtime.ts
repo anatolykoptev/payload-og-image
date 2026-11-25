@@ -152,12 +152,11 @@ export function installTestRuntime(options: OgImagePluginOptions, docs: KitDocs,
       ? nextOgRenderer({ palette: cardPaletteOf(options.palette) })
       : {
           // The stub draws the element's JSON: any change to what a template would draw changes the bytes.
-          render: async (el) =>
-            new Uint8Array(
-              await sharp({ create: { width: 8, height: 8, channels: 3, background: colourOf(JSON.stringify(el)) } })
-                .png()
-                .toBuffer(),
-            ),
+          render: async (el, a) => {
+            const image = sharp({ create: { width: 8, height: 8, channels: 3, background: colourOf(JSON.stringify(el)) } })
+            const format = a.encoding?.format ?? 'png'
+            return new Uint8Array(await (format === 'jpeg' ? image.jpeg() : format === 'webp' ? image.webp() : image.png()).toBuffer())
+          },
         }
   const renderer: Renderer = {
     async render(el, a) {

@@ -6,7 +6,9 @@
  * - parity.ts:51  treat two missing layouts as equal -> same test RED
  * - parity.ts:46  ignore a card on one side only -> same test RED
  * - parity.ts:90  exit 0 when there are no cards -> "exits 1 on a difference, on no cards at all, and 2 without both directories" RED
- * - parity.ts:81  run without both directories -> same test RED */
+ * - parity.ts:81  run without both directories -> same test RED
+ * - parity.ts `CARD_EXT` only `.png` -> "JPEG and WebP cards are decoded and compared ..." RED
+ * - parity.ts the format check dropped -> "a card that is a PNG on one side and a JPEG on the other is reported, not compared" RED */
 import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
@@ -90,5 +92,44 @@ describe('og-parity CLI (main)', () => {
     expect(await main(['--old', empty, '--new', empty])).toBe(1)
     expect(await main(['--old', a])).toBe(2)
     await mkdir(path.join(a, 'sub'))
+  })
+})
+
+describe('parity of JPEG and WebP cards', () => {
+  const write = async (d: string, file: string, colour: string, layout: unknown = { x: 1 }) => {
+    const image = sharp({ create: { width: 40, height: 40, channels: 3, background: colour } })
+    const name = file.split('.')[0] as string
+    const bytes = file.endsWith('.png')
+      ? await image.png().toBuffer()
+      : file.endsWith('.webp')
+        ? await image.webp().toBuffer()
+        : await image.jpeg().toBuffer()
+    await writeFile(path.join(d, file), bytes)
+    await writeFile(path.join(d, `${name}.layout.json`), JSON.stringify(layout))
+  }
+  it.each(['post.jpg', 'post.jpeg', 'post.webp'])('%s cards are decoded and compared like PNGs', async (file) => {
+    const [a, b, c] = [await dir(), await dir(), await dir()]
+    await write(a, file, '#cc3333')
+    await write(b, file, '#cc3333')
+    await write(c, file, '#33cc33')
+    expect(await parity(a, b)).toEqual([{ card: 'post', layoutEqual: true, pixelDiff: 0 }])
+    expect((await parity(a, c))[0]).toMatchObject({ pixelDiff: 1600 })
+  })
+  it('a card that is a PNG on one side and a JPEG on the other is reported, not compared', async () => {
+    const [a, b] = [await dir(), await dir()]
+    await write(a, 'post.png', '#cc3333')
+    await write(b, 'post.jpg', '#cc3333')
+    expect(await parity(a, b)).toEqual([
+      { card: 'post', layoutEqual: false, pixelDiff: Number.POSITIVE_INFINITY, note: 'format png vs jpeg' },
+    ])
+  })
+  it('one card name with two files on a side is reported, not silently resolved', async () => {
+    const [a, b] = [await dir(), await dir()]
+    await write(a, 'post.png', '#cc3333')
+    await write(a, 'post.jpg', '#cc3333')
+    await write(b, 'post.png', '#cc3333')
+    expect(await parity(a, b)).toEqual([
+      { card: 'post', layoutEqual: false, pixelDiff: Number.POSITIVE_INFINITY, note: 'one card name, several files: post.jpg, post.png' },
+    ])
   })
 })

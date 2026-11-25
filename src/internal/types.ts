@@ -1,4 +1,8 @@
 // Internal shared types. Nothing here is part of the public surface.
+import type { CardEncoding, CardFormat, CardMime } from './format.js'
+
+export type { CardEncoding, CardFormat, CardMime }
+
 export type OgEventName =
   | 'hit_memo'
   | 'hit_store'
@@ -76,6 +80,8 @@ export type VersionInput = {
   cardPalette?: string
   /** Effective hero palette when not the default; hashed with each hero only. */
   heroPalette?: string
+  /** The card's encoding variant when it is not PNG (see `variantOf`); fills the version's variant slot. Absent hashes exactly as before. */
+  variant?: string
   templateId: string
   templateRevision: string
   props: unknown
@@ -87,11 +93,12 @@ export type VersionInput = {
 }
 
 export interface CardStore {
-  get(pageId: string, v: string): Promise<Uint8Array | null>
+  /** `format` is the card's encoding (default PNG): it names the file and picks the validation. */
+  get(pageId: string, v: string, format?: CardFormat): Promise<Uint8Array | null>
   /**
    * Whether a card is kept under this exact key, and its size: a stat, never a read of the bytes, and never a write or a delete
-   * (an audit asks it for many cards). It does not validate the PNG: `get` does that.
+   * (an audit asks it for many cards). It does not validate the bytes: `get` does that.
    */
-  stat(pageId: string, v: string): Promise<{ bytes: number } | null>
-  put(pageId: string, v: string, bytes: Uint8Array): Promise<void>
+  stat(pageId: string, v: string, format?: CardFormat): Promise<{ bytes: number } | null>
+  put(pageId: string, v: string, bytes: Uint8Array, format?: CardFormat): Promise<void>
 }

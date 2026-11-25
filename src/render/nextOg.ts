@@ -1,11 +1,11 @@
 import type { Renderer } from '../internal/handler.js'
 import { MAX_SIDE } from '../internal/limits.js'
-import { isCompletePng } from '../internal/store/png.js'
-import { assertPalette, DEFAULT_PALETTE, encodePng, type Palette } from './encode.js'
+import { isWholeCard } from '../internal/store/validate.js'
+import { assertPalette, DEFAULT_PALETTE, encodeLossy, encodePng, type Palette } from './encode.js'
 import { withoutNetwork } from './noNetwork.js'
 
 /**
- * Draws a card with `next/og` (satori + resvg), then keeps the smaller of the truecolour and palette PNGs.
+ * Draws a card with `next/og` (satori + resvg), then keeps the smaller of the truecolour and palette PNGs, or flattens it into a mozjpeg JPEG or a libwebp WebP when the card asks for one.
  * `next/og` is imported lazily: plain Node ESM cannot resolve the bare `next/og` specifier (the file `next/og.js` resolves everywhere), so a module that
  * only mentions the renderer must not load it, and Next's bundler resolves the dynamic import normally.
  */
@@ -13,7 +13,7 @@ export function nextOgRenderer(o: { palette?: Palette | false } = {}): Renderer 
   const palette = o.palette === undefined ? DEFAULT_PALETTE : o.palette
   if (palette !== false) assertPalette(palette)
   return {
-    async render(el, { width, height, fonts }) {
+    async render(el, { width, height, fonts, encoding }) {
       if (![width, height].every((n) => Number.isInteger(n) && n >= 1 && n <= MAX_SIDE)) {
         throw new Error(`payload-og-image: card size ${width}x${height} must be whole pixels from 1 to ${MAX_SIDE}`)
       }
@@ -29,9 +29,10 @@ export function nextOgRenderer(o: { palette?: Palette | false } = {}): Renderer 
         if (!res.ok) throw new Error(`payload-og-image: next/og answered ${res.status}`)
         return new Uint8Array(await res.arrayBuffer())
       })
-      const out = await encodePng(png, palette)
-      // Whatever leaves here may be cached as immutable: it must be a whole, decodable PNG.
-      if (!isCompletePng(out)) throw new Error('payload-og-image: the renderer produced an invalid PNG')
+      const format = encoding?.format ?? 'png'
+      const out = encoding && encoding.format !== 'png' ? await encodeLossy(png, encoding) : await encodePng(png, palette)
+      // Whatever leaves here may be cached as immutable: it must be a whole, decodable card of the format asked for.
+      if (!(await isWholeCard(out, format))) throw new Error(`payload-og-image: the renderer produced an invalid ${format.toUpperCase()}`)
       return out
     },
   }

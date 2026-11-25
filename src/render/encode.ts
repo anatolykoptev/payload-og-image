@@ -24,3 +24,24 @@ export async function encodePng(png: Uint8Array, palette: Palette | false): Prom
     .toBuffer()
   return encoded.length < png.length ? new Uint8Array(encoded.buffer, encoded.byteOffset, encoded.byteLength) : png
 }
+
+/**
+ * A lossy card from the renderer's PNG: any see-through pixel is flattened onto `ground` first (neither format is used with alpha
+ * here: crawlers composite it on whatever they like), then JPEG by mozjpeg (progressive, trellis quantisation, an optimised scan
+ * script) or WebP by libwebp (`smartSubsample` keeps chroma edges, the reason a coloured title on a photo does not bleed).
+ * JPEG chroma stays 4:2:0, which is what browsers and crawlers expect.
+ */
+export async function encodeLossy(
+  png: Uint8Array,
+  { format, quality, ground }: { format: 'jpeg' | 'webp'; quality: number; ground: string },
+): Promise<Uint8Array> {
+  const flat = sharp(png).flatten({ background: ground })
+  const out = await (format === 'jpeg'
+    ? flat.jpeg({ quality, mozjpeg: true })
+    : flat.webp({ quality, effort: WEBP_EFFORT, smartSubsample: true })
+  ).toBuffer()
+  return new Uint8Array(out.buffer, out.byteOffset, out.byteLength)
+}
+
+/** libwebp effort (0 to 6): 4 is sharp's default; each step up costs time for a few percent of bytes (measured, docs/reference.md). */
+const WEBP_EFFORT = 4

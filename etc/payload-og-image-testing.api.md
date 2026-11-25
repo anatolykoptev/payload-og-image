@@ -31,6 +31,9 @@ export type Box = {
     minSize?: undefined;
 });
 
+// @public
+export type CardFormat = 'png' | 'jpeg' | 'webp';
+
 // @public (undocumented)
 export function defineTarget<D, P>(t: Target<D, P>): Target<D, P>;
 
@@ -56,6 +59,11 @@ export type IndexableRoute = {
 
 // @public
 export function installTestRuntime(options: OgImagePluginOptions, docs: KitDocs, o?: TestRuntimeOptions): TestRuntime;
+
+// @public
+export type JpegOptions = {
+    quality?: number;
+};
 
 // @public (undocumented)
 export type KitDocs = {
@@ -146,6 +154,9 @@ export type OgImagePluginOptions = {
         card?: false | number;
         hero?: false | number;
     };
+    format?: CardFormat;
+    jpeg?: JpegOptions;
+    webp?: WebpOptions;
     requiredSample?: string;
     onEvent?: OnEvent;
     crawlerEvents?: {
@@ -317,6 +328,9 @@ export type StaticCard<P = any> = {
         props: Normalized<P>;
         site: SiteInfo;
     }) => string | null | undefined);
+    format?: CardFormat;
+    jpeg?: JpegOptions;
+    webp?: WebpOptions;
 };
 
 // @public
@@ -338,6 +352,9 @@ export type Target<D = any, P = any> = {
     }) => string | null | undefined;
     share?: (a: ResolverArgs<D>) => unknown[];
     select?: Record<string, true>;
+    format?: CardFormat;
+    jpeg?: JpegOptions;
+    webp?: WebpOptions;
 };
 
 // @public (undocumented)
@@ -426,6 +443,11 @@ export type Upload = {
     focalX?: number | null;
     focalY?: number | null;
     sizes?: Record<string, Partial<Upload> | undefined> | null;
+};
+
+// @public
+export type WebpOptions = {
+    quality?: number;
 };
 
 // (No @packageDocumentation comment for this package)

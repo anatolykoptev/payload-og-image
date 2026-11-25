@@ -6,6 +6,7 @@
  * - version.ts:75  hash other constants than '', 'og', 0                 -> "hashes the 0.2 slots as constants" RED
  * - version.ts:93  nonce slot `(i.nonce ?? 0) + 1` (default no longer the 0.1 value) -> "golden value pins the format", "hashes the 0.2 slots ...", "nonce 0 or absent hashes exactly as 0.1" RED
  * - version.ts:93 `heroTransparent` dropped from the hash -> "a transparent hero without a ground moves the version; nothing else does" RED
+ * - version.ts `i.variant ?? 'og'` -> `'og'` (the variant slot ignored) -> "the variant slot: a JPEG or WebP card is a new version, PNG hashes as ever" RED
  * - version.ts:70  heroTag uses only updatedAt (no id)                   -> "a different upload with the same updatedAt" RED
  * - version.ts:19  canonicalJson stops sorting keys                      -> "independent of key order" RED
  * - version.ts:14  drop the toJSON branch                                -> "does not collapse Date props" RED
@@ -23,6 +24,7 @@
  * - version.ts:64  path not extended per member -> every "naming the path" test RED */
 import { createHash } from 'node:crypto'
 import { describe, expect, it } from 'vitest'
+import { variantOf } from '../../src/internal/format.js'
 import { canonicalJson, cardVersion, normalizeProps, pageId } from '../../src/internal/version.js'
 
 const base = {
@@ -178,5 +180,15 @@ describe('normalizeProps', () => {
     const v = (m: Map<string, number>) => () => cardVersion({ ...base, props: normalizeProps({ title: 'A', m }) })
     expect(v(new Map([['a', 1]]))).toThrow(/Map/)
     expect(v(new Map([['b', 2]]))).toThrow(/Map/)
+  })
+  it('the variant slot: a JPEG or WebP card is a new version, PNG hashes as ever', () => {
+    const jpeg = cardVersion({ ...base, variant: variantOf({ format: 'jpeg', quality: 82, ground: '#ffffff' }) })
+    const webp = cardVersion({ ...base, variant: variantOf({ format: 'webp', quality: 82, ground: '#ffffff' }) })
+    expect(variantOf({ format: 'png' })).toBeUndefined()
+    expect(cardVersion({ ...base, variant: undefined })).toBe('db1903285d83') // the golden value: PNG moves nothing
+    expect(new Set([cardVersion(base), jpeg, webp]).size).toBe(3)
+    // quality and ground change the bytes of the same drawing, so they change the URL
+    expect(cardVersion({ ...base, variant: variantOf({ format: 'jpeg', quality: 70, ground: '#ffffff' }) })).not.toBe(jpeg)
+    expect(cardVersion({ ...base, variant: variantOf({ format: 'jpeg', quality: 82, ground: '#000000' }) })).not.toBe(jpeg)
   })
 })

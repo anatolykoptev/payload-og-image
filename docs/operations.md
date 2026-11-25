@@ -6,20 +6,20 @@ Pass `onEvent(e)` to receive every event. Without it, one line per event goes to
 `[payload-og] event=render kind=posts slug=a v=0aa023e2fb5b ms=68 bytes=8266`. Cache hits are sampled (the first,
 then every 100th); values that came from a request are printed as plain ASCII.
 
-| Event                   | Meaning                                                                                            |
-| ----------------------- | -------------------------------------------------------------------------------------------------- |
-| `hit_memo`, `hit_store` | a card answered from memory or from the disk store                                                 |
-| `render`                | a card was drawn (`ms`, `bytes`)                                                                   |
-| `shed`                  | the render queue was full: 503 with `Retry-After: 5`                                               |
-| `store_disabled`        | the disk store switched itself off (unwritable, a symlinked root, a permanent error)               |
-| `store_write_skipped`   | one write was skipped (low free space at boot, a transient error, bytes that were not a whole PNG) |
-| `store_corrupt`         | a stored file failed its checks and was removed                                                    |
-| `downgraded`            | the hero could not be read: the card was drawn without it and served for 5 minutes                 |
-| `render_error`          | a card could not be drawn, or a failure happened before one existed                                |
-| `glyph_missing`         | characters no font draws were removed from a card's text or from what its template draws           |
-| `draft`                 | a draft-mode request was drawn, uncached                                                           |
-| `not_found`             | an unknown route, kind or slug                                                                     |
-| `crawler`               | a sampled card request (`crawlerEvents`): `ua_family`, `method`, `status`, `cache`                 |
+| Event                   | Meaning                                                                                                          |
+| ----------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `hit_memo`, `hit_store` | a card answered from memory or from the disk store                                                               |
+| `render`                | a card was drawn (`ms`, `bytes`)                                                                                 |
+| `shed`                  | the render queue was full: 503 with `Retry-After: 5`                                                             |
+| `store_disabled`        | the disk store switched itself off (unwritable, a symlinked root, a permanent error)                             |
+| `store_write_skipped`   | one write was skipped (low free space at boot, a transient error, bytes that were not a whole PNG, JPEG or WebP) |
+| `store_corrupt`         | a stored file failed its checks and was removed                                                                  |
+| `downgraded`            | the hero could not be read: the card was drawn without it and served for 5 minutes                               |
+| `render_error`          | a card could not be drawn, or a failure happened before one existed                                              |
+| `glyph_missing`         | characters no font draws were removed from a card's text or from what its template draws                         |
+| `draft`                 | a draft-mode request was drawn, uncached                                                                         |
+| `not_found`             | an unknown route, kind or slug                                                                                   |
+| `crawler`               | a sampled card request (`crawlerEvents`): `ua_family`, `method`, `status`, `cache`                               |
 
 Alert on `store_disabled` and on `render_error` above zero per hour, and on `shed` above about 50 per hour.
 
@@ -50,9 +50,9 @@ served for 5 minutes and never stored.
 
 ## What the store does
 
-One file per card version, `<page id>-<version>.png`, written to a temp file, fsynced, renamed, and the
-directory fsynced. A read checks the whole file (every chunk's CRC, the image data inflates to the size the
-header promises); a torn file is deleted and drawn again. Only files that match the store's own two name
+One file per card version, `<page id>-<version>.png` (`.jpg` for a JPEG card, `.webp` for a WebP one), written to a temp file, fsynced, renamed, and the
+directory fsynced. A read checks the whole file (a PNG: every chunk's CRC, the image data inflates to the size the
+header promises; a JPEG or WebP: its container structure, then a full decode); a torn file is deleted and drawn again. Only files that match the store's own two name
 patterns are ever counted or deleted. Pruning runs off the request path at most once a minute and keeps the
 newest two versions of a page, then trims oldest-first to `maxFiles` and `maxBytes`.
 

@@ -1,6 +1,7 @@
 import { drawElement, templateContext } from '../internal/draw.js'
 import type { LoadedFont, Stacks } from '../internal/fonts.js'
-import { isCompletePng } from '../internal/store/png.js'
+import type { CardEncoding } from '../internal/format.js'
+import { isWholeCard } from '../internal/store/validate.js'
 import { type Brand, createFallbackTemplate, fallbackTemplate } from './fallback.js'
 import { nextOgRenderer } from './nextOg.js'
 
@@ -15,12 +16,15 @@ export async function drawFallbackCard(a: {
   stacks: Stacks
   host: string
   siteName: string
+  /** Default PNG. */
+  encoding?: CardEncoding
 }): Promise<void> {
   const template = a.brand ? createFallbackTemplate(a.brand) : fallbackTemplate
   const { bytes } = await drawElement(
     nextOgRenderer(),
     template.render({ site: a.siteName }, templateContext({ host: a.host, fonts: a.fonts, stacks: a.stacks, hero: null })),
-    { ...template.size, fonts: a.fonts },
+    { ...template.size, fonts: a.fonts, encoding: a.encoding },
   )
-  if (!isCompletePng(bytes)) throw new Error('the renderer produced an invalid PNG')
+  const format = a.encoding?.format ?? 'png'
+  if (!(await isWholeCard(bytes, format))) throw new Error(`the renderer produced an invalid ${format.toUpperCase()}`)
 }

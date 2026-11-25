@@ -2,6 +2,7 @@ import type { TemplateContext } from '../template.js'
 import { coveringFamily, fitText, fontFamilyFor, type LoadedFont, type Stacks } from './fonts.js'
 import type { Renderer } from './handler.js'
 import { stripUndrawable } from './sanitize.js'
+import type { CardEncoding } from './types.js'
 
 /** What a template's `render` gets: the site host, the prepared hero (or null), and font helpers over the stacks. */
 export function templateContext(a: { host: string; fonts: LoadedFont[]; stacks: Stacks; hero: string | null }): TemplateContext {
@@ -30,7 +31,7 @@ export function templateContext(a: { host: string; fonts: LoadedFont[]; stacks: 
 export async function drawElement(
   renderer: Renderer,
   el: unknown,
-  o: { width: number; height: number; fonts: LoadedFont[] },
+  o: { width: number; height: number; fonts: LoadedFont[]; encoding?: CardEncoding },
 ): Promise<{ bytes: Uint8Array; dropped: string[] }> {
   const { node, dropped } = await stripUndrawable(el, o.fonts)
   return { bytes: await renderer.render(node as never, o), dropped }
