@@ -518,7 +518,8 @@ export function ogKit(rt: TestRuntime) {
     async glyphCoverage(a: { samples?: string[]; stacks?: Record<string, string[]> }): Promise<void> {
       const { fonts } = await loadFonts(rt)
       const own = a.stacks ?? {}
-      for (const name of Object.keys(own)) {
+      for (const [name, list] of Object.entries(own)) {
+        if (list.length === 0) fail('glyphCoverage', `no samples given for the stack "${name}": an empty list checks nothing`)
         if (!Object.hasOwn(rt.options.stacks, name))
           fail(
             'glyphCoverage',

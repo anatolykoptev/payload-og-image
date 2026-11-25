@@ -179,5 +179,7 @@ describe('ctx.fit ladder options', () => {
     expect(bad({ sizes: [[60, 0]] })).toThrow(/lines of a size/)
     expect(bad({ sizes: [60], tracking: Number.NaN })).toThrow(/tracking/)
     expect(bad({ sizes: [60], descent: -1 })).toThrow(/descent/)
+    expect(bad({ sizes: [60], maxSize: 60, minSize: 20 })).toThrow(/give the ladder or the two, not both/)
+    expect(bad({ sizes: [60], minSize: 20 })).toThrow(/not both/)
   })
 })

@@ -24,10 +24,11 @@ export type Box = {
 } & ({
     maxSize: number;
     minSize: number;
+    sizes?: undefined;
 } | {
     sizes: readonly Step[];
-    maxSize?: number;
-    minSize?: number;
+    maxSize?: undefined;
+    minSize?: undefined;
 });
 
 // @public (undocumented)

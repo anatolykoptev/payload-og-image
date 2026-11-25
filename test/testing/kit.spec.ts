@@ -337,6 +337,7 @@ describe('kit options', () => {
     await reject(kit.glyphCoverage({ samples: [cyrillic], stacks: { mono: [cyrillic] } }), /stack "mono" cannot draw/) // its own list is still enforced
     await reject(kit.glyphCoverage({ samples: ['ok'], stacks: { mon0: ['ok'] } }), /"mon0", which is not configured/)
     await reject(kit.glyphCoverage({ stacks: { mono: ['ok'] } }), /give `samples` for the stacks that have no entry/)
+    await reject(kit.glyphCoverage({ samples: ['ok'], stacks: { mono: [] } }), /no samples given for the stack "mono"/) // an empty list is not a pass
     await kit.glyphCoverage({ stacks: { default: [cyrillic], mono: ['Plain'] } }) // every stack named: no shared list needed
   })
   it('the test runtime hero: a real file in `heroDir` is prepared by the production loader, any other hero stays the stand-in', async () => {

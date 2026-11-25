@@ -32,7 +32,7 @@ export type Box = {
   fewerLines?: boolean
   /** Opt-in. Also report `width`: the narrowest width that keeps the line count, so the lines come out even. Set it as the text block's width. */
   balance?: boolean
-} & ({ maxSize: number; minSize: number } | { sizes: readonly Step[]; maxSize?: number; minSize?: number })
+} & ({ maxSize: number; minSize: number; sizes?: undefined } | { sizes: readonly Step[]; maxSize?: undefined; minSize?: undefined })
 
 const WOFF2 = [0x77, 0x4f, 0x46, 0x32] // "wOF2"
 /** Kerning is not applied, so a line is allowed 98% of its width, as the sites' own fitters did. */
@@ -204,6 +204,8 @@ function assertBox(box: Box): void {
   if (box.descent !== undefined && (!Number.isFinite(box.descent) || box.descent < 0))
     throw new Error(`payload-og-image: fitText: box.descent must be a finite number of at least 0, got ${String(box.descent)}`)
   if (box.sizes !== undefined) {
+    if (box.maxSize !== undefined || box.minSize !== undefined)
+      throw new Error('payload-og-image: fitText: box.sizes replaces maxSize and minSize: give the ladder or the two, not both')
     if (!Array.isArray(box.sizes) || box.sizes.length === 0)
       throw new Error('payload-og-image: fitText: box.sizes must list at least one size')
     let prev = Number.POSITIVE_INFINITY
