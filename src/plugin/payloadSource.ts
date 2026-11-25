@@ -165,7 +165,7 @@ export function payloadSource(payload: Payload, state: OgState, cachedSite: () =
       const base = { collection, depth: 0, limit: 1, pagination: false, overrideAccess: false }
       try {
         // An editor previewing sees the draft; everyone else the published document, and never a draft-only one.
-        if (user) return await first({ ...base, where: { id: { equals: id } }, draft: true, user } as FindArgs)
+        if (user) return await first({ ...base, where: { id: { equals: id } }, draft: true, user } as unknown as FindArgs)
         const hasDrafts = Boolean(known[collection]?.config?.versions?.drafts)
         const match = { id: { equals: id } }
         return await first({
