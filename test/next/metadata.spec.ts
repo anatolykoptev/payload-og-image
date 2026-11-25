@@ -1,6 +1,8 @@
 /** Mutation table (production line -> the test that goes RED). Silent-failure surface: a page advertising a card URL the route does not serve (a different v, a different image).
  * - runtime.ts:149  resolve from the document the page passed instead of re-reading by id (patched through metadata.ts and runtime.ts together) -> "4: the page passes a doc whose hero is a bare id ..." RED
  * - resolve.ts:169 leave heroBackground out of the version -> "a changed heroBackground is a new card URL" RED
+ * - runtime.ts `cardPalette`/`heroPalette` left out of the handler deps -> "a palette option is part of the card URL only when it changes the output" RED
+ * - version.ts `cardPalette`/`heroPalette` left out of the hash -> same test RED
  * - metadata.ts:17  never set `secureUrl` -> "1: a generated card", "2: the editor image is advertised as it is" RED; set it for an http URL too -> "43: an http image gets no secureUrl" RED
  * - metadata.ts:38  always throw -> "a failure throws in development and test, and is an event with {} in production" RED
  * - metadata.ts:11  advertise a card that would be blank -> "3: a card that would be blank advertises nothing" RED */
@@ -140,6 +142,30 @@ describe('ogMetadata', () => {
     expect(await vOf({ heroBackground: '#ffffff' }, withHero)).toBe(await vOf({}, withHero))
     expect(await vOf({ heroBackground: '#fff' }, withHero)).toBe(await vOf({}, withHero))
     expect(await vOf({ heroBackground: '#336699' }, plain)).toBe(await vOf({}, plain))
+  })
+  it('a palette option is part of the card URL only when it changes the output: defaults keep every existing URL', async () => {
+    const vOf = async (over: Partial<OgImagePluginOptions>, doc: object) => {
+      const { config } = setup({ 1: doc }, over)
+      return ((await ogMetadata({ config, target: 'posts', doc: { id: 1 } })).openGraph as any).images[0].url as string
+    }
+    const withHero = { id: 1, slug: 'a', title: 'A', heroImage: heroUpload }
+    const plain = { id: 1, slug: 'a', title: 'A' }
+    // Pinned from 0.3.0, before the option existed: a site that never sets it must not see its cards move.
+    expect(await vOf({}, plain)).toBe('https://x.test/og/posts/a/card.png?v=b258c1ed96ba')
+    expect(await vOf({}, withHero)).toBe('https://x.test/og/posts/a/card.png?v=153817abd639')
+    // Spelling the defaults out is the same card.
+    expect(await vOf({ palette: {} }, plain)).toBe(await vOf({}, plain))
+    expect(await vOf({ palette: { card: 128, hero: 256 } }, withHero)).toBe(await vOf({}, withHero))
+    // The card palette changes every card; the hero palette only a card with a hero.
+    const base = await vOf({}, plain)
+    expect(await vOf({ palette: { card: false } }, plain)).not.toBe(base)
+    expect(await vOf({ palette: { card: 16 } }, plain)).not.toBe(base)
+    expect(await vOf({ palette: { card: 16 } }, plain)).not.toBe(await vOf({ palette: { card: false } }, plain))
+    expect(await vOf({ palette: { hero: false } }, plain)).toBe(base)
+    const heroBase = await vOf({}, withHero)
+    expect(await vOf({ palette: { hero: false } }, withHero)).not.toBe(heroBase)
+    expect(await vOf({ palette: { hero: 16 } }, withHero)).not.toBe(await vOf({ palette: { hero: false } }, withHero))
+    expect(await vOf({ palette: { card: false } }, withHero)).not.toBe(heroBase)
   })
   it('5: a static card -> its URL', async () => {
     const { config } = setup({})

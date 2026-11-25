@@ -1,4 +1,5 @@
 /** Mutation table (production line -> the test that goes RED). Silent-failure surface: a stale card URL gives no error in prod.
+ * - version.ts `cardPalette` or `heroPalette` dropped from the hash -> "a card palette or a hero palette moves the version only when set" RED
  * - version.ts:75  drop `i.props` from the hashed array                  -> "changes with title" / "site datum" RED
  * - version.ts:75  drop `i.host`                                         -> "changes with host (domain move)" RED
  * - version.ts:75  drop `i.fontsDigest`                                  -> "changes with fonts (a face file swapped)" RED
@@ -72,6 +73,18 @@ describe('cardVersion', () => {
     expect(cardVersion({ ...base, nonce: 0 })).toMatchInlineSnapshot(`"db1903285d83"`) // the 0.1 golden value, unchanged
     expect(cardVersion({ ...base, nonce: 1 })).not.toBe(cardVersion(base))
     expect(cardVersion({ ...base, nonce: 1 })).not.toBe(cardVersion({ ...base, nonce: 2 }))
+  })
+  it('a card palette or a hero palette moves the version only when set; unset hashes exactly as before the option', () => {
+    const hero = { id: 9, updatedAt: 'u1' }
+    // Pinned from 0.3.0 (before the option existed).
+    expect(cardVersion({ ...base, heroes: [hero] })).toBe('d8e5879ff956')
+    expect(cardVersion({ ...base, heroes: [hero], heroBackground: '#f1f3ef' })).toBe('90a77b446d60')
+    expect(cardVersion({ ...base, cardPalette: undefined, heroPalette: undefined })).toBe(cardVersion(base))
+    expect(cardVersion({ ...base, cardPalette: 'false' })).not.toBe(cardVersion(base))
+    expect(cardVersion({ ...base, cardPalette: '16' })).not.toBe(cardVersion({ ...base, cardPalette: 'false' }))
+    // The hero palette belongs to the hero: a card without one does not move.
+    expect(cardVersion({ ...base, heroPalette: 'false' })).toBe(cardVersion(base))
+    expect(cardVersion({ ...base, heroes: [hero], heroPalette: 'false' })).not.toBe(cardVersion({ ...base, heroes: [hero] }))
   })
   it('golden value pins the format', () => expect(cardVersion(base)).toMatchInlineSnapshot(`"db1903285d83"`))
 })

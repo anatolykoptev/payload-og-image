@@ -1,7 +1,7 @@
 import sharp from 'sharp'
+import { DEFAULT_PALETTE, type Palette } from '../internal/palette.js'
 
-export type Palette = { colours: number; dither: number }
-export const DEFAULT_PALETTE: Palette = { colours: 128, dither: 0.5 }
+export { DEFAULT_PALETTE, type Palette }
 
 export function assertPalette(p: Palette): void {
   if (!Number.isInteger(p.colours) || p.colours < 2 || p.colours > 256) {

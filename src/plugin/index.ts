@@ -3,6 +3,7 @@ import type { Config, Payload } from 'payload'
 import { normaliseHeroBackground } from '../internal/colour.js'
 import { type FontSpec, missingGlyphs, type Stacks } from '../internal/fonts.js'
 import { createGate } from '../internal/gate.js'
+import { assertPaletteOption } from '../internal/palette.js'
 import { buildKindIndex } from '../internal/resolve.js'
 import { CUSTOM_KEY, createState } from '../internal/state.js'
 import type { OnEvent, SiteInfo } from '../internal/types.js'
@@ -45,6 +46,12 @@ export type OgImagePluginOptions = {
   serverURL?: string
   /** The colour a transparent hero is flattened onto before it is cut to the card: `#rgb` or `#rrggbb`. Default white. It is part of the version of a card with a hero. */
   heroBackground?: string
+  /**
+   * How a card and a hero are palette-encoded. `card`: the renderer keeps the smaller of the truecolour PNG and a palette re-encoding
+   * (default 128 colours); `hero`: the hero is cut to a palette PNG (default 256 colours). Each is `false` (truecolour, larger files,
+   * no banding) or a colour count from 2 to 256. A value other than the default is part of the card version, so changing it gives new URLs.
+   */
+  palette?: { card?: false | number; hero?: false | number }
   /** Characters every stack must draw, checked at start-up. Default `Aa’‘“”–—…`. */
   requiredSample?: string
   onEvent?: OnEvent
@@ -155,6 +162,7 @@ function validate(o: OgImagePluginOptions, config: Config): string {
   for (const [k, v] of Object.entries(o.brand ?? {}))
     if (typeof v !== 'string' || !COLOUR.test(v)) fail(`brand.${k} must be a hex colour or a colour name`)
   if (o.heroBackground !== undefined) normaliseHeroBackground(o.heroBackground) // throws a named error at start-up
+  assertPaletteOption(o.palette)
   if (o.requiredSample !== undefined && typeof o.requiredSample !== 'string') fail('requiredSample must be a string')
   return serverUrl as string
 }

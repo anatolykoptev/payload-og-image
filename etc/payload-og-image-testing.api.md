@@ -131,6 +131,10 @@ export type OgImagePluginOptions = {
     allowedImageHosts?: string[];
     serverURL?: string;
     heroBackground?: string;
+    palette?: {
+        card?: false | number;
+        hero?: false | number;
+    };
     requiredSample?: string;
     onEvent?: OnEvent;
     crawlerEvents?: {

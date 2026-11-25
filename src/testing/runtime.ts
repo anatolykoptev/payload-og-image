@@ -1,6 +1,7 @@
 import type { Payload } from 'payload'
 import sharp from 'sharp'
 import type { HeroLoader, Renderer, RouteContext } from '../internal/handler.js'
+import { cardPaletteOf } from '../internal/palette.js'
 import { buildRuntime, type OgRuntime, setTestRuntime } from '../internal/runtime.js'
 import { createState, type OgState } from '../internal/state.js'
 import { memoryStore } from '../internal/store/memory.js'
@@ -128,7 +129,7 @@ export function installTestRuntime(options: OgImagePluginOptions, docs: KitDocs,
   } as unknown as Payload
   const inner: Renderer =
     o.renderer === 'real'
-      ? nextOgRenderer()
+      ? nextOgRenderer({ palette: cardPaletteOf(options.palette) })
       : {
           // The stub draws the element's JSON: any change to what a template would draw changes the bytes.
           render: async (el) =>

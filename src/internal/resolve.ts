@@ -37,6 +37,9 @@ export type ResolveInput = {
   stacks: Stacks
   /** Normalised hero background when not the default white. */
   heroBackground?: string
+  /** Effective card / hero palette tags when not the default (see `paletteTags`). */
+  cardPalette?: string
+  heroPalette?: string
   seoImage?: { path: string; isDeliberate?: (image: unknown) => boolean }
   /** Handed to the target's resolvers (default: always null). */
   related?: RelatedFn
@@ -192,6 +195,8 @@ export async function resolveCard(i: ResolveInput): Promise<ResolvedCard> {
     props,
     heroes: hero ? [hero] : [],
     heroBackground: i.heroBackground,
+    cardPalette: i.cardPalette,
+    heroPalette: i.heroPalette,
     fontsDigest: fontsKey(i.fontsDigest, i.stacks),
     host: i.host,
     nonce: ogNonce(og),

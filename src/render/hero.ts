@@ -5,6 +5,7 @@ import path from 'node:path'
 import sharp from 'sharp'
 import type { HeroLoader } from '../internal/handler.js'
 import { MAX_SIDE } from '../internal/limits.js'
+import { DEFAULT_HERO_COLOURS } from '../internal/palette.js'
 import type { Upload } from '../internal/types.js'
 import { guardedFetch, isPublicAddress, type ResolveHost, systemResolve } from './guardedFetch.js'
 
@@ -29,6 +30,8 @@ export type HeroLoaderOptions = {
   maxPixels?: number
   /** Colour the image is flattened onto where it is transparent (default white). */
   background?: string
+  /** Colours the hero is cut to (2 to 256, default 256); `false` keeps truecolour. */
+  colours?: false | number
 }
 
 const O_NOFOLLOW = constants.O_NOFOLLOW ?? 0
@@ -135,7 +138,7 @@ async function prepare(
   bytes: Buffer,
   hero: Upload,
   box: { width: number; height: number },
-  o: { maxPixels: number; background: string },
+  o: { maxPixels: number; background: string; colours: false | number },
 ): Promise<string | null> {
   try {
     const input = { limitInputPixels: o.maxPixels, failOn: 'error' as const }
@@ -163,7 +166,7 @@ async function prepare(
       })
       .resize(box.width, box.height)
       .flatten({ background: o.background })
-      .png({ palette: true })
+      .png(o.colours === false ? {} : o.colours === DEFAULT_HERO_COLOURS ? { palette: true } : { palette: true, colours: o.colours })
       .toBuffer()
     return `data:image/png;base64,${png.toString('base64')}`
   } catch {
@@ -183,13 +186,14 @@ export function payloadHeroLoader(o: HeroLoaderOptions): HeroLoader {
   const resolveHost = o.resolveHost ?? systemResolve
   const fetchImpl = o.fetchImpl ?? ((url: string, init: { signal?: AbortSignal }) => guardedFetch(url, init, resolveHost))
   const background = o.background ?? '#ffffff'
+  const colours = o.colours ?? DEFAULT_HERO_COLOURS
   return async (hero, box, where) => {
     try {
       if (![box.width, box.height].every((n) => Number.isInteger(n) && n >= 1 && n <= MAX_SIDE)) return null
       const bytes =
         (await readLocal(hero, await o.staticDirs(where?.collection), maxBytes)) ??
         (await fetchRemote(hero, { hosts, fetchImpl, maxBytes }))
-      return bytes ? await prepare(bytes, hero, box, { maxPixels, background }) : null
+      return bytes ? await prepare(bytes, hero, box, { maxPixels, background, colours }) : null
     } catch {
       return null
     }

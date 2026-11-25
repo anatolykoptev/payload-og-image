@@ -5,6 +5,7 @@ import sharp from 'sharp'
 import { drawElement, templateContext } from '../internal/draw.js'
 import { missingGlyphs } from '../internal/fonts.js'
 import { CACHE, type RouteContext } from '../internal/handler.js'
+import { cardPaletteOf } from '../internal/palette.js'
 import { nextOgRenderer } from '../render/nextOg.js'
 import { analyzeRouteSource } from './routeSource.js'
 import type { TestRuntime } from './runtime.js'
@@ -527,7 +528,7 @@ export function ogKit(rt: TestRuntime) {
      */
     async templatesRender(a: { props: Record<string, Record<string, unknown>> }): Promise<void> {
       const { fonts } = await loadFonts(rt)
-      const renderer = nextOgRenderer()
+      const renderer = nextOgRenderer({ palette: cardPaletteOf(rt.options.palette) })
       for (const template of rt.options.templates) {
         if (!Object.hasOwn(a.props, template.id))
           fail('templatesRender', `no props given for template "${template.id}" (give an entry for every template id)`)

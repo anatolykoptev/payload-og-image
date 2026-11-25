@@ -1,5 +1,6 @@
 import { getPayload, type Payload, type SanitizedConfig } from 'payload'
 import { DEFAULT_HERO_BACKGROUND, normaliseHeroBackground } from '../internal/colour.js'
+import { cardPaletteOf, heroColoursOf, paletteTags } from '../internal/palette.js'
 import type { OgImagePluginOptions } from '../plugin/index.js'
 import { payloadSource } from '../plugin/payloadSource.js'
 import { createFallbackTemplate, fallbackTemplate } from '../render/fallback.js'
@@ -66,7 +67,7 @@ const heroBackgroundOf = (o: Pick<OgImagePluginOptions, 'heroBackground'>) => {
 }
 
 /** The production hero loader: reads only the hero's own upload collection (`Target.heroCollection`), or the one upload collection there is. */
-export function heroLoaderFor(payload: Payload, o: Pick<OgImagePluginOptions, 'allowedImageHosts' | 'heroBackground'>) {
+export function heroLoaderFor(payload: Payload, o: Pick<OgImagePluginOptions, 'allowedImageHosts' | 'heroBackground' | 'palette'>) {
   return payloadHeroLoader({
     staticDirs: async (collection) => {
       const uploads = Object.entries(payload.collections).flatMap(([slug, c]) => {
@@ -78,6 +79,7 @@ export function heroLoaderFor(payload: Payload, o: Pick<OgImagePluginOptions, 'a
     },
     allowedHosts: o.allowedImageHosts,
     background: o.heroBackground === undefined ? undefined : normaliseHeroBackground(o.heroBackground),
+    colours: heroColoursOf(o.palette),
   })
 }
 
@@ -94,7 +96,7 @@ export function buildRuntime(state: OgState, payload: Payload, over: RuntimeOver
   state.siteCache ??= cachedSite(async () => o.site({ payload, draft: false }))
   const siteCache = state.siteCache
   const source = over.source ?? payloadSource(payload, state, () => siteCache.get())
-  const renderer = over.renderer ?? nextOgRenderer()
+  const renderer = over.renderer ?? nextOgRenderer({ palette: cardPaletteOf(o.palette) })
   const heroLoader = over.heroLoader ?? heroLoaderFor(payload, o)
   const isDraftRequest =
     over.isDraftRequest ??
@@ -113,6 +115,8 @@ export function buildRuntime(state: OgState, payload: Payload, over: RuntimeOver
       fonts: state.fonts,
       stacks: o.stacks,
       heroBackground: heroBackgroundOf(o),
+      cardPalette: paletteTags(o.palette).card,
+      heroPalette: paletteTags(o.palette).hero,
       serverUrl: state.serverUrl,
       source,
       store: over.store ?? state.store(),
