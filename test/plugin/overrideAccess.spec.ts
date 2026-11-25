@@ -132,9 +132,12 @@ async function drive() {
   expect(await source.published('notes', 'a-note')).toMatchObject({ title: 'A note' })
   expect(await source.publishedById('notes', ids.note as number)).toMatchObject({ title: 'A note' })
   // An editor's draft read and a related read as an editor, then as a visitor.
-  await source.draft('notes', { slug: 'a-note' }, editorRequest())
-  await source.related('notes', ids.note as number, { previewing: true, request: editorRequest() })
-  await source.related('notes', ids.note as number, { previewing: false })
+  // Each must really reach the Local API: an editor who fails to authenticate would skip these reads and leave the count to the others.
+  expect(await source.draft('notes', { slug: 'a-note' }, editorRequest())).toMatchObject({ title: 'A note' })
+  expect(await source.related('notes', ids.note as number, { previewing: true, request: editorRequest() })).toMatchObject({
+    title: 'A note',
+  })
+  expect(await source.related('notes', ids.note as number, { previewing: false })).toMatchObject({ title: 'A note' })
   // The preview endpoint's own read of the saved document.
   const endpoint = (payload.config.endpoints ?? []).find((x) => x.path === '/payload-og-image/preview' && x.method === 'post')
   const req = Object.assign(
