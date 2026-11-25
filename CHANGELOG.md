@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.3.0](https://github.com/anatolykoptev/payload-og-image/compare/v0.2.0...v0.3.0) (2026-11-25)
+
+
+### Features
+
+* Payload 4 support alongside 3.x ([#51](https://github.com/anatolykoptev/payload-og-image/issues/51)) ([fc45cac](https://github.com/anatolykoptev/payload-og-image/commit/fc45cac94888e313550c06b58f82bfce004ac719))
+* revalidation recipe, dev-server probe in CI, restHeadParity, docs and analyzer leftovers ([#47](https://github.com/anatolykoptev/payload-og-image/issues/47)) ([ed97a9e](https://github.com/anatolykoptev/payload-og-image/commit/ed97a9e7a8cf0119cdaa88513cc81714c9738818))
+
+
+### Bug Fixes
+
+* offline renderer, per-glyph stacks, start-up draw, preview and secureUrl tests ([#48](https://github.com/anatolykoptev/payload-og-image/issues/48)) ([669b697](https://github.com/anatolykoptev/payload-og-image/commit/669b69763c5a7b595a6bb6c2f2173760d198422f))
+* parse route files with the TypeScript compiler API; Force new image guard, round trip and crawler hint ([#34](https://github.com/anatolykoptev/payload-og-image/issues/34)) ([bbdc2f5](https://github.com/anatolykoptev/payload-og-image/commit/bbdc2f56bf66944a06959232276a679969f8fe11))
+* review leftovers of [#47](https://github.com/anatolykoptev/payload-og-image/issues/47) (long cache tags, probe cleanup, loader errors, beta pick) ([#49](https://github.com/anatolykoptev/payload-og-image/issues/49)) ([6d879ee](https://github.com/anatolykoptev/payload-og-image/commit/6d879eecf0ccbcb71ee3fb144add3955848d0b59))
+
 ## [0.2.0](https://github.com/anatolykoptev/payload-og-image/compare/v0.1.4...v0.2.0) (2026-11-24)
 
 
