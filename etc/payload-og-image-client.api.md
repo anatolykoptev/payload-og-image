@@ -4,10 +4,11 @@
 
 ```ts
 
-import type { UIFieldClientComponent } from 'payload';
+import { FC } from 'react';
+import type { UIFieldClientProps } from 'payload';
 
 // @public
-export const OgPreviewField: UIFieldClientComponent;
+export const OgPreviewField: FC<UIFieldClientProps>;
 
 // (No @packageDocumentation comment for this package)
 

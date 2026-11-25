@@ -1,7 +1,7 @@
 'use client'
 import { useAllFormFields, useConfig, useDocumentInfo, useForm } from '@payloadcms/ui'
-import type { UIFieldClientComponent } from 'payload'
-import { useEffect, useRef, useState } from 'react'
+import type { UIFieldClientProps } from 'payload'
+import { type FC, useEffect, useRef, useState } from 'react'
 
 type Warnings = {
   missing: string[]
@@ -45,7 +45,7 @@ function sayWarnings(w: Warnings): string[] {
  * preview endpoint (which checks the editor's access) for the card; the picture and its warnings are shown. A busy server
  * (503) is retried once after 5 s. The previous request is aborted and the previous blob URL revoked.
  */
-export const OgPreviewField: UIFieldClientComponent = () => {
+export const OgPreviewField: FC<UIFieldClientProps> = () => {
   const { getData, dispatchFields, setModified } = useForm()
   const [fields] = useAllFormFields()
   const { id, collectionSlug } = useDocumentInfo()

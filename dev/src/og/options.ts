@@ -7,7 +7,9 @@ import { postCard } from './exampleTemplate.js'
 const fonts = path.resolve(process.cwd(), 'test/fixtures/fonts')
 
 export const ogOptions: OgImagePluginOptions = {
-  site: async ({ payload }) => ({ name: ((await payload.findGlobal({ slug: 'site-settings' })).businessName as string) || 'Dev Site' }),
+  site: async ({ payload }) => ({
+    name: ((await payload.findGlobal({ slug: 'site-settings', overrideAccess: true })).businessName as string) || 'Dev Site',
+  }),
   siteGlobals: ['site-settings'],
   fonts: [{ family: 'Inter', weight: 800, data: () => readFile(path.join(fonts, 'inter-latin-cyrillic-800.woff')) }],
   stacks: { title: ['Inter'], default: ['Inter'] },

@@ -37,12 +37,14 @@ jobs:
       # serve it with `next start` and probe a card, a stale ?v, an unknown slug and a REST upload. Needs the build above.
       - run: node scripts/probe-dev-server.mjs
 
-  # An early warning, not a gate: the suite against the current Payload beta. It never fails the workflow.
+  # Payload 4 support, a gate like `preflight`: the type check, the suite, the public surface and the dev-app HTTP probe against the newest published
+  # Payload 4 beta that clears the release-age cooldown. Nothing from this job ships or is committed back.
   payload-beta:
     if: ${{ !github.event.repository.private || github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
     runs-on: ${{ github.event.repository.private && fromJSON('["self-hosted","linux","arm64"]') || 'ubuntu-24.04-arm' }}
-    continue-on-error: true
-    timeout-minutes: 20
+    timeout-minutes: 25
+    env:
+      PAYLOAD_CONFIG_PATH: dev/payload.config.ts
     steps:
       - uses: actions/checkout@v7
         with:
@@ -52,10 +54,25 @@ jobs:
         with:
           node-version: 24
       - run: pnpm install --frozen-lockfile
-      # The lockfile is not committed back: this job only reads. The version is the newest published `4.x-beta.N` older than
-      # the release-age cooldown (the `beta` dist-tag can name one the cooldown refuses, or a build that is no beta).
+      # One exact version for every @payloadcms/* package (Payload 4 pins them to each other). The picker applies the
+      # release-age cooldown to `payload` itself (the `beta` dist-tag can name one the cooldown refuses, or a build that is no
+      # beta); a sibling that was published a few minutes later at the same version would be refused by pnpm's own check, so that
+      # check is lifted for this one add. Binaries are called directly after it: `pnpm run` would re-check the cooldown.
       - run: |
           beta=$(npm view payload time --json | node scripts/latest-payload-beta.mjs)
           echo "Payload beta: $beta"
-          pnpm add --save-dev --save-exact "payload@$beta" "@payloadcms/db-sqlite@$beta" "@payloadcms/next@$beta" "@payloadcms/richtext-lexical@$beta" "@payloadcms/ui@$beta"
-      - run: pnpm test
+          pnpm add --save-dev --save-exact --config.minimumReleaseAge=0 "payload@$beta" "@payloadcms/db-sqlite@$beta" "@payloadcms/next@$beta" "@payloadcms/richtext-lexical@$beta" "@payloadcms/ui@$beta"
+      - name: Type check against the beta types (src, tests, dev app)
+        run: |
+          node_modules/.bin/tsc --noEmit
+          node_modules/.bin/tsc -p dev/tsconfig.json --noEmit
+      - name: Suite
+        run: node_modules/.bin/vitest run
+      - name: Build and public surface
+        run: |
+          node_modules/.bin/rimraf dist
+          node_modules/.bin/tsc -p tsconfig.build.json
+          for c in api-extractor api-extractor.next api-extractor.testing api-extractor.client; do node_modules/.bin/api-extractor run -c "$c.json"; done
+      # The committed import map is Payload 3's output (`@payloadcms/next/rsc` is gone in 4): regenerate it before the app is built.
+      - run: node_modules/.bin/payload generate:importmap
+      - run: node scripts/probe-dev-server.mjs

@@ -8,8 +8,28 @@ render queue, and a crash never leaves a half-written card behind.
 **Status:** pre-1.0. The API can still change in a minor release. Every release is published to npm
 automatically from this repository, with provenance.
 
-**Compatibility:** Payload `^3.93.0`, Next.js `^16.4.5`, React `^19.3.1`, sharp `^0.35.4`, Node
+**Compatibility:** Payload `^3.93.0` or `^4.0.0-beta.12` (see [Payload 3 and 4](#payload-3-and-4)), Next.js `^16.4.5`, React `^19.3.1`, sharp `^0.35.4`, Node
 `^22.23.5 || ^24.22.3 || >=26.13.1`. ESM only. Node runtime only: edge and serverless platforms need `store: { memory: true }` and are untested.
+
+## Payload 3 and 4
+
+One build serves both majors. The suite, the type check and the dev-app HTTP probe run on the Payload 3 line and on the newest
+Payload 4 beta in CI. Payload 4 is a pre-release until it is out, so its range names a beta floor (`^4.0.0-beta.12`) and a
+newer beta may still move. On Payload 4: run `payload generate:importmap` after installing (the admin component paths are the
+same, the map is per major), use the Node version Payload 4 itself requires (24.22.3 or later), and expect the extra
+authorship fields and tables Payload 4 adds to every collection; their migration is your site's, not the plugin's.
+
+The plugin's own Local API calls all state `overrideAccess: false` (the visitor's access, the signed-in editor's for drafts and
+previews), so they read the same on both majors. Payload 4 changes the Local API default from `overrideAccess: true` to `false`,
+and that reaches **your** code that the plugin calls: inside `options.site({ payload })` (and a target's `props` through `related()`
+or your own reads) a call that leaves `overrideAccess` out now runs with no user and the collection's access. State what you mean:
+
+```ts
+site: async ({ payload }) => ({
+  // trusted site data, the same for every visitor: read it as the system, as Payload 3 did by default
+  name: ((await payload.findGlobal({ slug: 'site-settings', overrideAccess: true })).businessName as string) || 'Example',
+}),
+```
 
 ## Install
 

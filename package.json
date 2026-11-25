@@ -64,10 +64,10 @@
     "typecheck": "tsc --noEmit && tsc -p dev/tsconfig.json --noEmit"
   },
   "peerDependencies": {
-    "@payloadcms/ui": "^3.93.0",
+    "@payloadcms/ui": "^3.93.0 || ^4.0.0-beta.12",
     "@typescript/typescript6": "^6.0.2",
     "next": "^16.4.5",
-    "payload": "^3.93.0",
+    "payload": "^3.93.0 || ^4.0.0-beta.12",
     "react": "^19.3.1",
     "sharp": "^0.35.4",
     "typescript": "^5.0.0 || ^6.0.0 || ^7.0.0"

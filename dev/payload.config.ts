@@ -5,6 +5,7 @@ import { buildConfig } from 'payload'
 import { ogImagePlugin } from 'payload-og-image'
 import sharp from 'sharp'
 import { ogOptions } from './src/og/options.js'
+import { payloadMajor } from './src/og/payloadMajor.js'
 import { revalidateDeletedPost, revalidatePost, revalidateSite } from './src/og/revalidate.js'
 
 // Run from the repository root (`pnpm dev`, `payload run`): `import.meta.url` is not a plain file URL inside Next's RSC layer.
@@ -43,6 +44,7 @@ export default buildConfig({
   jobs: { autoRun: [] },
   plugins: [ogImagePlugin(ogOptions)],
   secret: process.env.PAYLOAD_SECRET || 'dev-only-secret',
-  sharp,
+  // Payload 4 removed the top-level `sharp` option and throws on the key even when it is undefined.
+  ...(payloadMajor() >= 4 ? {} : { sharp }),
   typescript: { outputFile: path.resolve(dirname, 'payload-types.ts') },
 })

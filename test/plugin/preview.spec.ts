@@ -140,7 +140,7 @@ beforeAll(async () => {
     ['users', 'ed2@x.test'],
     ['customers', 'cu@x.test'],
   ] as const) {
-    await payload.create({ collection: coll, data: { email, password: 'pw-pw-pw-pw' } })
+    await payload.create({ collection: coll, data: { email, password: 'pw-pw-pw-pw' }, overrideAccess: true })
     const l = await payload.login({ collection: coll, data: { email, password: 'pw-pw-pw-pw' } })
     tokens[email] = l.token as string
     users[email] = l.user
@@ -165,6 +165,7 @@ beforeAll(async () => {
       name: 's.svg',
       size: 70,
     },
+    overrideAccess: true,
   })
   const photo = await sharp({ create: { width: 1200, height: 630, channels: 3, background: '#abcdef' } })
     .png()
@@ -173,6 +174,7 @@ beforeAll(async () => {
     collection: 'media',
     data: {},
     file: { data: photo, mimetype: 'image/png', name: 'p.png', size: photo.length },
+    overrideAccess: true,
   })
   ids.shared = await mk('shared', { title: 'Shares a photo', meta: { image: shared.id } })
   // The editor's own image at, and under, the 600x315 a crawler wants.
@@ -187,6 +189,7 @@ beforeAll(async () => {
       collection: 'media',
       data: {},
       file: { data: bytes, mimetype: 'image/png', name: `${key}.png`, size: bytes.length },
+      overrideAccess: true,
     })
     ids[key] = await mk(key, { title: `Image ${width}x${height}`, meta: { image: upload.id } })
   }

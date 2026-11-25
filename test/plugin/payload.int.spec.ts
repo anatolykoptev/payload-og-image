@@ -145,29 +145,48 @@ beforeAll(async () => {
   })
   payload = await getPayload({ config })
   state = payload.config.custom?.[CUSTOM_KEY] as OgState
-  await payload.create({ collection: 'users', data: { email: 'ed@x.test', password: 'pw-pw-pw-pw' } })
+  await payload.create({ collection: 'users', data: { email: 'ed@x.test', password: 'pw-pw-pw-pw' }, overrideAccess: true })
   const login = await payload.login({ collection: 'users', data: { email: 'ed@x.test', password: 'pw-pw-pw-pw' } })
   editorHeaders = new Headers({ authorization: `JWT ${login.token}` })
-  await payload.create({ collection: 'customers', data: { email: 'cu@x.test', password: 'pw-pw-pw-pw' } })
+  await payload.create({ collection: 'customers', data: { email: 'cu@x.test', password: 'pw-pw-pw-pw' }, overrideAccess: true })
   const cl = await payload.login({ collection: 'customers', data: { email: 'cu@x.test', password: 'pw-pw-pw-pw' } })
   customerHeaders = new Headers({ authorization: `JWT ${cl.token}` })
   await payload.create({ collection: 'locked', data: { title: 'Locked draft', slug: 'l', _status: 'draft' }, overrideAccess: true })
-  await payload.create({ collection: 'secrets', data: { title: 'Hidden', slug: 's' } })
-  await payload.create({ collection: 'posts', data: { title: 'Published A', slug: 'a', extra: 'x', _status: 'published' } })
-  await payload.create({ collection: 'posts', data: { title: 'Only draft B', slug: 'b', _status: 'draft' } })
-  const a = (await payload.find({ collection: 'posts', where: { slug: { equals: 'a' } }, limit: 1 })).docs[0]
-  await payload.update({ collection: 'posts', id: a?.id as number, data: { title: 'Draft A2', _status: 'draft' }, draft: true })
-  const draftNote = await payload.create({ collection: 'notes', data: { title: 'Draft-only note', slug: 'n', _status: 'draft' } })
-  const pubNote = await payload.create({ collection: 'notes', data: { title: 'Published note', slug: 'pn', _status: 'published' } })
+  await payload.create({ collection: 'secrets', data: { title: 'Hidden', slug: 's' }, overrideAccess: true })
+  await payload.create({
+    collection: 'posts',
+    data: { title: 'Published A', slug: 'a', extra: 'x', _status: 'published' },
+    overrideAccess: true,
+  })
+  await payload.create({ collection: 'posts', data: { title: 'Only draft B', slug: 'b', _status: 'draft' }, overrideAccess: true })
+  const a = (await payload.find({ collection: 'posts', where: { slug: { equals: 'a' } }, limit: 1, overrideAccess: true })).docs[0]
+  await payload.update({
+    collection: 'posts',
+    id: a?.id as number,
+    data: { title: 'Draft A2', _status: 'draft' },
+    draft: true,
+    overrideAccess: true,
+  })
+  const draftNote = await payload.create({
+    collection: 'notes',
+    data: { title: 'Draft-only note', slug: 'n', _status: 'draft' },
+    overrideAccess: true,
+  })
+  const pubNote = await payload.create({
+    collection: 'notes',
+    data: { title: 'Published note', slug: 'pn', _status: 'published' },
+    overrideAccess: true,
+  })
   await payload.create({
     collection: 'posts',
     data: { title: 'Points at a draft', slug: 'rel-draft', related: draftNote?.id as number, _status: 'published' },
+    overrideAccess: true,
   })
   const png = await sharp({ create: { width: 4, height: 4, channels: 3, background: '#123456' } })
     .png()
     .toBuffer()
   const file = (name: string) => ({ data: png, mimetype: 'image/png', name, size: png.length })
-  const hero = await payload.create({ collection: 'media', data: {}, file: file('h.png') })
+  const hero = await payload.create({ collection: 'media', data: {}, file: file('h.png'), overrideAccess: true })
   const secret = await payload.create({ collection: 'privateMedia', data: {}, file: file('s.png'), overrideAccess: true })
   await payload.create({
     collection: 'posts',
@@ -179,15 +198,22 @@ beforeAll(async () => {
       secretImage: secret.id,
       _status: 'published',
     },
+    overrideAccess: true,
   })
-  await payload.create({ collection: 'posts', data: { title: 'Hidden card', slug: 'og-off', og: { mode: 'off' }, _status: 'published' } })
+  await payload.create({
+    collection: 'posts',
+    data: { title: 'Hidden card', slug: 'og-off', og: { mode: 'off' }, _status: 'published' },
+    overrideAccess: true,
+  })
   await payload.create({
     collection: 'posts',
     data: { title: 'Plain title', slug: 'og-headline', og: { headline: '  Custom headline  ' }, _status: 'published' },
+    overrideAccess: true,
   })
   await payload.create({
     collection: 'posts',
     data: { title: 'Points at a published note', slug: 'rel-pub', related: pubNote.id, _status: 'published' },
+    overrideAccess: true,
   })
 }, 60_000)
 afterAll(async () => {
@@ -237,6 +263,7 @@ describe('payloadSource against a real Payload', () => {
     const { id } = (await payload.create({
       collection: 'posts',
       data: { title: 'Force new image', slug: 'nonce-card', _status: 'published' },
+      overrideAccess: true,
     })) as { id: number }
     const publicUrl = async () => {
       const card = await rt.resolveForMetadata({ target: 'posts', id })
@@ -245,19 +272,19 @@ describe('payloadSource against a real Payload', () => {
     }
     const before = await publicUrl()
     // What the admin does after the button: the form holds og.nonce = 1; Save draft writes a draft version...
-    await payload.update({ collection: 'posts', id, data: { og: { nonce: 1 } }, draft: true })
+    await payload.update({ collection: 'posts', id, data: { og: { nonce: 1 } }, draft: true, overrideAccess: true })
     expect(await publicUrl()).toBe(before) // ...which the public never sees
     // ...and Publish makes it the published document.
-    await payload.update({ collection: 'posts', id, data: { og: { nonce: 1 }, _status: 'published' } })
-    const reopened = (await payload.findByID({ collection: 'posts', id, draft: true })) as { og?: { nonce?: number } }
+    await payload.update({ collection: 'posts', id, data: { og: { nonce: 1 }, _status: 'published' }, overrideAccess: true })
+    const reopened = (await payload.findByID({ collection: 'posts', id, draft: true, overrideAccess: true })) as { og?: { nonce?: number } }
     expect(reopened.og?.nonce).toBe(1)
-    const published = (await payload.findByID({ collection: 'posts', id })) as { og?: { nonce?: number } }
+    const published = (await payload.findByID({ collection: 'posts', id, overrideAccess: true })) as { og?: { nonce?: number } }
     expect(published.og?.nonce).toBe(1)
     const after = await publicUrl()
     expect(after).not.toBe(before)
     expect(after.split('?')[0]).toBe(before.split('?')[0]) // the same card path, a new ?v=
     // The next click is another URL again.
-    await payload.update({ collection: 'posts', id, data: { og: { nonce: 2 }, _status: 'published' } })
+    await payload.update({ collection: 'posts', id, data: { og: { nonce: 2 }, _status: 'published' }, overrideAccess: true })
     const next = await publicUrl()
     expect([next === after, next === before]).toEqual([false, false])
   })
