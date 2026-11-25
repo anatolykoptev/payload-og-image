@@ -397,18 +397,19 @@ definitions in the plugin's own custom-tool shape; it builds no server and impor
 by the plugin's major (the two have different custom-tool APIs):
 
 ```ts
-import { ogImageMcpTools, ogImageMcpToolMap } from 'payload-og-image/mcp'
-
-// @payloadcms/plugin-mcp 3 (Payload 3): an array under `mcp.tools`
+// @payloadcms/plugin-mcp 3 (Payload 3): an array under `mcp.tools`; this entry imports zod
+import { ogImageMcpTools } from 'payload-og-image/mcp/v3'
 mcpPlugin({ /* collections, globals... */ mcp: { tools: [...ogImageMcpTools({ describedBy: 'meta.description' })] } })
 
-// @payloadcms/plugin-mcp 4 (Payload 4): a map under the top-level `tools`
+// @payloadcms/plugin-mcp 4 (Payload 4): a map under the top-level `tools`; this entry needs no zod
+import { ogImageMcpToolMap } from 'payload-og-image/mcp'
 mcpPlugin({ /* collections, globals... */ tools: { ...ogImageMcpToolMap({ describedBy: 'meta.description' }) } })
 ```
 
-The same implementation serves both. `ogImageMcpTools` needs `zod` (`^3.25.50`, the version plugin 3 uses): the plugin depends on it,
-but under strict pnpm (no hoisting) add it to your own dependencies, since an optional peer is not installed for you. The Payload 4
-map takes JSON Schema inputs and needs no schema library. On Payload 4 the tools are available to a signed-in MCP user, as the plugin's own
+The same implementation serves both. `payload-og-image/mcp/v3` imports `zod` (`^3.25.50`, the version plugin 3 uses) statically, so a
+bundler and Next's file tracer (`output: 'standalone'`) include it; the plugin depends on it, but under strict pnpm (no hoisting) add
+it to your own dependencies, since an optional peer is not installed for you. `payload-og-image/mcp` (the Payload 4 map, JSON Schema
+inputs) imports no zod at all. On Payload 4 the tools are available to a signed-in MCP user, as the plugin's own
 default is; pass `access: ({ req }) => ...` to narrow it. On Payload 3 each tool is enabled per API key in the admin.
 
 They change nothing in your content, and read what the card

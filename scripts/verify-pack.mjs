@@ -10,7 +10,7 @@ const EXPECTED = {
   'payload-og-image': ['defineTarget', 'defineTemplate', 'ogFields', 'ogImagePlugin'],
   'payload-og-image/next': ['OG_SITE_TAG', 'createOgRoute', 'ogMetadata', 'ogTag', 'withHead'],
   'payload-og-image/testing': ['installTestRuntime', 'ogKit'],
-  'payload-og-image/mcp': ['ogImageMcpToolMap', 'ogImageMcpTools'],
+  'payload-og-image/mcp': ['ogImageMcpToolMap'],
 }
 const run = (cmd, args, cwd) => execFileSync(cmd, args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'inherit'] })
 const errors = []

@@ -48,6 +48,10 @@
       "types": "./dist/exports/mcp.d.ts",
       "import": "./dist/exports/mcp.js"
     },
+    "./mcp/v3": {
+      "types": "./dist/exports/mcp-v3.d.ts",
+      "import": "./dist/exports/mcp-v3.js"
+    },
     "./testing": {
       "types": "./dist/exports/testing.d.ts",
       "import": "./dist/exports/testing.js"
@@ -57,8 +61,8 @@
     "og-parity": "dist/testing/parity.js"
   },
   "scripts": {
-    "api:check": "api-extractor run -c api-extractor.json && api-extractor run -c api-extractor.next.json && api-extractor run -c api-extractor.testing.json && api-extractor run -c api-extractor.mcp.json && api-extractor run -c api-extractor.client.json",
-    "api:update": "api-extractor run --local -c api-extractor.json && api-extractor run --local -c api-extractor.next.json && api-extractor run --local -c api-extractor.testing.json && api-extractor run --local -c api-extractor.mcp.json && api-extractor run --local -c api-extractor.client.json",
+    "api:check": "api-extractor run -c api-extractor.json && api-extractor run -c api-extractor.next.json && api-extractor run -c api-extractor.testing.json && api-extractor run -c api-extractor.mcp.json && api-extractor run -c api-extractor.mcpv3.json && api-extractor run -c api-extractor.client.json",
+    "api:update": "api-extractor run --local -c api-extractor.json && api-extractor run --local -c api-extractor.next.json && api-extractor run --local -c api-extractor.testing.json && api-extractor run --local -c api-extractor.mcp.json && api-extractor run --local -c api-extractor.mcpv3.json && api-extractor run --local -c api-extractor.client.json",
     "build": "rimraf dist && tsc -p tsconfig.build.json",
     "clean": "rimraf dist tsconfig.tsbuildinfo",
     "dev": "next dev dev",

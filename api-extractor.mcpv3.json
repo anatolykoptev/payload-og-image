@@ -1,0 +1,5 @@
+{
+  "extends": "./api-extractor.json",
+  "mainEntryPointFilePath": "<projectFolder>/dist/exports/mcp-v3.d.ts",
+  "apiReport": { "reportFileName": "payload-og-image-mcp-v3.api.md" }
+}

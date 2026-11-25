@@ -1,26 +1,12 @@
-import { createRequire } from 'node:module'
 import type { PayloadRequest } from 'payload'
-import type { ZodRawShape } from 'zod'
 import { ShedError } from '../internal/gate.js'
 import type { AuditPage, CardRef } from '../internal/inspect.js'
 import { ToolInputError } from '../internal/inspect.js'
 
-type Text = { type: 'text'; text: string }
-type Image = { type: 'image'; data: string; mimeType: string }
+export type OgMcpText = { type: 'text'; text: string }
+export type OgMcpImage = { type: 'image'; data: string; mimeType: string }
 /** What a tool answers, before it is shaped for a plugin major: text parts, and for a preview an image part. */
-type Answer = { content: Array<Text | Image>; isError?: boolean }
-
-/** A tool in the shape `@payloadcms/plugin-mcp` 3 takes under `mcp.tools`. */
-export type OgMcpTool = {
-  name: string
-  description: string
-  parameters: ZodRawShape
-  handler: (
-    args: Record<string, unknown>,
-    req: PayloadRequest,
-    extra: unknown,
-  ) => Promise<{ content: Array<{ type: 'text'; text: string }>; role?: string }>
-}
+export type OgMcpAnswer = { content: Array<OgMcpText | OgMcpImage>; isError?: boolean }
 
 /** A JSON Schema 2020-12 object: the input a Payload 4 tool takes without any schema library. */
 export type OgMcpJsonSchema = { type: 'object'; properties: Record<string, object>; additionalProperties: boolean }
@@ -31,7 +17,7 @@ export type OgMcpToolV4 = {
   input: OgMcpJsonSchema
   /** Runs while the request is authorized, before the tool is advertised or called. Default: a signed-in MCP user (the plugin's own default). */
   access: (args: { req: PayloadRequest }) => boolean | Promise<boolean>
-  handler: (args: { input: Record<string, unknown>; req: PayloadRequest }) => Promise<Answer>
+  handler: (args: { input: Record<string, unknown>; req: PayloadRequest }) => Promise<OgMcpAnswer>
 }
 
 export type OgMcpToolsOptions = {
@@ -51,10 +37,10 @@ export type OgMcpToolsOptions = {
 }
 
 const DEFAULT_PREVIEW_BYTES = 1_500_000
-const MAX_LIMIT = 100
+export const MAX_LIMIT = 100
 const DEFAULT_LIMIT = 25
 
-const SHAPE = {
+export const SHAPE = {
   ref: {
     target: { type: 'string', description: 'The target (collection card kind) of the document.' },
     id: { type: ['string', 'number'], description: 'The document id, with `target`.' },
@@ -80,34 +66,7 @@ const SHAPE = {
 
 const schema = (properties: Record<string, object>): OgMcpJsonSchema => ({ type: 'object', properties, additionalProperties: false })
 
-/** The same shapes as zod values, for the v3 plugin (its SDK takes zod). `zod` is an optional peer, loaded when a v3 tool list is built, so a v4 site needs none. */
-function zodShapes(): { ref: ZodRawShape; audit: ZodRawShape } {
-  let z: typeof import('zod').z
-  try {
-    z = createRequire(import.meta.url)('zod').z
-  } catch {
-    throw new Error(
-      'payload-og-image/mcp: ogImageMcpTools needs `zod` (^3.25.50, the version @payloadcms/plugin-mcp 3 uses); add it to your dependencies',
-    )
-  }
-  return {
-    ref: {
-      target: z.string().optional().describe(SHAPE.ref.target.description),
-      id: z.union([z.string(), z.number()]).optional().describe(SHAPE.ref.id.description),
-      slug: z.string().optional().describe(SHAPE.ref.slug.description),
-      static: z.string().optional().describe(SHAPE.ref.static.description),
-      path: z.string().optional().describe(SHAPE.ref.path.description),
-    },
-    audit: {
-      scope: z.string().optional().describe(SHAPE.audit.scope.description),
-      page: z.number().int().min(1).optional().describe(SHAPE.audit.page.description),
-      limit: z.number().int().min(1).max(MAX_LIMIT).optional().describe(SHAPE.audit.limit.description),
-      checkHeroes: z.boolean().optional().describe(SHAPE.audit.checkHeroes.description),
-    },
-  }
-}
-
-const text = (value: unknown, isError = false): Answer => ({
+const text = (value: unknown, isError = false): OgMcpAnswer => ({
   content: [{ type: 'text', text: JSON.stringify(value, null, 1) }],
   ...(isError ? { isError: true } : {}),
 })
@@ -116,7 +75,7 @@ const text = (value: unknown, isError = false): Answer => ({
  * What a tool tells its caller about a failure: its own input errors as they are, a full queue as a retry, and anything else as a
  * fixed sentence. The detail (a path, a query) goes to the server's log, never to the holder of a key.
  */
-function failure(e: unknown, req: PayloadRequest, tool: string): Answer {
+function failure(e: unknown, req: PayloadRequest, tool: string): OgMcpAnswer {
   if (e instanceof ToolInputError) return text({ error: e.message }, true)
   if (e instanceof ShedError) return text({ error: 'busy: too many tool calls at once, retry in a few seconds' }, true)
   try {
@@ -159,12 +118,12 @@ async function inspectorOf(req: PayloadRequest) {
   return (await getRuntime(req.payload.config)).inspect
 }
 
-type Spec = {
+export type Spec = {
   name: string
   kind: 'card' | 'audit' | 'preview'
   description: string
   properties: Record<string, object>
-  run: (args: Record<string, unknown>, req: PayloadRequest, o: OgMcpToolsOptions) => Promise<Answer>
+  run: (args: Record<string, unknown>, req: PayloadRequest, o: OgMcpToolsOptions) => Promise<OgMcpAnswer>
 }
 
 const SPECS: Spec[] = [
@@ -238,26 +197,9 @@ const SPECS: Spec[] = [
   },
 ]
 
-const chosen = (o: OgMcpToolsOptions) => {
+export const chosen = (o: OgMcpToolsOptions) => {
   const want = new Set(o.tools ?? ['card', 'audit', 'preview'])
   return SPECS.filter((s) => want.has(s.kind))
-}
-
-/**
- * Read-only tools for an existing `@payloadcms/plugin-mcp` 3: `mcp: { tools: [...ogImageMcpTools()] }`. Every read is published
- * only, with no editor and no draft mode, like the card route; nothing is drawn except by `og_preview`, which goes through the
- * route's own gate, memo and versioned store key. Enable each tool for an API key in the admin, as for any custom tool.
- * Needs `zod` (the plugin's own dependency). For plugin 4 use `ogImageMcpToolMap`.
- */
-export function ogImageMcpTools(o: OgMcpToolsOptions = {}): OgMcpTool[] {
-  const shapes = zodShapes()
-  return chosen(o).map((s) => ({
-    name: s.name,
-    description: s.description,
-    parameters: s.properties === SHAPE.audit ? shapes.audit : shapes.ref,
-    // The plugin 3 types a result as text; the MCP SDK it hands the result to also takes the image part a preview returns.
-    handler: (async (args: Record<string, unknown>, req: PayloadRequest) => s.run(args, req, o)) as unknown as OgMcpTool['handler'],
-  }))
 }
 
 /**
