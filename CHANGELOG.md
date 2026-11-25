@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.0](https://github.com/anatolykoptev/payload-og-image/compare/v0.5.0...v0.6.0) (2026-11-25)
+
+
+### Features
+
+* **render:** JPEG and WebP card output ([#67](https://github.com/anatolykoptev/payload-og-image/issues/67)) ([1e699d6](https://github.com/anatolykoptev/payload-og-image/commit/1e699d6cb8201e2ed9e073444e8eb0be922aa86d))
+
 ## [0.5.0](https://github.com/anatolykoptev/payload-og-image/compare/v0.4.0...v0.5.0) (2026-11-25)
 
 
