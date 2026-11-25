@@ -101,6 +101,8 @@ Cyrillic-covering face in the stack.
 
 ### No request leaves the host while a card is drawn
 
+(The one read before the draw is a hero from a host you list in `allowedImageHosts`; that option is empty by default.)
+
 `next/og` downloads a font (the missing characters in the query) or a Twemoji image from a third-party CDN for any
 character none of the registered faces has, and has no option to turn that off. The plugin makes the render offline:
 
