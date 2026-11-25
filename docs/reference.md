@@ -331,6 +331,20 @@ never load the compiler. Limits of the reading: a name declared twice at the top
 `og.createOgRoute(...)` is understood, and `export * from` is not followed. `everyRouteHasOwnCard` requires an `https` image URL for every image in the `og:image` and
 `twitter:image` lists, as the crawlers document it; pass `allowHttpImages: true` for a site that is only ever served on plain HTTP, such as a local dev server. See [`dev/tests/og.spec.ts`](https://github.com/anatolykoptev/payload-og-image/blob/main/dev/tests/og.spec.ts).
 
+**Give a kit spec a timeout.** vitest stops a test after 5 s, and a kit call that renders many cards can outlast that on a
+loaded runner: `queueSheds` sends the gate, the queue and three more cold requests (55 with the defaults) through your
+real route and waits for all of them. The kit itself adds almost nothing (about 10 ms against the stub renderer); the time
+is your site's cold requests, and a call that is still waiting after 10 s fails with a message naming what it waited for.
+Set the limit on the `describe` that holds the kit calls, and copy this line:
+
+```ts
+describe('og kit', { timeout: 60_000 }, () => {
+  // installTestRuntime(...) and the ogKit(rt) calls
+})
+```
+
+`sizeBudget` and `templatesRender` also draw real cards, so the same limit applies to them.
+
 `ogKit(rt).templatesRender({ props })` draws every registered template once with the real renderer, from the props
 you give for its id (`{ [templateId]: props }`), and fails naming a template that cannot be drawn or does not give a PNG
 of its size: a `div` with several children and no `display: flex` is caught in CI, not by the first crawler. The plugin
