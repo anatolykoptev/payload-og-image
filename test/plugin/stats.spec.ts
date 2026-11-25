@@ -88,12 +88,12 @@ beforeAll(async () => {
     ['users', 'noadmin@x.test'],
     ['customers', 'cu@x.test'],
   ] as const) {
-    await payload.create({ collection: coll, data: { email, password: 'pw-pw-pw-pw' } })
+    await payload.create({ collection: coll, data: { email, password: 'pw-pw-pw-pw' }, overrideAccess: true })
     const l = await payload.login({ collection: coll, data: { email, password: 'pw-pw-pw-pw' } })
     tokens[email] = l.token as string
     users[email] = l.user
   }
-  await payload.create({ collection: 'posts', data: { title: 'Hello', slug: 'hello' } })
+  await payload.create({ collection: 'posts', data: { title: 'Hello', slug: 'hello' }, overrideAccess: true })
   setTestRuntime(buildRuntime(state, payload, { renderer: { render: png }, isDraftRequest: async () => false }))
 }, 60_000)
 afterAll(async () => {

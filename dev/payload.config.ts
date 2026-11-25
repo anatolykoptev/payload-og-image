@@ -43,6 +43,7 @@ export default buildConfig({
   jobs: { autoRun: [] },
   plugins: [ogImagePlugin(ogOptions)],
   secret: process.env.PAYLOAD_SECRET || 'dev-only-secret',
-  sharp,
+  // Payload 4 removed the top-level `sharp` option and throws on the key even when it is undefined; the v4 CI job sets PAYLOAD_MAJOR=4.
+  ...(process.env.PAYLOAD_MAJOR === '4' ? {} : { sharp }),
   typescript: { outputFile: path.resolve(dirname, 'payload-types.ts') },
 })

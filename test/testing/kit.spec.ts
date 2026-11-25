@@ -82,7 +82,9 @@ const post = defineTemplate<{ title: string; label: string; site: string }>({
     ),
 })
 const options = (over: Partial<OgImagePluginOptions> = {}): OgImagePluginOptions => ({
-  site: async ({ payload }) => ({ name: ((await payload.findGlobal({ slug: 'site-settings' })) as { name: string }).name }),
+  site: async ({ payload }) => ({
+    name: ((await payload.findGlobal({ slug: 'site-settings', overrideAccess: true })) as { name: string }).name,
+  }),
   siteGlobals: ['site-settings'],
   fonts: [{ family: 'Inter', weight: 800, data: font }],
   stacks: { default: ['Inter'] },
@@ -469,7 +471,7 @@ describe('draftNeverCached: a never-published document', () => {
       options({
         site: async ({ payload }) => {
           try {
-            await payload.find({ collection: 'posts', where: { title: { contains: 'A' } } })
+            await payload.find({ collection: 'posts', where: { title: { contains: 'A' } }, overrideAccess: true })
           } catch (e) {
             seen = (e as Error).message
           }

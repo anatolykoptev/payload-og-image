@@ -32,12 +32,13 @@ beforeAll(async () => {
     collection: 'media',
     data: {},
     file: { data, mimetype: 'image/png', name: 'rest-head.png', size: data.length },
+    overrideAccess: true,
   })
   mediaId = media.id
   url = `${rt.serverUrl}/api/media/file/${media.filename}`
 }, 60_000)
 afterAll(async () => {
-  await payload?.delete({ collection: 'media', id: mediaId })
+  await payload?.delete({ collection: 'media', id: mediaId, overrideAccess: true })
 })
 
 describe('dev app REST route', () => {
