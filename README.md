@@ -107,17 +107,20 @@ A working Payload + Next app that wires all three is in [`dev/`](dev).
   `og` group (mode, headline, subtitle; see [reference](docs/reference.md#per-document-share-card-fields)).
 - `payload-og-image/client`: the admin's live card preview (`OgPreviewField`), referenced by the `og` group; run
   `payload generate:importmap` after adding the plugin.
-- `payload-og-image/next`: `createOgRoute`, `ogMetadata`, and `withHead` for Payload's REST route (which does not
-  answer HEAD, and LinkedIn sends one).
+- `payload-og-image/next`: `createOgRoute`, `ogMetadata`, `withHead` for Payload's REST route (which does not
+  answer HEAD, and LinkedIn sends one), and `ogTag` / `OG_SITE_TAG` for revalidating cached pages on save.
 - `payload-og-image/testing`: `installTestRuntime` and `ogKit`, a test kit that calls your real route and metadata
   modules and checks the failures this plugin exists to prevent (a draft cached, a stale version served as
   immutable, a HEAD that differs from GET).
+- `payload-og-image/mcp` (`ogImageMcpToolMap`, plugin-mcp 4) and `payload-og-image/mcp/v3` (`ogImageMcpTools`,
+  plugin-mcp 3): read-only `og_card`, `og_audit` and `og_preview` tools for `@payloadcms/plugin-mcp`, so an agent can
+  check which pages have a card, whether it is stored, and what it looks like (see [reference](docs/reference.md#mcp-tools)).
 - `og-parity`, a bin that compares two directories of rendered cards pixel for pixel.
 
 ## Documentation
 
 Start at [docs/INDEX.md](docs/INDEX.md): [reference](docs/reference.md) (image selection, cache headers, drafts,
-the store), [templates](docs/templates.md), [crawlers](docs/crawlers.md), [operations](docs/operations.md).
+the store, the admin preview, the endpoints, the MCP tools), [templates](docs/templates.md), [crawlers](docs/crawlers.md), [operations](docs/operations.md).
 
 ## Contributing
 

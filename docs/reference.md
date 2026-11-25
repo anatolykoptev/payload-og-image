@@ -22,7 +22,7 @@ title) advertises nothing.
 | the hero could not be read, or the card fell back                          | `public, max-age=300, no-transform`                 |
 | unknown document, shed (503 with `Retry-After: 5`), any draft-mode request | `no-store`                                          |
 
-A card answer carries `etag: "<v>"` and `x-og-cache` (`render`, `memo`, `store` or `draft`). A downgraded card
+A card answer carries `etag: "<v>"` and `x-og-cache` (`render`, `memo`, `store`, `draft`, `downgraded` or `fallback`). A downgraded card
 (`x-og-cache: downgraded`, hero missing) and the brand fallback carry no `etag`, so a cache cannot revalidate them
 into the current version; a 304 carries the `etag`, `cache-control`, `content-type` and `x-og-cache` and is sent only once the current card is in hand. The request's `?v=` only picks the header; it is never a key, and the version is always derived
 on the server.

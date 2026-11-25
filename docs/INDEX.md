@@ -3,7 +3,7 @@
 | Document                                 | Description                                                                                    |
 | ---------------------------------------- | ---------------------------------------------------------------------------------------------- |
 | [README](../README.md)                   | What the plugin does, install, the three-file setup, compatibility                             |
-| [reference](reference.md)                | Image selection, cache headers, Next 16 specifics, drafts and editors, the store, the test kit |
+| [reference](reference.md)                | Image selection, cache headers, Next 16 specifics, drafts and editors, admin preview, endpoints, the store, the test kit, MCP tools |
 | [templates](templates.md)                | Writing a template: props, the CSS subset, fonts and stacks                                    |
 | [crawlers](crawlers.md)                  | What link-preview crawlers require and which part of the package covers it                     |
 | [operations](operations.md)              | Events, alerts, playbooks, how the card store works                                            |
