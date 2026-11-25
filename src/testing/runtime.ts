@@ -1,13 +1,16 @@
+import { existsSync } from 'node:fs'
+import path from 'node:path'
 import type { Payload } from 'payload'
 import sharp from 'sharp'
 import type { HeroLoader, Renderer, RouteContext } from '../internal/handler.js'
 import { cardPaletteOf } from '../internal/palette.js'
-import { buildRuntime, type OgRuntime, setTestRuntime } from '../internal/runtime.js'
+import { buildRuntime, heroLoaderOptionsOf, type OgRuntime, setTestRuntime } from '../internal/runtime.js'
 import { createState, type OgState } from '../internal/state.js'
 import { memoryStore } from '../internal/store/memory.js'
 import type { CardStore } from '../internal/types.js'
 import type { OgImagePluginOptions } from '../plugin/index.js'
 import { payloadSource } from '../plugin/payloadSource.js'
+import { payloadHeroLoader } from '../render/hero.js'
 import { nextOgRenderer } from '../render/nextOg.js'
 
 export type KitDocs = {
@@ -64,6 +67,12 @@ export type TestRuntimeOptions = {
    * transparent hero and no `heroBackground` has a different URL from an opaque one, and only the kit can see that when it is set.
    */
   transparentHero?: (hero: { id: string | number; filename?: string | null; updatedAt?: string | null }) => boolean
+  /**
+   * A folder of real hero files. A hero whose `filename` is a file in it is prepared by the production hero loader (the same
+   * cut, `heroBackground` and `palette.hero` the plugin's options say), so a card with a real icon is drawn as it will be. Any
+   * other hero stays the small stand-in image; a `missing...` filename is still unreadable.
+   */
+  heroDir?: string
 }
 
 const EDITOR_AUTH = 'JWT kit-editor'
@@ -155,8 +164,17 @@ export function installTestRuntime(options: OgImagePluginOptions, docs: KitDocs,
     },
   }
   const heroImages = new Map<string, string>()
-  const heroLoader: HeroLoader = async (hero) => {
+  const heroDir = o.heroDir
+  const real = heroDir === undefined ? undefined : payloadHeroLoader({ staticDirs: async () => [heroDir], ...heroLoaderOptionsOf(options) })
+  /** A hero with a file in `heroDir` (by base name, as the loader reads it). */
+  const isReal = (hero: { filename?: string | null }) => {
+    if (heroDir === undefined || typeof hero.filename !== 'string') return false
+    const name = path.basename(hero.filename)
+    return name !== '' && existsSync(path.join(heroDir, name))
+  }
+  const heroLoader: HeroLoader = async (hero, box, where) => {
     heroLoads += 1
+    if (real && isReal(hero)) return real(hero, box, where)
     if (typeof hero.filename === 'string' && hero.filename.startsWith('missing')) return null
     const tag = `${String(hero.id)}:${hero.updatedAt ?? ''}`
     let url = heroImages.get(tag)
@@ -169,7 +187,8 @@ export function installTestRuntime(options: OgImagePluginOptions, docs: KitDocs,
     }
     return url
   }
-  heroLoader.hasAlpha = async (hero) => o.transparentHero?.(hero) === true
+  heroLoader.hasAlpha = async (hero, where) =>
+    real && isReal(hero) ? (real.hasAlpha as NonNullable<HeroLoader['hasAlpha']>)(hero, where) : o.transparentHero?.(hero) === true
 
   const build = (keepStore: boolean) => {
     state = createState(options, serverUrl)

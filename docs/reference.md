@@ -345,6 +345,16 @@ describe('og kit', { timeout: 60_000 }, () => {
 
 `sizeBudget` and `templatesRender` also draw real cards, so the same limit applies to them.
 
+`ogKit(rt).glyphCoverage({ samples })` checks every stack against every sample. A stack that is not meant to draw them all (a
+Latin-only mono face against a Cyrillic sample) takes its own list: `glyphCoverage({ samples, stacks: { mono: ['Plain text'] } })`
+checks `mono` against that list and the others against `samples`; a stack name that is not configured is an error, and with
+every stack named `samples` can be left out.
+
+The test runtime's heroes are small stand-in images, always opaque. `installTestRuntime(options, docs, { heroDir })` prepares a
+hero whose `filename` is a file in that folder with the production loader (the same cut, `heroBackground` and `palette.hero`),
+so a real icon is drawn, and tested, as it will be; and `{ transparentHero: (hero) => boolean }` declares stand-ins
+transparent, to see the URL a transparent hero gets.
+
 `ogKit(rt).templatesRender({ props })` draws every registered template once with the real renderer, from the props
 you give for its id (`{ [templateId]: props }`), and fails naming a template that cannot be drawn or does not give a PNG
 of its size: a `div` with several children and no `display: flex` is caught in CI, not by the first crawler. The plugin

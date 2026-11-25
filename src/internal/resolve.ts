@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
-import type { OgOverrides, RelatedFn, Target, Template } from '../template.js'
+import type { OgOverrides, RelatedFn, ResolverArgs, Target, Template } from '../template.js'
+import { DEFAULT_HERO_BACKGROUND, normaliseHeroBackground } from './colour.js'
 import { firstShareImage, type ShareImage, shareImageOf } from './eligible.js'
 import { type LoadedFont, type Stacks, stripMissing } from './fonts.js'
 import type { CardKey, SiteInfo, Size, Upload } from './types.js'
@@ -15,6 +16,8 @@ export type GeneratedCard = {
   hero: Upload | null
   /** The upload collection the hero is read from (the target's `heroCollection`). */
   heroCollection: string | undefined
+  /** The ground this card's own target or template set for a transparent hero (normalised); the loader flattens onto it. Undefined: the plugin's. */
+  heroBackground: string | undefined
   alt: string
   url: string
   size: Size
@@ -47,6 +50,15 @@ export type ResolveInput = {
   seoImage?: { path: string; isDeliberate?: (image: unknown) => boolean }
   /** Handed to the target's resolvers (default: always null). */
   related?: RelatedFn
+}
+
+/** The target's own alt, else `<label>: <title>`. An empty answer is the default; anything but a string is the site's bug and says so. */
+function altOf(target: Target, args: ResolverArgs<any>, props: Record<string, any>, title: string): string {
+  const own = target.alt?.({ ...args, props } as never)
+  if (own !== undefined && own !== null && typeof own !== 'string')
+    throw new Error(`payload-og-image: target alt must return a string, got ${typeof own}`)
+  if (own && own.trim() !== '') return own.trim()
+  return typeof props.label === 'string' && props.label !== '' ? `${props.label}: ${title}` : title
 }
 
 export function getPath(obj: unknown, dotted: string): unknown {
@@ -194,14 +206,18 @@ export async function resolveCard(i: ResolveInput): Promise<ResolvedCard> {
   if (slug === undefined) return { kind: 'none' }
   const key = { kind: i.target.kind ?? i.targetName, slug }
   // A transparent hero nobody flattens is drawn with its alpha (0.5.0); its bytes differ from 0.4.0's, so its URL must too.
+  const ownBackground = i.target.heroBackground ?? template.heroBackground
+  const background = ownBackground === undefined ? undefined : normaliseHeroBackground(ownBackground)
+  const flattened = background !== undefined || i.heroFlattened
   const heroTransparent =
-    hero !== null && !i.heroFlattened && i.heroHasAlpha ? await i.heroHasAlpha(hero, { collection: i.target.heroCollection }) : false
+    hero !== null && !flattened && i.heroHasAlpha ? await i.heroHasAlpha(hero, { collection: i.target.heroCollection }) : false
   const v = cardVersion({
     templateId,
     templateRevision: template.revision,
     props,
     heroes: hero ? [hero] : [],
-    heroBackground: i.heroBackground,
+    // An own ground is hashed like the plugin's: only when it is not white (white is what 0.4.0 flattened onto, and hashes no tag).
+    heroBackground: background === undefined ? i.heroBackground : background === DEFAULT_HERO_BACKGROUND ? undefined : background,
     heroTransparent,
     cardPalette: i.cardPalette,
     heroPalette: i.heroPalette,
@@ -219,7 +235,8 @@ export async function resolveCard(i: ResolveInput): Promise<ResolvedCard> {
     props,
     hero,
     heroCollection: i.target.heroCollection,
-    alt: typeof props.label === 'string' && props.label !== '' ? `${props.label}: ${cardTitle}` : cardTitle,
+    heroBackground: background,
+    alt: altOf(i.target, args, props, cardTitle),
     url: `${i.serverUrl.replace(/\/+$/, '')}${cardPath(i.target, i.targetName, slug)}?v=${v}`,
     size: template.size,
     type: 'image/png',

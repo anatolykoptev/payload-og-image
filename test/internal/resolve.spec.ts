@@ -1,4 +1,8 @@
 /** Mutation table (production line -> the test that goes RED). Silent-failure surface: a wrong card advertised, a stale URL, a colliding key.
+ * - resolve.ts `altOf` ignores `target.alt` -> "alt: a target's own alt wins; none, empty or whitespace keeps `<label>: <title>`" RED
+ * - resolve.ts `ownBackground` ignored, or the template's read before the target's -> "a hero ground set on the target or the template is the plugin's, and the target wins" RED
+ * - resolve.ts `heroBackground: background` left out of the card -> handler.spec "a ground set on the target reaches the hero loader" RED
+ * - template.ts `normaliseHeroBackground` dropped from defineTarget/defineTemplate -> "a malformed hero ground on a target or a template is refused" RED
  * - resolve.ts:116  drop `!sameUpload(seo, rawHero)` -> "3: an editor image that is the hero itself does not override the card" RED
  * - resolve.ts:116  drop the `isDeliberate` check -> "7: isDeliberate returning false is not shared" RED
  * - resolve.ts:119  ignore `target.share()` -> "6: share() ..." RED; call it eagerly -> "does not call share() when the editor image already wins" RED
@@ -313,6 +317,60 @@ describe('resolveCard', () => {
     const flat = ask(true)
     expect((await generated({ doc, target, heroFlattened: true, heroHasAlpha: flat })).v).toBe(opaque.v)
     expect(flat).not.toHaveBeenCalled()
+  })
+  it('none of the 0.5 options set: every card version is exactly the one 0.4.0 gave (pinned)', async () => {
+    const real = { id: 9, url: '/m/h.png', updatedAt: 'u1', mimeType: 'image/png' }
+    const plain = { id: 1, slug: 'a', title: 'A' }
+    const withHero = { ...plain, heroImage: real }
+    expect((await generated({ doc: plain })).v).toBe('d97fedf8c6c0')
+    expect((await generated({ doc: withHero })).v).toBe('4452b821e754')
+    expect((await generated({ doc: withHero, heroBackground: '#336699', heroFlattened: true })).v).toBe('06f1fe65fb77')
+    expect((await generated({ doc: withHero, heroPalette: 'false' })).v).toBe('72dac2a11095')
+  })
+  it("a hero ground set on the target or the template is the plugin's, and the target wins", async () => {
+    const doc = { id: 1, slug: 'a', title: 'A', heroImage: { id: 9, url: '/m/h.png', updatedAt: 'u1', mimeType: 'image/png' } }
+    const global = (await generated({ doc, heroBackground: '#336699', heroFlattened: true })).v // pinned above as 06f1fe65fb77
+    const withTarget = (heroBackground: string) => defineTarget<any, any>({ ...posts, heroBackground })
+    const r = await generated({ doc, target: withTarget('#336699') })
+    expect(r.v).toBe(global)
+    expect(r.heroBackground).toBe('#336699')
+    expect((await generated({ doc, target: withTarget('#369') })).v).toBe(global) // spellings of one colour agree
+    expect((await generated({ doc, target: withTarget('#112233') })).v).not.toBe(global)
+    // The template's ground, when the target has none; the target's wins over it.
+    const dark = defineTemplate<any>({ id: 'post', revision: '1', heroBackground: '#336699', render: () => null as never })
+    const templates = new Map([['post', dark]])
+    expect((await generated({ doc, templates })).v).toBe(global)
+    expect((await generated({ doc, templates, target: withTarget('#112233') })).v).toBe(
+      (await generated({ doc, target: withTarget('#112233') })).v,
+    )
+    // Over the plugin's: the card's own ground replaces it.
+    expect((await generated({ doc, target: withTarget('#336699'), heroBackground: '#112233', heroFlattened: true })).v).toBe(global)
+    // An own white is flattened onto white, which hashes no tag, as 0.4.0's default did; the probe is not asked.
+    const probe = vi.fn(async () => true)
+    const white = await generated({ doc, target: withTarget('#ffffff'), heroHasAlpha: probe })
+    expect(white.v).toBe((await generated({ doc })).v)
+    expect([white.heroBackground, probe.mock.calls.length]).toEqual(['#ffffff', 0])
+  })
+  it('a malformed hero ground on a target or a template is refused when it is defined', () => {
+    expect(() => defineTarget<any, any>({ ...posts, heroBackground: 'red' })).toThrow(/heroBackground must be #rgb or #rrggbb/)
+    expect(() => defineTemplate<any>({ id: 'x', revision: '1', heroBackground: '#12345', render: () => null as never })).toThrow(
+      /heroBackground/,
+    )
+  })
+  it("alt: a target's own alt wins; none, empty or whitespace keeps `<label>: <title>`", async () => {
+    const doc = { id: 1, slug: 'a', title: 'A' }
+    const seen: unknown[] = []
+    const own = defineTarget<any, any>({ ...posts, alt: (a) => (seen.push(a.props.title), `Card for ${a.doc.title} on ${a.site.name}`) })
+    expect((await generated({ doc, target: own })).alt).toBe('Card for A on S')
+    expect(seen).toEqual(['A']) // the props the template draws, normalised
+    for (const blank of [undefined, null, '', '  ']) {
+      expect((await generated({ doc, target: defineTarget<any, any>({ ...posts, alt: () => blank }) })).alt).toBe('Blog: A')
+    }
+    expect((await generated({ doc })).alt).toBe('Blog: A')
+    // Alt is not drawn: it is no part of the version.
+    expect((await generated({ doc, target: own })).v).toBe((await generated({ doc })).v)
+    const bad = defineTarget<any, any>({ ...posts, alt: (() => 5) as never })
+    await expect(generated({ doc, target: bad })).rejects.toThrow(/alt must return a string/)
   })
   it('the template can be chosen per document, and an unknown one names the target', async () => {
     const target = defineTarget<any, any>({ ...posts, template: ({ doc }) => (doc.isPage ? 'page' : 'post') })

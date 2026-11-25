@@ -14,11 +14,22 @@ import type { ReactElement } from 'react';
 export type Box = {
     width: number;
     height: number;
-    maxSize: number;
-    minSize: number;
     leading: number;
     maxLines?: number;
-};
+    sizes?: readonly Step[];
+    tracking?: number;
+    descent?: number;
+    fewerLines?: boolean;
+    balance?: boolean;
+} & ({
+    maxSize: number;
+    minSize: number;
+    sizes?: undefined;
+} | {
+    sizes: readonly Step[];
+    maxSize?: undefined;
+    minSize?: undefined;
+});
 
 // @public (undocumented)
 export function defineTarget<D, P>(t: Target<D, P>): Target<D, P>;
@@ -207,7 +218,8 @@ export function ogKit(rt: TestRuntime): {
         params: Params;
     }): Promise<void>;
     glyphCoverage(a: {
-        samples: string[];
+        samples?: string[];
+        stacks?: Record<string, string[]>;
     }): Promise<void>;
     templatesRender(a: {
         props: Record<string, Record<string, unknown>>;
@@ -301,7 +313,14 @@ export type StaticCard<P = any> = {
         payload: unknown;
         site: SiteInfo;
     }) => P | Promise<P>;
+    alt?: string | ((a: {
+        props: Normalized<P>;
+        site: SiteInfo;
+    }) => string | null | undefined);
 };
+
+// @public
+export type Step = number | readonly [size: number, maxLines: number];
 
 // @public (undocumented)
 export type Target<D = any, P = any> = {
@@ -313,6 +332,10 @@ export type Target<D = any, P = any> = {
     props: (a: ResolverArgs<D>) => P | Promise<P>;
     hero?: (a: ResolverArgs<D>) => Upload | null | undefined;
     heroCollection?: string;
+    heroBackground?: string;
+    alt?: (a: ResolverArgs<D> & {
+        props: Normalized<P>;
+    }) => string | null | undefined;
     share?: (a: ResolverArgs<D>) => unknown[];
     select?: Record<string, true>;
 };
@@ -326,6 +349,7 @@ export type Template<P extends PropsModel> = {
     textFields?: (keyof P & string)[];
     stacks?: Record<string, string>;
     heroBox?: Size;
+    heroBackground?: string;
     render(p: P, ctx: TemplateContext): ReactElement;
 };
 
@@ -337,6 +361,7 @@ export type TemplateContext = {
         size: number;
         lines: number;
         text: string;
+        width?: number;
     };
     font(stack: string, text: string): string;
 };
@@ -385,6 +410,7 @@ export type TestRuntimeOptions = {
         filename?: string | null;
         updatedAt?: string | null;
     }) => boolean;
+    heroDir?: string;
 };
 
 // @public (undocumented)

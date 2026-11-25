@@ -1,4 +1,5 @@
 import type { ReactElement } from 'react'
+import { normaliseHeroBackground } from './internal/colour.js'
 import type { Box } from './internal/fonts.js'
 import { MAX_SIDE } from './internal/limits.js'
 import type { SiteInfo, Size, Upload } from './internal/types.js'
@@ -32,7 +33,12 @@ export type TemplateContext = {
   host: string
   /** The hero as a data URL, or null when the card has none (or it could not be prepared). */
   hero: string | null
-  fit(text: string, box: Box, stack: string): { size: number; lines: number; text: string }
+  /**
+   * The largest size at which `text` fits `box` in `stack`. By default every second size from `box.maxSize` down; a box can opt in to a
+   * ladder of its own (`sizes`), letter spacing (`tracking`), room for descenders (`descent`), a calmer line count (`fewerLines`) and
+   * the narrowest width that keeps the line count (`balance`, answered as `width`).
+   */
+  fit(text: string, box: Box, stack: string): { size: number; lines: number; text: string; width?: number }
   /** The font family of `stack` that draws every character of `text`. */
   font(stack: string, text: string): string
 }
@@ -50,6 +56,8 @@ export type Template<P extends PropsModel> = {
   /** Which font stack each text field uses (field name -> stack name); a field without an entry uses the stack of its own name. */
   stacks?: Record<string, string>
   heroBox?: Size
+  /** The colour this template's transparent hero is flattened onto (`#rgb` or `#rrggbb`), instead of the plugin's `heroBackground`. A target's own wins. */
+  heroBackground?: string
   render(p: P, ctx: TemplateContext): ReactElement
 }
 
@@ -58,6 +66,7 @@ const DEFAULT_SIZE: Size = { width: 1200, height: 630 }
 export function defineTemplate<P extends PropsModel>(t: Omit<Template<P>, 'size'> & { size?: Size }): Template<P> {
   if (typeof t.id !== 'string' || t.id.trim() === '') throw new Error('payload-og-image: a template needs a non-empty id')
   if (typeof t.revision !== 'string') throw new Error(`payload-og-image: template "${t.id}" needs a string revision`)
+  if (t.heroBackground !== undefined) normaliseHeroBackground(t.heroBackground) // a named error now, not at the first card
   const size = t.size ?? DEFAULT_SIZE
   if (
     !(
@@ -106,6 +115,13 @@ export type Target<D = any, P = any> = {
   hero?: (a: ResolverArgs<D>) => Upload | null | undefined
   /** The upload collection the hero belongs to. A hero file is read only from that collection's folder; with one upload collection it may be omitted. */
   heroCollection?: string
+  /** The colour this target's transparent hero is flattened onto (`#rgb` or `#rrggbb`); wins over the template's and the plugin's `heroBackground`. */
+  heroBackground?: string
+  /**
+   * The card's alt text, as the page advertises it (`og:image:alt`). Default `<label>: <title>` from the props, or the title alone.
+   * An empty answer takes the default. It is not drawn, so it is not part of the card's URL.
+   */
+  alt?: (a: ResolverArgs<D> & { props: Normalized<P> }) => string | null | undefined
   /** Candidate uploads shared as they are, in order, before a card is generated. */
   share?: (a: ResolverArgs<D>) => unknown[]
   /** Fields to read (the slug field and the share-image field are always added). Omit it to read every field. */
@@ -121,6 +137,8 @@ export function defineTarget<D, P>(t: Target<D, P>): Target<D, P> {
   if (!/:(slug|id)\b/.test(t.path)) {
     throw new Error(`payload-og-image: target path "${t.path}" has no :slug or :id, so every document would share one card URL`)
   }
+  if (t.heroBackground !== undefined) normaliseHeroBackground(t.heroBackground)
+  if (t.alt !== undefined && typeof t.alt !== 'function') throw new Error('payload-og-image: target alt must be a function')
   if (t.kind !== undefined && !/^[A-Za-z0-9_~-][A-Za-z0-9._~-]*$/.test(t.kind)) {
     throw new Error(`payload-og-image: target kind "${t.kind}" must be one URL-safe path segment`)
   }
@@ -134,4 +152,6 @@ export type StaticCard<P = any> = {
   slug: string
   template: string
   props: (a: { payload: unknown; site: SiteInfo }) => P | Promise<P>
+  /** The card's alt text: a string, or a function of the props it draws. Default `<label>: <title>`, or the title alone. Not part of the URL. */
+  alt?: string | ((a: { props: Normalized<P>; site: SiteInfo }) => string | null | undefined)
 }

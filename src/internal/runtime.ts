@@ -66,6 +66,13 @@ const heroBackgroundOf = (o: Pick<OgImagePluginOptions, 'heroBackground'>) => {
   return c === DEFAULT_HERO_BACKGROUND ? undefined : c
 }
 
+/** What the plugin's options say about preparing a hero, apart from where its file is. */
+export const heroLoaderOptionsOf = (o: Pick<OgImagePluginOptions, 'allowedImageHosts' | 'heroBackground' | 'palette'>) => ({
+  allowedHosts: o.allowedImageHosts,
+  background: o.heroBackground === undefined ? undefined : normaliseHeroBackground(o.heroBackground),
+  colours: heroColoursOf(o.palette),
+})
+
 /** The production hero loader: reads only the hero's own upload collection (`Target.heroCollection`), or the one upload collection there is. */
 export function heroLoaderFor(payload: Payload, o: Pick<OgImagePluginOptions, 'allowedImageHosts' | 'heroBackground' | 'palette'>) {
   return payloadHeroLoader({
@@ -77,9 +84,7 @@ export function heroLoaderFor(payload: Payload, o: Pick<OgImagePluginOptions, 'a
       const own = collection === undefined ? (uploads.length === 1 ? uploads : []) : uploads.filter((u) => u.slug === collection)
       return own.map((u) => u.dir)
     },
-    allowedHosts: o.allowedImageHosts,
-    background: o.heroBackground === undefined ? undefined : normaliseHeroBackground(o.heroBackground),
-    colours: heroColoursOf(o.palette),
+    ...heroLoaderOptionsOf(o),
   })
 }
 

@@ -125,6 +125,8 @@ function validate(o: OgImagePluginOptions, config: Config): string {
     if (typeof card.path !== 'string' || !card.path.startsWith('/') || /[?#]/.test(card.path))
       fail(`static card "${key}" path must be a pathname starting with "/"`)
     if (!templates.has(card.template)) fail(`static card "${key}" names the unknown template "${card.template}"`)
+    if (card.alt !== undefined && typeof card.alt !== 'string' && typeof card.alt !== 'function')
+      fail(`static card "${key}" alt must be a string or a function`)
     if (Object.hasOwn(kinds, card.kind)) fail(`static card "${key}" kind "${card.kind}" collides with a target kind`)
     const id = `${card.kind}/${card.slug}`
     if (seen.has(id)) fail(`two static cards share "${id}"`)

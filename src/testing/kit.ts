@@ -510,11 +510,26 @@ export function ogKit(rt: TestRuntime) {
         fail('downgradeNotStored', 'a downgraded card was remembered in memory: the next request did not try the hero again')
     },
 
-    /** Every stack draws every sample string. */
-    async glyphCoverage(a: { samples: string[] }): Promise<void> {
+    /**
+     * Every stack draws every sample string. A stack named in `stacks` is checked against its own samples instead (a Latin-only
+     * mono stack does not have to draw a Cyrillic sample); naming a stack that is not configured is an error, so a typo cannot
+     * leave a stack unchecked.
+     */
+    async glyphCoverage(a: { samples?: string[]; stacks?: Record<string, string[]> }): Promise<void> {
       const { fonts } = await loadFonts(rt)
+      const own = a.stacks ?? {}
+      for (const [name, list] of Object.entries(own)) {
+        if (list.length === 0) fail('glyphCoverage', `no samples given for the stack "${name}": an empty list checks nothing`)
+        if (!Object.hasOwn(rt.options.stacks, name))
+          fail(
+            'glyphCoverage',
+            `samples given for the stack "${name}", which is not configured (stacks: ${Object.keys(rt.options.stacks).join(', ')})`,
+          )
+      }
+      if (a.samples === undefined && Object.keys(rt.options.stacks).some((name) => !Object.hasOwn(own, name)))
+        fail('glyphCoverage', 'give `samples` for the stacks that have no entry in `stacks`')
       for (const [name, stack] of Object.entries(rt.options.stacks)) {
-        for (const sample of a.samples) {
+        for (const sample of Object.hasOwn(own, name) ? (own[name] as string[]) : (a.samples as string[])) {
           const missing = missingGlyphs(fonts, stack, sample)
           if (missing.length > 0) fail('glyphCoverage', `stack "${name}" cannot draw ${JSON.stringify(missing.join(''))} of "${sample}"`)
         }
