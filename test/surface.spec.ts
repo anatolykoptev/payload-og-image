@@ -10,6 +10,6 @@ describe('public surface (S§D1)', () => {
     expect(Object.keys(main).sort()).toEqual(['defineTarget', 'defineTemplate', 'ogFields', 'ogImagePlugin'])
     expect(Object.keys(next).sort()).toEqual(['OG_SITE_TAG', 'createOgRoute', 'ogMetadata', 'ogTag', 'withHead'])
     expect(Object.keys(testing).sort()).toEqual(['installTestRuntime', 'ogKit'])
-    expect(Object.keys(mcp).sort()).toEqual(['ogImageMcpTools'])
+    expect(Object.keys(mcp).sort()).toEqual(['ogImageMcpToolMap', 'ogImageMcpTools'])
   })
 })

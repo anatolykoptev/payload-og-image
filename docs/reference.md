@@ -393,16 +393,25 @@ outside production, a `render_error` event in production).
 ## MCP tools
 
 A site that already runs `@payloadcms/plugin-mcp` can let an agent look at its cards. `payload-og-image/mcp` returns tool
-definitions in the plugin's own custom-tool shape; it builds no server. One line of wiring. `zod` is an optional peer: the plugin depends
-on it, but under strict pnpm (no hoisting) add `zod@^3.25.50` to your own dependencies, since an optional peer is not installed for you:
+definitions in the plugin's own custom-tool shape; it builds no server and imports nothing from the plugin. One line of wiring,
+by the plugin's major (the two have different custom-tool APIs):
 
 ```ts
-import { ogImageMcpTools } from 'payload-og-image/mcp'
+import { ogImageMcpTools, ogImageMcpToolMap } from 'payload-og-image/mcp'
 
+// @payloadcms/plugin-mcp 3 (Payload 3): an array under `mcp.tools`
 mcpPlugin({ /* collections, globals... */ mcp: { tools: [...ogImageMcpTools({ describedBy: 'meta.description' })] } })
+
+// @payloadcms/plugin-mcp 4 (Payload 4): a map under the top-level `tools`
+mcpPlugin({ /* collections, globals... */ tools: { ...ogImageMcpToolMap({ describedBy: 'meta.description' }) } })
 ```
 
-Enable each tool for an API key in the admin, as for any custom tool. They change nothing in your content, and read what the card
+The same implementation serves both. `ogImageMcpTools` needs `zod` (`^3.25.50`, the version plugin 3 uses): the plugin depends on it,
+but under strict pnpm (no hoisting) add it to your own dependencies, since an optional peer is not installed for you. The Payload 4
+map takes JSON Schema inputs and needs no schema library. On Payload 4 the tools are available to a signed-in MCP user, as the plugin's own
+default is; pass `access: ({ req }) => ...` to narrow it. On Payload 3 each tool is enabled per API key in the admin.
+
+They change nothing in your content, and read what the card
 route reads: published documents only, as the public, never a draft and never an editor, whatever the key's user may see. The one
 write is `og_preview` storing a card the route would have stored, under its versioned key. Calls share a small queue of their own
 (two at a time, two waiting); a busier moment answers `busy`, and any failure answers a fixed sentence while the detail goes to the server's log.

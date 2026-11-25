@@ -15,14 +15,21 @@ import { installTestRuntime } from '../../src/exports/testing.js'
 import { ShedError } from '../../src/internal/gate.js'
 import { ToolInputError } from '../../src/internal/inspect.js'
 import { setTestRuntime } from '../../src/internal/runtime.js'
-import { ogImageMcpTools } from '../../src/mcp/tools.js'
+import { ogImageMcpToolMap, ogImageMcpTools } from '../../src/mcp/tools.js'
 import type { OgImagePluginOptions } from '../../src/plugin/index.js'
 import { defineTarget, defineTemplate } from '../../src/template.js'
 
-// The tool list is what `mcp.tools` of @payloadcms/plugin-mcp takes: a type error here is a broken wiring for every site.
-type PluginTools = NonNullable<NonNullable<Parameters<typeof mcpPlugin>[0]['mcp']>['tools']>
-const _assignable: PluginTools = ogImageMcpTools()
-void _assignable
+// What each plugin major takes. The suite runs against Payload 3's plugin types and, in the beta job, Payload 4's: a surface
+// the installed major does not have is `true`, so one file type-checks on both and each side is checked where it exists.
+type PluginOpts = Parameters<typeof mcpPlugin>[0]
+type Prop<T, K extends PropertyKey> = K extends keyof T ? T[K] : never
+type V3Tools = NonNullable<Prop<NonNullable<Prop<PluginOpts, 'mcp'>>, 'tools'>>
+type V4Tools = NonNullable<Prop<PluginOpts, 'tools'>>
+type Assignable<Wanted, Ours> = [Wanted] extends [never] ? true : [Ours] extends [Wanted] ? true : never
+const _v3: Assignable<V3Tools, ReturnType<typeof ogImageMcpTools>> = true
+const _v4: Assignable<V4Tools, ReturnType<typeof ogImageMcpToolMap>> = true
+void _v3
+void _v4
 
 const font = () => readFile(new URL('../fixtures/fonts/inter-latin-cyrillic-800.woff', import.meta.url))
 const card = defineTemplate<{ title: string }>({
@@ -344,5 +351,46 @@ describe('og_preview', () => {
     const r = await run('og_preview', { target: 'posts', slug: 'a' }, { maxPreviewBytes: 10 })
     expect(r.content.some((c) => c.type === 'image')).toBe(false)
     expect(r.json.image).toMatch(/not sent/)
+  })
+})
+
+describe('ogImageMcpToolMap (Payload 4)', () => {
+  it('offers the same tools with JSON Schema inputs that name the same arguments as the zod ones', () => {
+    const map = ogImageMcpToolMap()
+    const v3 = ogImageMcpTools()
+    expect(Object.keys(map)).toEqual(v3.map((t) => t.name))
+    for (const t of v3) {
+      const m = map[t.name] as ReturnType<typeof ogImageMcpToolMap>[string]
+      expect(m.description).toBe(t.description)
+      expect(m.input).toMatchObject({ type: 'object', additionalProperties: false })
+      expect(Object.keys(m.input.properties).sort()).toEqual(Object.keys(t.parameters).sort())
+    }
+    expect(Object.keys(ogImageMcpToolMap({ tools: ['card'] }))).toEqual(['og_card'])
+  })
+
+  it('answers what the v3 tools answer, image part included', async () => {
+    const rt = installTestRuntime(options(), docs())
+    const map = ogImageMcpToolMap()
+    const call = (name: string, input: Record<string, unknown>) =>
+      (map[name] as ReturnType<typeof ogImageMcpToolMap>[string]).handler({ input, req })
+    const card = await call('og_card', { target: 'posts', slug: 'a' })
+    expect(JSON.parse((card.content[0] as { text: string }).text)).toEqual((await run('og_card', { target: 'posts', slug: 'a' })).json)
+    expect(rt.renders()).toBe(0)
+    const preview = await call('og_preview', { target: 'posts', slug: 'a' })
+    expect(preview.content[0]).toMatchObject({ type: 'image', mimeType: 'image/png' })
+    expect(rt.stored()).toHaveLength(1)
+    const audit = await call('og_audit', { scope: 'posts', limit: 2 })
+    expect(JSON.parse((audit.content[0] as { text: string }).text)).toMatchObject({ scope: 'posts', limit: 2, total: 5 })
+    expect((await call('og_audit', { scope: 'nope' })).isError).toBe(true)
+  })
+
+  it('access: a signed-in MCP user by default, or what the site says; nobody anonymous', async () => {
+    const tool = ogImageMcpToolMap().og_card as ReturnType<typeof ogImageMcpToolMap>[string]
+    expect(await tool.access({ req: { user: { id: 1 } } as never })).toBe(true)
+    expect(await tool.access({ req: {} as never })).toBe(false)
+    const custom = ogImageMcpToolMap({ access: ({ req }) => (req.user as { role?: string } | null)?.role === 'seo' })
+      .og_audit as ReturnType<typeof ogImageMcpToolMap>[string]
+    expect(await custom.access({ req: { user: { role: 'seo' } } as never })).toBe(true)
+    expect(await custom.access({ req: { user: { role: 'other' } } as never })).toBe(false)
   })
 })

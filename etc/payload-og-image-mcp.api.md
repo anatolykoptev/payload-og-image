@@ -5,7 +5,7 @@
 ```ts
 
 import type { PayloadRequest } from 'payload';
-import { z } from 'zod';
+import type { ZodRawShape } from 'zod';
 
 // @public (undocumented)
 export type AuditPage = {
@@ -89,13 +89,23 @@ export type HeroReport = {
 };
 
 // @public
+export function ogImageMcpToolMap(o?: OgMcpToolsOptions): Record<string, OgMcpToolV4>;
+
+// @public
 export function ogImageMcpTools(o?: OgMcpToolsOptions): OgMcpTool[];
+
+// @public
+export type OgMcpJsonSchema = {
+    type: 'object';
+    properties: Record<string, object>;
+    additionalProperties: boolean;
+};
 
 // @public
 export type OgMcpTool = {
     name: string;
     description: string;
-    parameters: z.ZodRawShape;
+    parameters: ZodRawShape;
     handler: (args: Record<string, unknown>, req: PayloadRequest, extra: unknown) => Promise<{
         content: Array<{
             type: 'text';
@@ -111,7 +121,27 @@ export type OgMcpToolsOptions = {
     describedBy?: string;
     locate?: (pathname: string) => CardRef | null | undefined;
     maxPreviewBytes?: number;
+    access?: (args: {
+        req: PayloadRequest;
+    }) => boolean | Promise<boolean>;
 };
+
+// @public
+export type OgMcpToolV4 = {
+    description: string;
+    input: OgMcpJsonSchema;
+    access: (args: {
+        req: PayloadRequest;
+    }) => boolean | Promise<boolean>;
+    handler: (args: {
+        input: Record<string, unknown>;
+        req: PayloadRequest;
+    }) => Promise<Answer>;
+};
+
+// Warnings were encountered during analysis:
+//
+// dist/mcp/tools.d.ts:45:5 - (ae-forgotten-export) The symbol "Answer" needs to be exported by the entry point mcp.d.ts
 
 // (No @packageDocumentation comment for this package)
 
