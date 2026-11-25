@@ -36,7 +36,8 @@ export function compilerLocations(cwd: string = process.cwd()): Load[] {
 /**
  * The TypeScript compiler API, from the first of `typescript` (5 or 6) or `@typescript/typescript6` that has it, looked up in each
  * location in turn (default: the working directory, then this package; a test substitutes its own). A package without the API
- * (TypeScript 7) in one location does not hide a usable one in the next. Throws an Error that says what to install when none has it.
+ * (TypeScript 7) in one location does not hide a usable one in the next. Throws an Error that says what to install when none has it, with
+ * the reason each location was skipped (the real `require` message, or "has no compiler API").
  */
 export function loadTypescript(...locations: Load[]): Ts {
   const notes: string[] = []
@@ -45,7 +46,9 @@ export function loadTypescript(...locations: Load[]): Ts {
       let found: unknown
       try {
         found = load(id)
-      } catch {
+      } catch (error) {
+        // Why a location was skipped matters when none works: a broken install reads differently from a missing one.
+        notes.push(`${id}: ${String((error as Error)?.message ?? error).split('\n')[0]}`)
         continue
       }
       if (typeof (found as Partial<Ts> | undefined)?.createSourceFile === 'function') return found as Ts

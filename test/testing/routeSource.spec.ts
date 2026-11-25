@@ -1,14 +1,15 @@
 /** Mutation table (production line -> the test that goes RED). A route file is a card route only if it exports the GET of a createOgRoute() call from payload-og-image/next; the file is parsed with the TypeScript compiler API.
- * - routeSource.ts:138 accept createOgRoute imported from any module -> "createOgRoute imported from another module" RED
- * - routeSource.ts:210 check only the first binding of an export statement -> "every binding of one export statement is checked, not the first" RED
- * - routeSource.ts:164 credit a conditional expression as its first branch -> "a compound expression that mentions a card alias" RED
- * - routeSource.ts:221 accept `export { GET } from './x'` as a route export -> "a GET re-exported from another module" RED
- * - routeSource.ts:168 the first of two declarations of a name wins -> "a name declared twice is not guessed at" RED
- * - routeSource.ts:168 the LAST of two declarations of a name wins -> "a name declared twice, the card GET last" RED
- * - routeSource.ts:145 ignore a namespace import (`og.createOgRoute`) -> "a namespace import" and "... called in place" RED
- * - routeSource.ts:43  try only the first location (the project's) -> "falls back to the plugin own typescript when the project has none" and "a compiler-less typescript (7) in the project does not hide a usable one in the plugin" RED
+ * - routeSource.ts:141 accept createOgRoute imported from any module -> "createOgRoute imported from another module" RED
+ * - routeSource.ts:213 check only the first binding of an export statement -> "every binding of one export statement is checked, not the first" RED
+ * - routeSource.ts:167 credit a conditional expression as its first branch -> "a compound expression that mentions a card alias" RED
+ * - routeSource.ts:224 accept `export { GET } from './x'` as a route export -> "a GET re-exported from another module" RED
+ * - routeSource.ts:171 the first of two declarations of a name wins -> "a name declared twice is not guessed at" RED
+ * - routeSource.ts:171 the LAST of two declarations of a name wins -> "a name declared twice, the card GET last" RED
+ * - routeSource.ts:148 ignore a namespace import (`og.createOgRoute`) -> "a namespace import" and "... called in place" RED
+ * - routeSource.ts:44  try only the first location (the project's) -> "falls back to the plugin own typescript when the project has none" and "a compiler-less typescript (7) in the project does not hide a usable one in the plugin" RED
+ * - routeSource.ts:51  drop the `notes.push` of a failed require -> "the final error keeps the real require error of every skipped location" RED
  * - routeSource.ts:33  look in the plugin before the project's working directory -> "takes the typescript of the working directory over the plugin own" RED
- * - routeSource.ts:51  accept a module without createSourceFile (TypeScript 7) -> every card-route test and the loader tests RED
+ * - routeSource.ts:54  accept a module without createSourceFile (TypeScript 7) -> every card-route test and the loader tests RED
  * - routeSource.ts:23  never try @typescript/typescript6 -> the same tests RED
  * - exports.spec.ts: a static `import ... from 'typescript'` in routeSource.ts -> "no entry imports the TypeScript compiler" RED
  * - The old hand-rolled scanner (origin/main) fails "a helper and the module both declare `handler`", "an uninitialised typed `let GET`", "a logical expression over the card alias" and "every binding of one export statement".  */
@@ -241,6 +242,17 @@ describe('loadTypescript', () => {
     expect(() => loadTypescript((id) => (id === 'typescript' ? { version: '7.0.2' } : missing(id)))).toThrow(
       /typescript 7\.0\.2 has no compiler API/,
     )
+  })
+  it('the final error keeps the real require error of every skipped location', () => {
+    const broken = (id: string): never => {
+      throw new Error(`Cannot find module '${id}/lib/typescript.js'\nRequire stack:\n- /x`)
+    }
+    expect(() => loadTypescript(broken, missing)).toThrow(/typescript: Cannot find module 'typescript\/lib\/typescript\.js'/)
+    expect(() => loadTypescript(broken, missing)).toThrow(
+      /@typescript\/typescript6: Cannot find module '@typescript\/typescript6\/lib\/typescript\.js'/,
+    )
+    expect(() => loadTypescript(missing)).toThrow(/typescript: Cannot find module 'typescript'/)
+    expect(() => loadTypescript(broken)).not.toThrow(/Require stack/)
   })
   it('the default loader finds a compiler in this repository', () => {
     expect(typeof loadTypescript().createSourceFile).toBe('function')

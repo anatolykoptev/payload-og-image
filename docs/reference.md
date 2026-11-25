@@ -59,7 +59,8 @@ Two ways out:
 - **Render on every request**: `export const dynamic = 'force-dynamic'` on the page, as the dev app's `posts/[slug]` does.
 - **Revalidate on save**: tag what the page reads and expire the tag from an `afterChange` hook. `ogTag(collection, key)` and
   `OG_SITE_TAG` from `payload-og-image/next` only name the tags, so the page and the hook agree (`key` is anything both
-  know: the slug, the id).
+  know: the slug, the id; a tag over Next's 256-character limit (`unstable_cache` drops it with a console warning, `revalidateTag` silently matches
+  nothing) is shortened to a hash; a raw key shaped like a shortened tag can equal one, which only refreshes one page too many).
 
 ```ts
 // page: what it reads carries the tag
@@ -78,7 +79,20 @@ export const revalidatePost: CollectionAfterChangeHook = ({ doc, previousDoc, re
 ```
 
 Use `{ expire: 0 }`, not `'max'`: `'max'` serves the stale page to the next visitor, and the next visitor after a save is
-often the crawler. Deleting a document runs no `afterChange`: add an `afterDelete` hook that expires the same tag. Without a tagged read, `revalidatePath('/posts/<slug>')` does the same for one page. The plugin's own
+often the crawler. `afterChange` (and `afterOperation`) run inside the operation's transaction, before it commits (Payload 3.94.1: `updateByID` calls
+`buildAfterOperation` before `commitTransaction`; `req.transactionID` is set while one is open). A request that re-renders the
+page in that window reads the old document and caches it again, with the old `og:image`. For a rarely read page the window is
+milliseconds and does not matter. For a hot page, collect the tags of the request and expire them
+once the commit is done, from outside Payload: wrap the REST route's handlers in `app/(payload)/api/[...slug]/route.ts` and share the
+tags through an `AsyncLocalStorage` (the wrapper cannot see `req`, and a module-level set would mix the tags of overlapping saves).
+Every mutating REST method needs the wrapper: `POST`, `PATCH` and `DELETE`. The hook falls back to expiring at once when it runs
+outside a wrapper (GraphQL, a job, the Local API, a script), which is inside the transaction, so that window stays open there:
+`const tags = new AsyncLocalStorage<Set<string>>()`; in the hook, `const s = tags.getStore(); s ? s.add(t) : revalidateTag(t, { expire: 0 })`
+with `t = ogTag('posts', slug)`; and
+`export const PATCH = async (r, c) => { const mine = new Set<string>(); const res = await tags.run(mine, () => REST_PATCH(config)(r, c)); for (const t of mine) revalidateTag(t, { expire: 0 }); return res }`
+(that wrapper resolves after the commit), the same for `POST` and `DELETE`.
+
+Deleting a document runs no `afterChange`: add an `afterDelete` hook that expires the same tag. Without a tagged read, `revalidatePath('/posts/<slug>')` does the same for one page. The plugin's own
 `afterChange` on `siteGlobals` only drops its per-process `site()` cache; it never touches Next's page cache. A vitest suite
 has no Next page cache, so the proof is over HTTP: `scripts/probe-dev-server.mjs` (run in CI after the build) edits a post
 of the dev app's cached page `/cached/[slug]` and requires the page to advertise a new card URL at once.
