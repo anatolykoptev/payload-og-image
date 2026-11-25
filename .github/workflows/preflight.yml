@@ -37,16 +37,15 @@ jobs:
       # serve it with `next start` and probe a card, a stale ?v, an unknown slug and a REST upload. Needs the build above.
       - run: node scripts/probe-dev-server.mjs
 
-  # Payload 4 support: the type check, the suite, the public surface and the dev-app HTTP probe against the newest published
+  # Payload 4 support, a gate like `preflight`: the type check, the suite, the public surface and the dev-app HTTP probe against the newest published
   # Payload 4 beta that clears the release-age cooldown. Nothing from this job ships or is committed back.
   payload-beta:
     if: ${{ !github.event.repository.private || github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
     runs-on: ${{ github.event.repository.private && fromJSON('["self-hosted","linux","arm64"]') || 'ubuntu-24.04-arm' }}
-    continue-on-error: true
     timeout-minutes: 25
     env:
       # The dev app drops the `sharp` config key on Payload 4 (it throws on the key), and the suite reads this to match.
-      PAYLOAD_MAJOR: '4'
+      PAYLOAD_MAJOR: "4"
       PAYLOAD_CONFIG_PATH: dev/payload.config.ts
     steps:
       - uses: actions/checkout@v7
