@@ -3,6 +3,7 @@
  * - resolve.ts:169 leave heroBackground out of the version -> "a changed heroBackground is a new card URL" RED
  * - runtime.ts `cardPalette`/`heroPalette` left out of the handler deps -> "a palette option is part of the card URL only when it changes the output" RED
  * - version.ts `cardPalette`/`heroPalette` left out of the hash -> same test RED
+ * - palette.ts `effectiveColours` removed (raw count hashed) -> same test RED
  * - metadata.ts:17  never set `secureUrl` -> "1: a generated card", "2: the editor image is advertised as it is" RED; set it for an http URL too -> "43: an http image gets no secureUrl" RED
  * - metadata.ts:38  always throw -> "a failure throws in development and test, and is an event with {} in production" RED
  * - metadata.ts:11  advertise a card that would be blank -> "3: a card that would be blank advertises nothing" RED */
@@ -158,6 +159,12 @@ describe('ogMetadata', () => {
     expect(await vOf({ palette: { card: 128, hero: 256 } }, withHero)).toBe(await vOf({}, withHero))
     // The card palette changes every card; the hero palette only a card with a hero.
     const base = await vOf({}, plain)
+    // Counts sharp rounds to the same depth are the same bytes, so the same URL; 200 encodes like the default.
+    expect(await vOf({ palette: { card: 200 } }, plain)).toBe(base)
+    expect(await vOf({ palette: { card: 5 } }, plain)).toBe(await vOf({ palette: { card: 16 } }, plain))
+    expect(await vOf({ palette: { card: 3 } }, plain)).not.toBe(await vOf({ palette: { card: 2 } }, plain))
+    expect(await vOf({ palette: { hero: 200 } }, withHero)).toBe(await vOf({}, withHero))
+    expect(await vOf({ palette: { hero: 9 } }, withHero)).toBe(await vOf({ palette: { hero: 16 } }, withHero))
     expect(await vOf({ palette: { card: false } }, plain)).not.toBe(base)
     expect(await vOf({ palette: { card: 16 } }, plain)).not.toBe(base)
     expect(await vOf({ palette: { card: 16 } }, plain)).not.toBe(await vOf({ palette: { card: false } }, plain))

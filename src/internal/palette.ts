@@ -6,7 +6,6 @@ export const DEFAULT_PALETTE: Palette = { colours: 128, dither: 0.5 }
 export type PaletteOption = { card?: false | number; hero?: false | number }
 export const DEFAULT_HERO_COLOURS = 256
 
-/** Throws a named error for anything but `undefined`, `false` or an integer from 2 to 256. */
 export function assertPaletteOption(o: unknown): void {
   if (o === undefined) return
   if (o === null || typeof o !== 'object' || Array.isArray(o))
@@ -19,22 +18,30 @@ export function assertPaletteOption(o: unknown): void {
   }
 }
 
-/** The card's palette for the renderer: the default when unset, `false` for truecolour, else that many colours at the default dither. */
-export const cardPaletteOf = (o?: PaletteOption): Palette | false =>
-  o?.card === undefined ? DEFAULT_PALETTE : o.card === false ? false : { ...DEFAULT_PALETTE, colours: o.card }
+/** The depth sharp actually quantises to: it rounds a colour count up to 2, 4, 16 or 256 (verified: 17 to 256 give identical bytes). */
+export const effectiveColours = (n: number): 2 | 4 | 16 | 256 => (n <= 2 ? 2 : n <= 4 ? 4 : n <= 16 ? 16 : 256)
 
-/** The hero's colour count (`false` = truecolour). */
-export const heroColoursOf = (o?: PaletteOption): false | number => o?.hero ?? DEFAULT_HERO_COLOURS
+/** The card's palette for the renderer: the default when unset or equivalent to it, `false` for truecolour, else the effective depth at the default dither. */
+export const cardPaletteOf = (o?: PaletteOption): Palette | false =>
+  o?.card === undefined || (o.card !== false && effectiveColours(o.card) === 256)
+    ? DEFAULT_PALETTE
+    : o.card === false
+      ? false
+      : { ...DEFAULT_PALETTE, colours: effectiveColours(o.card) }
+
+/** The hero's effective colour count (`false` = truecolour). */
+export const heroColoursOf = (o?: PaletteOption): false | number =>
+  o?.hero === undefined || o.hero === false ? (o?.hero ?? DEFAULT_HERO_COLOURS) : effectiveColours(o.hero)
 
 /**
- * What the card version must mention: nothing while a setting equals its default (so existing cards keep their URLs),
- * else the effective value, as the card and the hero are encoded differently then.
+ * What the card version must mention: nothing while a setting encodes like its default (so existing cards keep their URLs),
+ * else the effective depth: values sharp rounds to the same depth give the same bytes and so the same URL.
  */
 export function paletteTags(o?: PaletteOption): { card?: string; hero?: string } {
   const card = cardPaletteOf(o)
   const hero = heroColoursOf(o)
   return {
-    card: card !== false && card.colours === DEFAULT_PALETTE.colours ? undefined : String(card === false ? false : card.colours),
+    card: card !== false && card === DEFAULT_PALETTE ? undefined : String(card === false ? false : card.colours),
     hero: hero === DEFAULT_HERO_COLOURS ? undefined : String(hero),
   }
 }
