@@ -7,6 +7,7 @@
  * - hero.ts `inflight` removed -> same first test RED (two concurrent askers read twice)
  * - hero.ts the LRU touch on a hit removed, or no eviction -> "the memory is a bounded LRU" RED
  * - hero.ts a mimeType shortcut that skips the read -> "an upload is judged by its bytes, not its mimeType label" RED
+ * - hero.ts `readable` not remembered / not shared -> "readable: asks the file once per upload ..." RED
  * - hero.ts:186 `hasAlpha` ignores `isOpaque` (true for any alpha channel) -> same test RED (the opaque RGBA PNG) */
 import { mkdtemp, writeFile } from 'node:fs/promises'
 import os from 'node:os'
@@ -171,5 +172,28 @@ describe('a transparent hero', () => {
     expect(reads).toHaveLength(1001)
     await has(at(1), 'm') // the oldest untouched one went when the cap was passed
     expect(reads).toHaveLength(1002)
+  })
+})
+
+describe('readable', () => {
+  it('asks the file once per upload and shares a concurrent read; an unreadable file is asked again', async () => {
+    const dir = await dirWith({ 'icon.png': await sharp(Buffer.from(ICON)).png().toBuffer() })
+    let reads = 0
+    const l = payloadHeroLoader({
+      staticDirs: async () => {
+        reads += 1
+        return [dir]
+      },
+      colours: false,
+    })
+    const ask = (name: string) => (l.readable as NonNullable<typeof l.readable>)(upload(name))
+    expect(await Promise.all([ask('icon.png'), ask('icon.png'), ask('icon.png')])).toEqual([true, true, true])
+    await ask('icon.png')
+    expect(reads).toBe(1)
+    expect(await ask('gone.png')).toBe(false)
+    expect(await ask('gone.png')).toBe(false)
+    expect(reads).toBe(3) // 1 + two reads of a file that is not there: not remembered, so a fixed file is picked up
+    await writeFile(path.join(dir, 'gone.png'), await sharp(Buffer.from(ICON)).png().toBuffer())
+    expect(await ask('gone.png')).toBe(true)
   })
 })

@@ -1,6 +1,8 @@
 import type { PayloadRequest } from 'payload'
 import { z } from 'zod'
+import { ShedError } from '../internal/gate.js'
 import type { AuditPage, CardRef } from '../internal/inspect.js'
+import { ToolInputError } from '../internal/inspect.js'
 
 /** A tool in the shape `@payloadcms/plugin-mcp` takes under `mcp.tools`. */
 export type OgMcpTool = {
@@ -46,6 +48,21 @@ const ref = {
 type Out = { content: Array<{ type: 'text'; text: string }>; role?: string }
 const text = (value: unknown, isError = false): Out =>
   ({ content: [{ type: 'text', text: JSON.stringify(value, null, 1) }], ...(isError ? { isError: true } : {}) }) as Out
+
+/**
+ * What a tool tells its caller about a failure: its own input errors as they are, a full queue as a retry, and anything else as a
+ * fixed sentence. The detail (a path, a query) goes to the server's log, never to the holder of a key.
+ */
+function failure(e: unknown, req: PayloadRequest, tool: string): Out {
+  if (e instanceof ToolInputError) return text({ error: e.message }, true)
+  if (e instanceof ShedError) return text({ error: 'busy: too many tool calls at once, retry in a few seconds' }, true)
+  try {
+    req.payload?.logger?.error({ err: e, msg: `payload-og-image: ${tool} failed` })
+  } catch {
+    // a logger that throws must not hide the answer
+  }
+  return text({ error: 'internal_error: the call failed on the server; see its log' }, true)
+}
 
 const str = (v: unknown) => (typeof v === 'string' && v !== '' ? v : undefined)
 
@@ -102,7 +119,7 @@ export function ogImageMcpTools(o: OgMcpToolsOptions = {}): OgMcpTool[] {
           if (typeof r === 'string') return text({ found: false, reason: r }, true)
           return text(await i.card(r))
         } catch (e) {
-          return text({ error: (e as Error).message }, true)
+          return failure(e, req, 'og_card')
         }
       },
     })
@@ -138,7 +155,7 @@ export function ogImageMcpTools(o: OgMcpToolsOptions = {}): OgMcpTool[] {
           })
           return text(page)
         } catch (e) {
-          return text({ error: (e as Error).message }, true)
+          return failure(e, req, 'og_audit')
         }
       },
     })
@@ -166,7 +183,7 @@ export function ogImageMcpTools(o: OgMcpToolsOptions = {}): OgMcpTool[] {
             ],
           } as unknown as Out
         } catch (e) {
-          return text({ error: (e as Error).message }, true)
+          return failure(e, req, 'og_preview')
         }
       },
     })

@@ -6,6 +6,7 @@ import { payloadSource } from '../plugin/payloadSource.js'
 import { createFallbackTemplate, fallbackTemplate } from '../render/fallback.js'
 import { payloadHeroLoader } from '../render/hero.js'
 import { nextOgRenderer } from '../render/nextOg.js'
+import { createGate } from './gate.js'
 import { type CardHandler, createCardHandler, type DocSource, type HeroLoader, type Renderer, type RouteContext } from './handler.js'
 import { createInspector, type Inspector } from './inspect.js'
 import type { ResolvedCard } from './resolve.js'
@@ -166,6 +167,7 @@ export function buildRuntime(state: OgState, payload: Payload, over: RuntimeOver
   const store = over.store ?? state.store()
   const publicHandler = make(undefined, true)
   const inspect = createInspector({
+    gate: createGate({ concurrency: 2, queue: 2 }), // its own: tool calls must not take admission or render slots from the route
     targets: o.targets,
     statics: o.static ?? {},
     source,

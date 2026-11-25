@@ -4,6 +4,7 @@
  * - inspect.ts `audit` draws a card (`d.handler.GET`) -> "no renders, no store reads: only stats" RED
  * - inspect.ts `audit` reads the store with `get` instead of `stat` -> same test RED (storeReads moves)
  * - inspect.ts `serve` also draws a second request under another `?v` -> "draws through the route once, stores under the versioned key only ..." RED
+ * - tools.ts a catch returns `e.message` -> "a failure is classified and capped: no path or query reaches the caller" RED
  * - tools.ts `limit` not clamped -> "og_audit is bounded" RED */
 import { readFile } from 'node:fs/promises'
 import type { mcpPlugin } from '@payloadcms/plugin-mcp'
@@ -11,6 +12,8 @@ import type { PayloadRequest } from 'payload'
 import { createElement } from 'react'
 import { afterEach, describe, expect, it } from 'vitest'
 import { installTestRuntime } from '../../src/exports/testing.js'
+import { ShedError } from '../../src/internal/gate.js'
+import { ToolInputError } from '../../src/internal/inspect.js'
 import { setTestRuntime } from '../../src/internal/runtime.js'
 import { ogImageMcpTools } from '../../src/mcp/tools.js'
 import type { OgImagePluginOptions } from '../../src/plugin/index.js'
@@ -144,6 +147,90 @@ describe('og_card', () => {
       { locate: (p) => (p.startsWith('/blog/') ? { target: 'posts', slug: p.slice(6) } : null) },
     )
     expect(mapped.json).toMatchObject({ found: true, slug: 'a' })
+  })
+})
+
+describe('keys other than the slug', () => {
+  const keyed = () =>
+    options({
+      targets: {
+        ...options().targets,
+        items: defineTarget<any, any>({
+          path: '/og/:kind/:id/card.png',
+          template: 'card',
+          props: ({ doc }: any) => ({ title: doc.title }),
+        }),
+        codes: defineTarget<any, any>({
+          path: '/og/codes/:slug/card.png',
+          slugField: 'code',
+          template: 'card',
+          props: ({ doc }: any) => ({ title: doc.title }),
+        }),
+      },
+    })
+  const keyedDocs = () => ({
+    ...docs(),
+    published: {
+      ...docs().published,
+      // A card path's `:id` carries the slug: the document whose slug is "7" is id 3, and id 7 has another slug.
+      items: [
+        { id: 3, slug: '7', title: 'Seven by slug' },
+        { id: 7, slug: 'x', title: 'Id seven' },
+      ],
+      codes: [{ id: 1, code: 'abc', title: 'Coded' }],
+    },
+  })
+  it('a card path with :id is looked up by its slug, as the route does', async () => {
+    const rt = installTestRuntime(keyed(), keyedDocs())
+    const r = (await run('og_card', { path: '/og/items/7/card.png' })).json
+    expect(r).toMatchObject({ found: true, scope: 'items', slug: '7' })
+    const res = await rt.runtime.handler().GET(new Request(r.card.url), { params: Promise.resolve({ kind: 'items', slug: '7' }) })
+    expect(res.headers.get('etag')).toBe(`"${r.card.v}"`) // the route serves that very document
+    expect((await run('og_card', { path: '/og/items/x/card.png' })).json.card.v).not.toBe(r.card.v) // by slug "x", not by id
+  })
+  it("an audit row's slug follows the target's slugField", async () => {
+    installTestRuntime(keyed(), keyedDocs())
+    expect((await run('og_audit', { scope: 'codes' })).json.rows[0]).toMatchObject({ id: 1, slug: 'abc' })
+  })
+})
+
+describe('failures', () => {
+  it('a failure is classified and capped: no path or query reaches the caller; a full queue is a retry; a bad input is said', async () => {
+    const logged: unknown[] = []
+    const failing = {
+      payload: { config: {}, logger: { error: (o: unknown) => logged.push(o) } },
+    } as unknown as PayloadRequest
+    const boom = (e: Error) =>
+      setTestRuntime({
+        inspect: {
+          card: async () => Promise.reject(e),
+          scopes: async () => Promise.reject(e),
+          audit: async () => Promise.reject(e),
+          serve: async () => Promise.reject(e),
+          locate: () => null,
+        },
+      } as never)
+    const call = async (name: 'og_card' | 'og_audit' | 'og_preview', args: Record<string, unknown>) => {
+      const tool = ogImageMcpTools().find((t) => t.name === name)
+      const out = (await (tool as NonNullable<typeof tool>).handler(args, failing, undefined)) as { content: Content[]; isError?: boolean }
+      return { text: out.content[0]?.text as string, isError: out.isError === true }
+    }
+    boom(new Error('ENOENT: no such file /srv/app/.secret/store.png; SELECT * FROM users'))
+    for (const [name, args] of [
+      ['og_card', { target: 'posts', slug: 'a' }],
+      ['og_audit', {}],
+      ['og_preview', { target: 'posts', slug: 'a' }],
+    ] as const) {
+      const r = await call(name, args as never)
+      expect(r.isError).toBe(true)
+      expect(r.text).toContain('internal_error')
+      expect(r.text).not.toMatch(/srv|SELECT|ENOENT/)
+    }
+    expect(logged).toHaveLength(3) // the detail stays in the server log
+    boom(new ShedError())
+    expect((await call('og_audit', {})).text).toMatch(/busy/)
+    boom(new ToolInputError('no scope "x"'))
+    expect((await call('og_audit', { scope: 'x' })).text).toContain('no scope')
   })
 })
 

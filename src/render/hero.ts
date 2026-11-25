@@ -193,6 +193,44 @@ async function transparent(bytes: Buffer, maxPixels: number): Promise<boolean> {
 const ALPHA_CAP = 1000
 
 /**
+ * A question about an upload answered once and remembered: keyed (collection and tag), a bounded LRU, and concurrent askers share
+ * one computation. An answer that says `keep: false` (an unreadable file) is not remembered, so a fixed file is picked up.
+ * These run before the store lookup (a card's URL needs them) and from audits, so the steady state must cost nothing.
+ */
+function remembered<A extends unknown[]>(
+  keyOf: (...a: A) => string,
+  compute: (...a: A) => Promise<{ value: boolean; keep: boolean }>,
+): (...a: A) => Promise<boolean> {
+  const known = new Map<string, boolean>()
+  const inflight = new Map<string, Promise<boolean>>()
+  return (...a) => {
+    const key = keyOf(...a)
+    const seen = known.get(key)
+    if (seen !== undefined) {
+      known.delete(key) // most recently used last
+      known.set(key, seen)
+      return Promise.resolve(seen)
+    }
+    const running = inflight.get(key)
+    if (running) return running
+    const run = (async () => {
+      try {
+        const { value, keep } = await compute(...a)
+        if (keep) {
+          known.set(key, value)
+          if (known.size > ALPHA_CAP) known.delete(known.keys().next().value as string)
+        }
+        return value
+      } finally {
+        inflight.delete(key)
+      }
+    })()
+    inflight.set(key, run)
+    return run
+  }
+}
+
+/**
  * Prepares a card's hero: read from the upload folders (base name only; no symlink, FIFO, oversized or non-raster
  * file), or fetched from an allowlisted host (https, no redirect, bounded, 5 s). Any failure is null, and the card
  * is then drawn without it (and served as degraded, never stored).
@@ -216,44 +254,28 @@ export function payloadHeroLoader(o: HeroLoaderOptions): HeroLoader {
       return null
     }
   }
-  // The probe runs before the store lookup (the card's URL needs it), so it is cheap in the steady state: an answer is remembered
-  // per upload (collection and tag) in a bounded LRU, and concurrent askers share one read. Every format is read once, JPEG
-  // too: the stored mimeType is a label, and a transparent PNG labelled image/jpeg must not keep its old URL.
-  const known = new Map<string, boolean>()
-  const inflight = new Map<string, Promise<boolean>>()
-  load.readable = async (hero, where) => {
-    try {
-      return (await read(hero, where)) !== null
-    } catch {
-      return false
-    }
-  }
-  load.hasAlpha = (hero, where) => {
-    const key = `${where?.collection ?? ''}\u0000${heroTag(hero)}`
-    const seen = known.get(key)
-    if (seen !== undefined) {
-      known.delete(key) // most recently used last
-      known.set(key, seen)
-      return Promise.resolve(seen)
-    }
-    const running = inflight.get(key)
-    if (running) return running
-    const probe = (async () => {
+  const keyOf = (hero: Upload, where?: { collection?: string }) => `${where?.collection ?? ''}\u0000${heroTag(hero)}`
+  load.readable = remembered(
+    (hero, where) => keyOf(hero, where),
+    async (hero, where) => {
+      try {
+        return (await read(hero, where)) !== null ? { value: true, keep: true } : { value: false, keep: false } // an unreadable file may be fixed
+      } catch {
+        return { value: false, keep: false }
+      }
+    },
+  )
+  load.hasAlpha = remembered(
+    (hero, where) => keyOf(hero, where),
+    async (hero, where) => {
       try {
         const bytes = await read(hero, where)
-        if (!bytes) return false // unreadable: the card is drawn without it and never stored, so nothing is remembered
-        const alpha = await transparent(bytes, maxPixels)
-        known.set(key, alpha)
-        if (known.size > ALPHA_CAP) known.delete(known.keys().next().value as string)
-        return alpha
+        if (!bytes) return { value: false, keep: false } // unreadable: the card is drawn without it and never stored, so nothing is remembered
+        return { value: await transparent(bytes, maxPixels), keep: true }
       } catch {
-        return false
-      } finally {
-        inflight.delete(key)
+        return { value: false, keep: false }
       }
-    })()
-    inflight.set(key, probe)
-    return probe
-  }
+    },
+  )
   return load
 }

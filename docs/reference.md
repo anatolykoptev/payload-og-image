@@ -393,7 +393,8 @@ outside production, a `render_error` event in production).
 ## MCP tools
 
 A site that already runs `@payloadcms/plugin-mcp` can let an agent look at its cards. `payload-og-image/mcp` returns tool
-definitions in the plugin's own custom-tool shape; it builds no server. One line of wiring, `zod` being the plugin's own dependency:
+definitions in the plugin's own custom-tool shape; it builds no server. One line of wiring. `zod` is an optional peer: the plugin depends
+on it, but under strict pnpm (no hoisting) add `zod@^3.25.50` to your own dependencies, since an optional peer is not installed for you:
 
 ```ts
 import { ogImageMcpTools } from 'payload-og-image/mcp'
@@ -401,8 +402,10 @@ import { ogImageMcpTools } from 'payload-og-image/mcp'
 mcpPlugin({ /* collections, globals... */ mcp: { tools: [...ogImageMcpTools({ describedBy: 'meta.description' })] } })
 ```
 
-Enable each tool for an API key in the admin, as for any custom tool. All three are read-only and read what the card route
-reads: published documents only, as the public, never a draft and never an editor, whatever the key's user may see.
+Enable each tool for an API key in the admin, as for any custom tool. They change nothing in your content, and read what the card
+route reads: published documents only, as the public, never a draft and never an editor, whatever the key's user may see. The one
+write is `og_preview` storing a card the route would have stored, under its versioned key. Calls share a small queue of their own
+(two at a time, two waiting); a busier moment answers `busy`, and any failure answers a fixed sentence while the detail goes to the server's log.
 
 - `og_card`: for a page, the card URL with its version, which target or static card, whether it is stored (a store lookup, nothing
   is drawn) and its size, the hero (whether it is transparent, the ground it is flattened onto, whether its file can be read), and

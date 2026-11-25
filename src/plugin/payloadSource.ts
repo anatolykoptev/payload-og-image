@@ -1,5 +1,6 @@
 import type { Payload } from 'payload'
 import type { DocSource } from '../internal/handler.js'
+import { pooled } from '../internal/pool.js'
 import type { OgState } from '../internal/state.js'
 import type { SiteInfo } from '../internal/types.js'
 import type { Target } from '../template.js'
@@ -185,7 +186,8 @@ export function payloadSource(payload: Payload, state: OgState, cachedSite: () =
         draft: false,
         overrideAccess: false,
       } as FindArgs)
-      const docs = await Promise.all((found.docs as Record<string, any>[]).map((d) => withUploads(collection, d)))
+      // Each document reads its uploads by id: a few at a time, not a hundred at once.
+      const docs = await pooled(found.docs as Record<string, any>[], 4, (d) => withUploads(collection, d))
       return { docs, totalDocs: found.totalDocs }
     },
     async draft(name, key, request) {

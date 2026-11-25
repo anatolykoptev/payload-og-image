@@ -1,5 +1,7 @@
 import type { StaticCard } from '../template.js'
+import type { Gate } from './gate.js'
 import type { CardHandler, DocSource, HeroLoader } from './handler.js'
+import { pooled } from './pool.js'
 import { type GeneratedCard, getPath, type ResolvedCard } from './resolve.js'
 import type { CardStore, Upload } from './types.js'
 
@@ -74,8 +76,18 @@ export type Inspector = {
   locate(pathname: string): CardRef | null
 }
 
+/** An input the caller can fix: its message is safe to show a tool's user. Any other error is the server's. */
+export class ToolInputError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'ToolInputError'
+  }
+}
+
 export type InspectorDeps = {
-  targets: Record<string, { path: string; kind?: string; slugField?: string; heroCollection?: string } | unknown>
+  /** Bounds the work an inspector does at once (document reads, hero reads, resolution): a full queue is a `ShedError`. Separate from the render gate. */
+  gate: Gate
+  targets: Record<string, unknown>
   statics: Record<string, StaticCard>
   source: DocSource
   store: CardStore
@@ -86,18 +98,6 @@ export type InspectorDeps = {
 
 const STATIC = 'static'
 const POOL = 4
-
-/** Run `fn` over `items` with at most `POOL` in flight, keeping the order. */
-async function pooled<T, R>(items: T[], fn: (item: T) => Promise<R>): Promise<R[]> {
-  const out = new Array<R>(items.length)
-  let next = 0
-  await Promise.all(
-    Array.from({ length: Math.min(POOL, items.length) }, async () => {
-      for (let i = next++; i < items.length; i = next++) out[i] = await fn(items[i] as T)
-    }),
-  )
-  return out
-}
 
 const uploadId = (u: Upload) => u.id
 
@@ -184,7 +184,7 @@ export function createInspector(d: InspectorDeps): Inspector {
     return out
   }
 
-  return {
+  const raw: Inspector = {
     locate(pathname) {
       for (const c of staticList) if (c.path === pathname) return { static: `${c.kind}/${c.slug}` }
       for (const [name, raw] of Object.entries(d.targets)) {
@@ -193,7 +193,8 @@ export function createInspector(d: InspectorDeps): Inspector {
         if (!m) continue
         if ('kind' in m && m.kind !== (t.kind ?? name)) continue
         if (m.slug !== undefined) return { target: name, slug: m.slug }
-        if (m.id !== undefined) return t.slugField ? { target: name, slug: m.id } : { target: name, id: m.id }
+        // `:id` in a card path carries the same key as `:slug` (the route reads `slug ?? id` and looks the document up by its slug field).
+        if (m.id !== undefined) return { target: name, slug: m.id }
       }
       return null
     },
@@ -258,19 +259,26 @@ export function createInspector(d: InspectorDeps): Inspector {
         docs = staticList.slice((page - 1) * limit, page * limit).map((c) => ({ slug: c.slug, _static: `${c.kind}/${c.slug}` }))
       } else {
         if (!hasTarget(scope))
-          throw new Error(`no scope "${scope}" (targets: ${Object.keys(d.targets).join(', ')}${staticList.length ? `, ${STATIC}` : ''})`)
-        if (!d.source.listPublished) throw new Error('this document source cannot list documents')
+          throw new ToolInputError(
+            `no scope "${scope}" (targets: ${Object.keys(d.targets).join(', ')}${staticList.length ? `, ${STATIC}` : ''})`,
+          )
+        if (!d.source.listPublished) throw new ToolInputError('this document source cannot list documents')
         const found = await d.source.listPublished(scope, { page, limit, alsoSelect: describedBy ? [describedBy] : [] })
         docs = found.docs
         total = found.totalDocs
       }
-      const rows = await pooled(docs, async (doc): Promise<AuditRow> => {
+      const rows = await pooled(docs, POOL, async (doc): Promise<AuditRow> => {
         const card =
           typeof doc._static === 'string'
             ? await d.handler.resolve({ staticKey: doc._static }, { previewing: false })
             : await d.handler.resolve({ target: scope, doc }, { previewing: false })
         const base = await describe(scope, card, checkHeroes)
-        const row: AuditRow = { id: doc.id ?? null, slug: typeof doc.slug === 'string' ? doc.slug : null, ...base }
+        const slug = scope === STATIC ? doc.slug : getPath(doc, (d.targets[scope] as { slugField?: string }).slugField ?? 'slug')
+        const row: AuditRow = {
+          id: doc.id ?? null,
+          slug: typeof slug === 'string' || typeof slug === 'number' ? String(slug) : null,
+          ...base,
+        }
         if (describedBy && scope !== STATIC) {
           const text = getPath(doc, describedBy)
           row.hasDescription = typeof text === 'string' && text.trim() !== ''
@@ -297,7 +305,7 @@ export function createInspector(d: InspectorDeps): Inspector {
     },
 
     async serve(a) {
-      const r = await resolveRef(a)
+      const r = await d.gate.run(() => resolveRef(a)) // the lookup and the resolution are bounded like an audit's; the draw is the route's
       if ('reason' in r) return { status: 'not_found', reason: r.reason }
       const { card } = r
       if (card.kind !== 'generated')
@@ -320,5 +328,12 @@ export function createInspector(d: InspectorDeps): Inspector {
         stored: before !== null,
       }
     },
+  }
+  // One slot per call: concurrent audits queue briefly and then shed, so a caller holding a key cannot open unbounded reads.
+  return {
+    ...raw,
+    scopes: () => d.gate.run(() => raw.scopes()),
+    card: (a) => d.gate.run(() => raw.card(a)),
+    audit: (a) => d.gate.run(() => raw.audit(a)),
   }
 }
