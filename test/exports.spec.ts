@@ -43,12 +43,32 @@ describe('entry points load in the Payload CLI (outside Next)', () => {
   })
   it('no entry imports the TypeScript compiler: the testing entry loads it on demand, the others never', () => {
     // `typescript` is an optional peer of payload-og-image/testing only; a static import would break every project without it.
-    for (const entry of ['exports/index.ts', 'exports/next.ts', 'exports/client.ts', 'exports/testing.ts'])
+    for (const entry of [
+      'exports/index.ts',
+      'exports/next.ts',
+      'exports/client.ts',
+      'exports/testing.ts',
+      'exports/mcp.ts',
+      'exports/mcp-v3.ts',
+    ])
       expect(
         graph(entry).bare.filter((b) => /^(@typescript\/|typescript(\/|$))/.test(b)),
         entry,
       ).toEqual([])
     expect(graph('exports/testing.ts').files).toContain('testing/routeSource.ts')
+  })
+  it('the mcp entry is loaded by the Payload config: it reaches no next/*, sharp or renderer module until a tool runs', () => {
+    const { files, bare } = graph('exports/mcp.ts', { dynamic: false })
+    expect(bare.filter((b) => /^(next|sharp|react)(\/|$)/.test(b))).toEqual([])
+    expect(files.filter((f) => /^(render|next)\//.test(f) || f.endsWith('runtime.ts') || f.endsWith('handler.ts'))).toEqual([])
+    expect(graph('exports/mcp.ts').files).toContain('internal/runtime.ts') // reached lazily, inside a tool's handler
+  })
+  it('the Payload 4 mcp entry is zod-free by construction; the v3 entry imports zod statically (a bundler and the file tracer must see it)', () => {
+    expect(graph('exports/mcp.ts').bare.filter((b) => /^zod(\/|$)/.test(b))).toEqual([])
+    expect(graph('exports/mcp-v3.ts', { dynamic: false }).bare).toContain('zod')
+    const src = readFileSync(path.join(SRC, 'mcp/v3.ts'), 'utf8')
+    expect(src).toMatch(/^import \{ z \} from 'zod'$/m)
+    expect(src).not.toMatch(/createRequire|require\(|import\(['"]zod/) // no dynamic load: the file tracer cannot follow it
   })
   it('the one lazy edge from the main entry to the runtime is the preview endpoint handler, inside the request function', () => {
     const lazy: string[] = []

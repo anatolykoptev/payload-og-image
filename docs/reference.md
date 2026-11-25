@@ -390,6 +390,49 @@ outside production, a `render_error` event in production).
 `og-parity --old <dir> --new <dir>` compares two directories of rendered cards (`<card>.png` plus
 `<card>.layout.json`) pixel for pixel, for a migration that must not change a card.
 
+## MCP tools
+
+A site that already runs `@payloadcms/plugin-mcp` can let an agent look at its cards. `payload-og-image/mcp` returns tool
+definitions in the plugin's own custom-tool shape; it builds no server and imports nothing from the plugin. One line of wiring,
+by the plugin's major (the two have different custom-tool APIs):
+
+```ts
+// @payloadcms/plugin-mcp 3 (Payload 3): an array under `mcp.tools`; this entry imports zod
+import { ogImageMcpTools } from 'payload-og-image/mcp/v3'
+mcpPlugin({ /* collections, globals... */ mcp: { tools: [...ogImageMcpTools({ describedBy: 'meta.description' })] } })
+
+// @payloadcms/plugin-mcp 4 (Payload 4): a map under the top-level `tools`; this entry needs no zod
+import { ogImageMcpToolMap } from 'payload-og-image/mcp'
+mcpPlugin({ /* collections, globals... */ tools: { ...ogImageMcpToolMap({ describedBy: 'meta.description' }) } })
+```
+
+The same implementation serves both. `payload-og-image/mcp/v3` imports `zod` (`^3.25.50`, the version plugin 3 uses) statically, so a
+bundler and Next's file tracer (`output: 'standalone'`) include it; the plugin depends on it, but under strict pnpm (no hoisting) add
+it to your own dependencies, since an optional peer is not installed for you. `payload-og-image/mcp` (the Payload 4 map, JSON Schema
+inputs) imports no zod at all. On Payload 4 the tools are available to a signed-in MCP user, as the plugin's own
+default is; pass `access: ({ req }) => ...` to narrow it. On Payload 3 each tool is enabled per API key in the admin.
+
+They change nothing in your content, and read what the card
+route reads: published documents only, as the public, never a draft and never an editor, whatever the key's user may see. The one
+write is `og_preview` storing a card the route would have stored, under its versioned key. Calls share a small queue of their own
+(two at a time, two waiting); a busier moment answers `busy`, and any failure answers a fixed sentence while the detail goes to the server's log.
+
+- `og_card`: for a page, the card URL with its version, which target or static card, whether it is stored (a store lookup, nothing
+  is drawn) and its size, the hero (whether it is transparent, the ground it is flattened onto, whether its file can be read), and
+  why there is no card or why it is not stored. Give `target` with `id` or `slug`, a `static` key, or a `path`: a card route path or
+  URL, or a page path when the site maps pages with the `locate` option (`(pathname) => ({ target, slug })`); the plugin knows its
+  own card paths only.
+- `og_audit`: with no `scope`, the scopes (each target and `static`) and their document counts; with one, a page of at most 100
+  rows with the card URL, stored or not, its size, and, when `describedBy` names a field path, whether the document has a meta
+  description (the gap that leaves a share without text). No card is drawn and no stored card is read, only stat'ed; a row's version is
+  built from the document, so a hero file is read once per upload (`checkHeroes` also reads every hero to find cards that would be
+  drawn without it).
+- `og_preview`: the card as an image. A stored card is read from the store; otherwise it is drawn through the route's own admission
+  gate and render queue (a full queue answers `shed`, retry later), memoised and stored under its versioned key, exactly as a crawler's
+  request would. A card over `maxPreviewBytes` (1.5 MiB) is described, not sent.
+
+`stored` means a file exists under the exact version in the store (a stat; the PNG is not re-validated).
+
 ## Not implemented
 
 Pre-warming, locales, JPEG/WebP output, size variants, local emoji, another renderer, object-storage stores.

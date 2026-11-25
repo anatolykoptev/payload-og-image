@@ -61,7 +61,7 @@ jobs:
       - run: |
           beta=$(npm view payload time --json | node scripts/latest-payload-beta.mjs)
           echo "Payload beta: $beta"
-          pnpm add --save-dev --save-exact --config.minimumReleaseAge=0 "payload@$beta" "@payloadcms/db-sqlite@$beta" "@payloadcms/next@$beta" "@payloadcms/richtext-lexical@$beta" "@payloadcms/ui@$beta"
+          pnpm add --save-dev --save-exact --config.minimumReleaseAge=0 "payload@$beta" "@payloadcms/db-sqlite@$beta" "@payloadcms/next@$beta" "@payloadcms/richtext-lexical@$beta" "@payloadcms/ui@$beta" "@payloadcms/plugin-mcp@$beta"
       - name: Type check against the beta types (src, tests, dev app)
         run: |
           node_modules/.bin/tsc --noEmit
@@ -72,7 +72,7 @@ jobs:
         run: |
           node_modules/.bin/rimraf dist
           node_modules/.bin/tsc -p tsconfig.build.json
-          for c in api-extractor api-extractor.next api-extractor.testing api-extractor.client; do node_modules/.bin/api-extractor run -c "$c.json"; done
+          for c in api-extractor api-extractor.next api-extractor.testing api-extractor.client api-extractor.mcp api-extractor.mcpv3; do node_modules/.bin/api-extractor run -c "$c.json"; done
       # The committed import map is Payload 3's output (`@payloadcms/next/rsc` is gone in 4): regenerate it before the app is built.
       - run: node_modules/.bin/payload generate:importmap
       - run: node scripts/probe-dev-server.mjs

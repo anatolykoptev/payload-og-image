@@ -5,7 +5,7 @@ api-extractor, release-please. Every document is indexed in [docs/INDEX.md](docs
 
 ## Layout
 
-- `src/exports/`: the three public entry points (`index`, `next`, `testing`). Nothing else is public.
+- `src/exports/`: the five public entry points (`index`, `client`, `next`, `testing`, `mcp`). Nothing else is public.
 - `src/plugin/`: `ogImagePlugin`, option validation, the Payload document source. `src/template.ts`: `defineTemplate`, `defineTarget`.
 - `src/next/`: `createOgRoute`, `ogMetadata`, `withHead`. `src/internal/`: version, handler, memo, gate, store, resolve.
 - `src/render/`: the next/og renderer, hero loading and the guarded fetch. `src/testing/`: the test kit and the `og-parity` bin.

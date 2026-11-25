@@ -1,5 +1,6 @@
 import type { Payload } from 'payload'
 import type { DocSource } from '../internal/handler.js'
+import { pooled } from '../internal/pool.js'
 import type { OgState } from '../internal/state.js'
 import type { SiteInfo } from '../internal/types.js'
 import type { Target } from '../template.js'
@@ -37,6 +38,40 @@ export function buildFind(
     // the resolver would drop the editor's chosen image or mode and fall through to a generated card.
     ...(target.select
       ? { select: { ...target.select, [slugField]: true, og: true, ...(seoPath ? { [seoPath.split('.')[0] as string]: true } : {}) } }
+      : {}),
+  } as FindArgs
+}
+
+/** One page of a target's published documents, by id: `buildFind`'s published-only rule over many, never a draft. */
+export function buildList(
+  payload: Payload,
+  name: string,
+  target: Target,
+  a: { page: number; limit: number; alsoSelect?: string[] },
+  seoPath?: string,
+): FindArgs {
+  const collection = target.collection ?? name
+  const slugField = target.slugField ?? 'slug'
+  const known = payload.collections as unknown as Record<string, { config?: { versions?: { drafts?: unknown } } } | undefined>
+  const hasDrafts = Boolean(known?.[collection]?.config?.versions?.drafts)
+  const extra = Object.fromEntries((a.alsoSelect ?? []).map((p) => [p.split('.')[0] as string, true]))
+  return {
+    collection,
+    depth: 0,
+    page: a.page,
+    limit: a.limit,
+    sort: 'id', // a stable order, so pages do not overlap or skip
+    ...(hasDrafts ? { where: { _status: { equals: 'published' } } } : {}),
+    ...(target.select
+      ? {
+          select: {
+            ...target.select,
+            ...extra,
+            [slugField]: true,
+            og: true,
+            ...(seoPath ? { [seoPath.split('.')[0] as string]: true } : {}),
+          },
+        }
       : {}),
   } as FindArgs
 }
@@ -144,6 +179,17 @@ export function payloadSource(payload: Payload, state: OgState, cachedSite: () =
         draft: false,
         overrideAccess: false,
       } as FindArgs),
+    async listPublished(name, a) {
+      const collection = targetOf(name).collection ?? name
+      const found = await payload.find({
+        ...buildList(payload, name, targetOf(name), a, o.seoImage?.path),
+        draft: false,
+        overrideAccess: false,
+      } as FindArgs)
+      // Each document reads its uploads by id: a few at a time, not a hundred at once.
+      const docs = await pooled(found.docs as Record<string, any>[], 4, (d) => withUploads(collection, d))
+      return { docs, totalDocs: found.totalDocs }
+    },
     async draft(name, key, request) {
       const user = await editor(request)
       if (!user) return null
