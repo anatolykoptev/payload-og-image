@@ -1,6 +1,7 @@
 import type { ReactElement } from 'react'
 import { normaliseHeroBackground } from './internal/colour.js'
 import type { Box } from './internal/fonts.js'
+import { assertFormatOption, type CardFormat, type JpegOptions, pathProblem, type WebpOptions } from './internal/format.js'
 import { MAX_SIDE } from './internal/limits.js'
 import type { SiteInfo, Size, Upload } from './internal/types.js'
 
@@ -126,6 +127,12 @@ export type Target<D = any, P = any> = {
   share?: (a: ResolverArgs<D>) => unknown[]
   /** Fields to read (the slug field and the share-image field are always added). Omit it to read every field. */
   select?: Record<string, true>
+  /** This target's card encoding; wins over the plugin's `format`. A JPEG target's `path` should end in `.jpg`, a WebP one's in `.webp` (a path that names another image format is refused). */
+  format?: CardFormat
+  /** This target's JPEG settings (`quality`, 1 to 100); wins over the plugin's `jpeg`. */
+  jpeg?: JpegOptions
+  /** This target's WebP settings (`quality`, 1 to 100); wins over the plugin's `webp`. */
+  webp?: WebpOptions
 }
 
 export function defineTarget<D, P>(t: Target<D, P>): Target<D, P> {
@@ -138,6 +145,9 @@ export function defineTarget<D, P>(t: Target<D, P>): Target<D, P> {
     throw new Error(`payload-og-image: target path "${t.path}" has no :slug or :id, so every document would share one card URL`)
   }
   if (t.heroBackground !== undefined) normaliseHeroBackground(t.heroBackground)
+  assertFormatOption('target', t)
+  const mismatch = t.format === undefined ? undefined : pathProblem(t.path, t.format)
+  if (mismatch) throw new Error(`payload-og-image: target ${mismatch}`)
   if (t.alt !== undefined && typeof t.alt !== 'function') throw new Error('payload-og-image: target alt must be a function')
   if (t.kind !== undefined && !/^[A-Za-z0-9_~-][A-Za-z0-9._~-]*$/.test(t.kind)) {
     throw new Error(`payload-og-image: target kind "${t.kind}" must be one URL-safe path segment`)
@@ -154,4 +164,8 @@ export type StaticCard<P = any> = {
   props: (a: { payload: unknown; site: SiteInfo }) => P | Promise<P>
   /** The card's alt text: a string, or a function of the props it draws. Default `<label>: <title>`, or the title alone. Not part of the URL. */
   alt?: string | ((a: { props: Normalized<P>; site: SiteInfo }) => string | null | undefined)
+  /** This card's encoding; wins over the plugin's `format`. */
+  format?: CardFormat
+  jpeg?: JpegOptions
+  webp?: WebpOptions
 }

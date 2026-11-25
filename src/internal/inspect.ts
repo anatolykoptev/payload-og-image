@@ -3,7 +3,7 @@ import type { Gate } from './gate.js'
 import type { CardHandler, DocSource, HeroLoader } from './handler.js'
 import { pooled } from './pool.js'
 import { type GeneratedCard, getPath, type ResolvedCard } from './resolve.js'
-import type { CardStore, Upload } from './types.js'
+import type { CardMime, CardStore, Upload } from './types.js'
 
 /** What a card is asked for: a document of a target (by id or by the slug field), or a static card by its key (`kind/slug`). */
 export type CardRef = { target: string; id?: string | number; slug?: string } | { static: string }
@@ -27,7 +27,15 @@ export type CardReport =
       kind: 'generated' | 'own' | 'none'
       slug?: string
       /** A generated card. */
-      card?: { url: string; v: string; pageId: string; template: string; alt: string; size: { width: number; height: number } }
+      card?: {
+        url: string
+        v: string
+        pageId: string
+        template: string
+        alt: string
+        size: { width: number; height: number }
+        type: CardMime
+      }
       /** The page shares this image instead of a generated card. */
       shares?: { url: string; alt?: string }
       stored: { bytes: number } | null
@@ -62,7 +70,7 @@ export type AuditPage = {
 }
 
 export type ServeResult =
-  | { status: 'png'; bytes: Uint8Array; v: string; source: string; url: string; stored: boolean }
+  | { status: 'png'; bytes: Uint8Array; type: CardMime; v: string; source: string; url: string; stored: boolean }
   | { status: 'shed'; retryAfter: string | null }
   | { status: 'not_found' | 'no_card'; reason: string }
   | { status: 'error'; httpStatus: number }
@@ -141,7 +149,7 @@ export function createInspector(d: InspectorDeps): Inspector {
 
   async function describe(scope: string, card: ResolvedCard, check: boolean): Promise<Omit<AuditRow, 'id' | 'slug' | 'hasDescription'>> {
     if (card.kind === 'generated') {
-      const stat = await d.store.stat(card.pageId, card.v)
+      const stat = await d.store.stat(card.pageId, card.v, card.encoding.format)
       const hero = await heroReport(card, collectionOf(scope), check)
       return {
         kind: 'generated',
@@ -244,7 +252,15 @@ export function createInspector(d: InspectorDeps): Inspector {
         scope,
         kind: 'generated',
         slug: card.key.slug,
-        card: { url: card.url, v: card.v, pageId: card.pageId, template: card.template.id, alt: card.alt, size: card.size },
+        card: {
+          url: card.url,
+          v: card.v,
+          pageId: card.pageId,
+          template: card.template.id,
+          alt: card.alt,
+          size: card.size,
+          type: card.type,
+        },
         stored,
         hero: row.hero,
         ...(reason ? { reason } : {}),
@@ -313,7 +329,7 @@ export function createInspector(d: InspectorDeps): Inspector {
           status: 'no_card',
           reason: card.kind === 'own' ? 'the page shares an image instead of a generated card' : 'no card for this document',
         }
-      const before = await d.store.stat(card.pageId, card.v)
+      const before = await d.store.stat(card.pageId, card.v, card.encoding.format)
       // The route's own path: gate and admission, the memo, the store read, and a write under `pageId` and the version only.
       const res = await d.handler.GET(new Request(card.url), { params: Promise.resolve({ kind: card.key.kind, slug: card.key.slug }) })
       if (res.status === 503) return { status: 'shed', retryAfter: res.headers.get('retry-after') }
@@ -322,6 +338,7 @@ export function createInspector(d: InspectorDeps): Inspector {
       return {
         status: 'png',
         bytes: new Uint8Array(await res.arrayBuffer()),
+        type: card.type,
         v: card.v,
         source: res.headers.get('x-og-cache') ?? 'unknown',
         url: card.url,

@@ -20,6 +20,7 @@
  * - handler.ts:277  resolve the doc as it is (not forced to `generated`) -> "6: mode off still shows the would-be generated card" RED
  * - handler.ts:301  `overBudget` a constant `false` -> "6d: a card over 300 KB -> overBudget: true" RED (a constant `true` -> "4" RED)
  * - handler.ts:303  `customTooSmall` a constant `false` -> "6c: an editor image under 600x315" RED (a constant `true` -> "4" and "6c" RED)
+ * - endpoints.ts `'content-type': result.type` -> `'image/png'` -> "a JPEG target answers its preview as image/jpeg" RED
  * - handler.ts  touch the memo or the store from preview() -> "4: ... never touched" RED */
 import { mkdtemp, readFile } from 'node:fs/promises'
 import os from 'node:os'
@@ -236,6 +237,18 @@ describe('POST /api/payload-og-image/preview', () => {
     expect(r.status).toBe(403)
     // Even a document the customer could read through the collection's own access: drafts are for editors.
     expect((await call('cu@x.test', { collection: 'posts', id: ids.theirs, doc: {} })).status).toBe(403)
+  })
+  it('a JPEG target answers its preview as image/jpeg', async () => {
+    const target = (state.options.targets as Record<string, { format?: string }>).posts as { format?: string }
+    target.format = 'jpeg'
+    try {
+      setTestRuntime(buildRuntime(state, payload, { renderer, store, heroLoader: heroSpy }))
+      const r = await call('ed1@x.test', { collection: 'posts', id: ids.plain, doc: { title: 'Plain title' } })
+      expect([r.status, r.headers.get('content-type')]).toEqual([200, 'image/jpeg'])
+    } finally {
+      target.format = undefined
+      setTestRuntime(buildRuntime(state, payload, { renderer, store, heroLoader: heroSpy }))
+    }
   })
   it('3: a doc the user may not read -> 403 (foreign doc), nothing rendered', async () => {
     const before = rendered.length

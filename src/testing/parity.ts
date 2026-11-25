@@ -6,11 +6,11 @@ import sharp from 'sharp'
 
 export type ParityRow = { card: string; layoutEqual: boolean; pixelDiff: number; note?: string }
 
-const pngs = async (dir: string) =>
-  (await readdir(dir))
-    .filter((f) => f.endsWith('.png'))
-    .map((f) => f.slice(0, -4))
-    .sort()
+const CARD_EXT = /\.(png|jpe?g|webp)$/i
+/** The card images of a directory by name (extension dropped): `<card>.png`, `<card>.jpg`, `<card>.jpeg` or `<card>.webp`. */
+const cardsIn = async (dir: string) =>
+  new Map((await readdir(dir)).filter((f) => CARD_EXT.test(f)).map((f) => [f.replace(CARD_EXT, ''), f] as const))
+const formatOfFile = (f: string) => (/\.png$/i.test(f) ? 'png' : /\.webp$/i.test(f) ? 'webp' : 'jpeg')
 const layoutOf = async (dir: string, card: string): Promise<unknown> => {
   try {
     return JSON.parse(await readFile(path.join(dir, `${card}.layout.json`), 'utf8'))
@@ -35,21 +35,33 @@ const pixels = async (file: string) => {
 }
 
 /**
- * Compares the cards of two directories: `<card>.png` and `<card>.layout.json` (the fitText results per text field).
+ * Compares the cards of two directories: `<card>.png` (or `.jpg`/`.webp`: both sides are decoded by sharp, and a JPEG is compared
+ * on its decoded pixels, which is exact for the same encoder and quality) and `<card>.layout.json` (the fitText results per text field).
+ * A card that is in one format on one side and another on the other is reported, not compared.
  * `pixelDiff` counts pixels with ANY differing channel. That is stricter than a perceptual diff (no
  * anti-aliasing allowance): a card either matches exactly or the difference is reported.
  */
 export async function parity(oldDir: string, newDir: string): Promise<ParityRow[]> {
-  const [a, b] = await Promise.all([pngs(oldDir), pngs(newDir)])
+  const [a, b] = await Promise.all([cardsIn(oldDir), cardsIn(newDir)])
   const rows: ParityRow[] = []
-  for (const card of [...new Set([...a, ...b])].sort()) {
-    if (!a.includes(card) || !b.includes(card)) {
-      rows.push({ card, layoutEqual: false, pixelDiff: Number.POSITIVE_INFINITY, note: `only in ${a.includes(card) ? 'old' : 'new'}` })
+  for (const card of [...new Set([...a.keys(), ...b.keys()])].sort()) {
+    const [fileA, fileB] = [a.get(card), b.get(card)]
+    if (fileA === undefined || fileB === undefined) {
+      rows.push({ card, layoutEqual: false, pixelDiff: Number.POSITIVE_INFINITY, note: `only in ${fileA === undefined ? 'new' : 'old'}` })
+      continue
+    }
+    if (formatOfFile(fileA) !== formatOfFile(fileB)) {
+      rows.push({
+        card,
+        layoutEqual: false,
+        pixelDiff: Number.POSITIVE_INFINITY,
+        note: `format ${formatOfFile(fileA)} vs ${formatOfFile(fileB)}`,
+      })
       continue
     }
     const [l1, l2] = await Promise.all([layoutOf(oldDir, card), layoutOf(newDir, card)])
     const layoutEqual = l1 !== undefined && l2 !== undefined && canonical(l1) === canonical(l2)
-    const [p1, p2] = await Promise.all([pixels(path.join(oldDir, `${card}.png`)), pixels(path.join(newDir, `${card}.png`))])
+    const [p1, p2] = await Promise.all([pixels(path.join(oldDir, fileA)), pixels(path.join(newDir, fileB))])
     if (p1.width !== p2.width || p1.height !== p2.height) {
       rows.push({
         card,

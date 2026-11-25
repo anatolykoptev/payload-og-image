@@ -122,7 +122,7 @@ export function ogKit(rt: TestRuntime) {
 
   return {
     /**
-     * Every advertised image is either a recognised card route (fetched: 200, the declared type, immutable, a decodable PNG of
+     * Every advertised image is either a recognised card route (fetched: 200, the declared type, immutable, a decodable PNG, JPEG or WebP (the declared type) of
      * the advertised width and height) or an upload the site serves (`uploadPaths`). Anything else fails. The image URL must be
      * `https`, as Facebook, LinkedIn and X document it: `allowHttpImages: true` admits `http` for a site that is only ever served
      * on plain HTTP (a local dev server).
@@ -188,7 +188,19 @@ export function ogKit(rt: TestRuntime) {
         } catch {
           return fail('everyRouteHasOwnCard', `${route.path}: ${url} does not serve a decodable image`)
         }
-        if (decoded.format !== 'png') fail('everyRouteHasOwnCard', `${route.path}: ${url} serves a ${decoded.format}, not a PNG`)
+        const declared = ({ 'image/png': 'png', 'image/jpeg': 'jpeg', 'image/webp': 'webp' } as Record<string, string | undefined>)[
+          String(image.type)
+        ]
+        if (declared === undefined)
+          fail(
+            'everyRouteHasOwnCard',
+            `${route.path}: og:image type "${String(image.type)}" is neither image/png, image/jpeg nor image/webp`,
+          )
+        if (decoded.format !== declared)
+          fail(
+            'everyRouteHasOwnCard',
+            `${route.path}: ${url} serves a ${decoded.format}, not a ${declared === 'png' ? 'PNG' : declared === 'jpeg' ? 'JPEG' : 'WebP'} as declared`,
+          )
         // The stub renderer draws 8x8 cards: only the real renderer can honour the advertised size.
         if (rt.rendererKind === 'real' && (decoded.width !== image.width || decoded.height !== image.height)) {
           fail(
@@ -538,7 +550,7 @@ export function ogKit(rt: TestRuntime) {
 
     /**
      * Every registered template is drawn once with the real renderer, from the props given for its id, and must give a PNG of its
-     * declared size. A template bug that only the renderer sees (a `div` with several children and no `display: flex`, a style
+     * declared size (the target's `format` does not apply: this checks the drawing, not the encoding). A template bug that only the renderer sees (a `div` with several children and no `display: flex`, a style
      * satori refuses) fails here, in CI, and not as a `render_error` and a five-minute fallback card at the first crawler request.
      * The hero is absent (`ctx.hero` is null); the props are used as given.
      */

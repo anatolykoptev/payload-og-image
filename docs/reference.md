@@ -167,7 +167,7 @@ whether by the `fields` option or by hand). Its rules:
 - only then is the editor's unsaved form merged over the saved draft. Anything in the form that looks like an upload
   (it has a `filename`, or a `url` with a `mimeType`, or a `url` and an `id` with a size or date field) is reduced to its plain id or dropped; the known upload fields are
   read again with the user's own access, never taken from the request. The body is capped at 256 KB even without a length;
-- the card is drawn through the render gate and returned as a PNG with `Cache-Control: no-store`. It never touches the
+- the card is drawn through the render gate and returned as a PNG (a JPEG or WebP for such a card) with `Cache-Control: no-store`. It never touches the
   memo or the store. A full gate answers 503 with `Retry-After`.
 
 The picture is always the card `generated` would draw, whatever the mode, so an editor sees what Off or Custom would fall
@@ -267,6 +267,70 @@ gradient). Your numbers depend on the artwork; measure a real card with `ogKit(r
 
 A flat card is about three times larger without the palette, and a card with a photographic hero about 4.7 times larger with both off.
 
+## JPEG and WebP cards
+
+A photo-first card (a full-bleed photograph with a title on a scrim) is the wrong job for PNG: with the default palette the photo and
+the scrim posterise and band, and with `palette: { card: false, hero: false }` the truecolour PNG is over a megabyte. Switch the
+encoding instead, for every card or for one target (the target wins):
+
+```ts
+ogImagePlugin({
+  // ...
+  format: 'jpeg', // 'png' (default) | 'jpeg' | 'webp'
+  jpeg: { quality: 82 }, // 1 to 100, mozjpeg; the default
+  webp: { quality: 80 }, // 1 to 100, libwebp; the default
+  targets: {
+    places: defineTarget({ path: '/og/:kind/:slug/card.jpg', format: 'jpeg', template: 'place', props, hero }),
+    posts: defineTarget({ path: '/og/:kind/:slug/card.png', format: 'png', template: 'post', props }), // stays PNG
+  },
+})
+```
+
+Unset keeps today's behaviour exactly: PNG, and no existing card URL or byte changes (the version tests pin it). The format, its quality
+and the flatten ground are part of the card version (the version's `variant` slot), so switching gives new URLs and never serves a
+stored card of the other encoding; settings of a format a card does not use change nothing about it. The same value drives the
+`content-type`, `og:image:type`, the store's file name (`<page>-<v>.png`, `.jpg` or `.webp`) and its validation, the memo, the 304 and
+HEAD answers, the fallback and downgraded cards, the admin preview, the MCP `og_card` and `og_preview` tools (`mimeType`), the kit and
+`og-parity`.
+
+- **Choose JPEG for photo cards; WebP is opt-in.** Every crawler we could check reads JPEG. WebP is documented for X and Discord only; Facebook and
+  LinkedIn publish no list of formats and Telegram is reported to drop a WebP preview ([crawlers](crawlers.md#image-formats)). WebP is
+  16 to 20 percent smaller at the same look, which is not worth a missing preview on one platform.
+- **No alpha.** JPEG cannot hold it, and a WebP card is flattened too, because crawlers composite a see-through card onto whatever they like. A pixel the
+  template leaves see-through is flattened onto the card's ground: the target's or template's `heroBackground`, else the plugin's, else white.
+  A transparent hero is drawn over the template's own background as always, so it shows that background through its see-through pixels, and
+  only what the template leaves unpainted becomes the ground. Paint the template's ground explicitly for a JPEG or WebP card.
+- **The path should name the format.** A target's `path` is the site's. A card path ending in `.png` with a JPEG or WebP card (or `.jpg` with a PNG) is
+  **refused**: `defineTarget` throws for a target that sets `format`, and `ogImagePlugin` throws at start-up for the effective format, naming the path.
+  A path with no image extension (`/og/:kind/:slug/card`) is accepted: crawlers go by `content-type`. The route file's folder name follows the path
+  (`card.jpg/route.ts`).
+- **Stored files.** A JPEG or WebP has no checksum, so a stored one is checked twice: the container structure (JPEG: markers, tables, scan header, EOI as the last two
+  bytes; WebP: the RIFF size equals the file, every chunk in bounds, the VP8 start code) and then a full decode that fails on any warning. A torn, truncated
+  or foreign file is a miss and is deleted, as for a PNG. A bit flipped inside a scan that still decodes cleanly cannot be told from a different picture; the PNG's per-chunk
+  CRC has no equivalent.
+- `templatesRender` in the kit draws each template as a PNG whatever the target's format: it checks the drawing, not the encoding.
+
+Size, measured with sharp 0.35.5 (mozjpeg, libwebp effort 4) on a 1200x630 full-bleed landscape photograph with a 72px Inter title on a
+bottom scrim (a smooth aerial photograph; a noisier one costs more in every format), and on a flat card (the same title on a dark ground).
+The photograph is drawn as a truecolour PNG hero except where noted. Your numbers depend on the artwork; measure a real card with `ogKit(rt).sizeBudget`.
+
+| Card                                    |       Photograph |   Flat |
+| --------------------------------------- | ---------------: | -----: |
+| PNG, default card palette (128 colours) | 282,588 (banded) | 12,225 |
+| PNG, truecolour (`card: false`)         |        1,264,782 | 36,456 |
+| JPEG quality 70                         |           55,648 | 15,802 |
+| JPEG quality 82 (default)               |           79,893 | 19,790 |
+| JPEG quality 90                         |          116,338 | 27,268 |
+| WebP quality 70                         |           47,108 |  9,814 |
+| WebP quality 80 (default)               |           63,832 | 11,178 |
+| WebP quality 90                         |          112,864 | 14,172 |
+
+With the default 256-colour palette hero the photograph card is 314,353 bytes as a palette PNG, 541,422 as a truecolour PNG and 82,059 as a
+JPEG at quality 82. The photographic card at the JPEG default is a quarter of the palette PNG and keeps the photo's colour; a flat card
+stays smallest as a palette PNG, so keep flat templates on PNG. The extra encode time per card, on the first draw only: about 35 ms for JPEG
+and 55 ms for WebP on photographs (the PNG draw is 50 to 210 ms). Quality 82 and 80 are the lowest levels at which the title's edges show no ringing and
+no colour bleed in a 2x crop of this card, and both stay under 100 KB, far inside the few hundred KB crawlers tolerate.
+
 ## Where the cards live
 
 `store: { dir }` must be an absolute path to a volume that only the app writes, with room for the cap
@@ -356,7 +420,7 @@ so a real icon is drawn, and tested, as it will be; and `{ transparentHero: (her
 transparent, to see the URL a transparent hero gets.
 
 `ogKit(rt).templatesRender({ props })` draws every registered template once with the real renderer, from the props
-you give for its id (`{ [templateId]: props }`), and fails naming a template that cannot be drawn or does not give a PNG
+you give for its id (`{ [templateId]: props }`), and fails naming a template that cannot be drawn or does not give a PNG (whatever the target's `format`)
 of its size: a `div` with several children and no `display: flex` is caught in CI, not by the first crawler. The plugin
 also draws the brand fallback card once when Payload starts, so fonts and the renderer are proved at boot (an error
 outside production, a `render_error` event in production).
@@ -387,8 +451,8 @@ outside production, a `render_error` event in production).
   folder in `next.config` (`outputFileTracingIncludes: { '/**': ['./assets/fonts/**'] }`) so the fonts are copied. The dev app
   in this repository reads its fonts this way (`dev/src/og/options.ts`) and `scripts/probe-dev-server.mjs` serves it with `next start`.
 
-`og-parity --old <dir> --new <dir>` compares two directories of rendered cards (`<card>.png` plus
-`<card>.layout.json`) pixel for pixel, for a migration that must not change a card.
+`og-parity --old <dir> --new <dir>` compares two directories of rendered cards (`<card>.png`, `.jpg` or `.webp`, plus
+`<card>.layout.json`) pixel for pixel, for a migration that must not change a card. Both formats are decoded; a JPEG or WebP is compared on its decoded pixels (exact for the same encoder and quality), and a card that is one format on one side and another on the other is reported (`format png vs jpeg`), not compared.
 
 ## MCP tools
 
@@ -431,11 +495,11 @@ write is `og_preview` storing a card the route would have stored, under its vers
   gate and render queue (a full queue answers `shed`, retry later), memoised and stored under its versioned key, exactly as a crawler's
   request would. A card over `maxPreviewBytes` (1.5 MiB) is described, not sent.
 
-`stored` means a file exists under the exact version in the store (a stat; the PNG is not re-validated).
+`stored` means a file exists under the exact version in the store (a stat; the card is not re-validated).
 
 ## Not implemented
 
-Pre-warming, locales, JPEG/WebP output, size variants, local emoji, another renderer, object-storage stores.
+Pre-warming, locales, AVIF output, size variants, local emoji, another renderer, object-storage stores.
 The version and URL formats already reserve the slots, so adding them later changes no existing URL.
 
 ## Threat model

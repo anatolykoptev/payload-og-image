@@ -26,3 +26,15 @@ export const realPng = async (text: string): Promise<Uint8Array> => {
       .toBuffer(),
   )
 }
+
+/** A real, tiny card of `format` whose bytes depend on `text` (a PNG, a JPEG or a WebP: each passes its format's whole-file checks). */
+export const realCard = async (text: string, format: 'png' | 'jpeg' | 'webp' = 'png', size = 16): Promise<Uint8Array> => {
+  let h = 7
+  for (const ch of text) h = (h * 31 + ch.charCodeAt(0)) >>> 0
+  const image = sharp({
+    create: { width: size, height: size, channels: 3, background: { r: h & 255, g: (h >> 8) & 255, b: (h >> 16) & 255 } },
+  })
+  return new Uint8Array(
+    await (format === 'png' ? image.png() : format === 'jpeg' ? image.jpeg({ mozjpeg: true }) : image.webp()).toBuffer(),
+  )
+}

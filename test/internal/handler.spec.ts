@@ -131,7 +131,7 @@ describe('card handler', () => {
     const { h, put } = setup()
     const r = await h.GET(req('/og/posts/a/card.png?v=stale'), ctx('a'))
     expect(r.headers.get('cache-control')).toBe(CACHE.short)
-    expect(put).toHaveBeenCalledWith(expect.any(String), vOf(r), expect.any(Uint8Array))
+    expect(put).toHaveBeenCalledWith(expect.any(String), vOf(r), expect.any(Uint8Array), 'png')
     expect(put.mock.calls.some(([, k]) => k === 'stale')).toBe(false)
   })
   it('3b: concurrent requests with different ?v values for one card render once', async () => {

@@ -2,6 +2,7 @@ import type { ReactElement } from 'react'
 import type { StaticCard, Target, Template, TemplateContext } from '../template.js'
 import { drawElement, templateContext } from './draw.js'
 import { type LoadedFont, type Stacks, stripMissing } from './fonts.js'
+import { encodingKey, type JpegOptions, type WebpOptions } from './format.js'
 import { createGate, type Gate, ShedError } from './gate.js'
 import type { Memo } from './memo.js'
 
@@ -16,7 +17,7 @@ import {
   resolveCard,
 } from './resolve.js'
 
-import type { CardStore, OnEvent, SiteInfo, Size, Upload } from './types.js'
+import type { CardEncoding, CardFormat, CardMime, CardStore, OnEvent, SiteInfo, Size, Upload } from './types.js'
 
 export type DocSource = {
   /** Published only: never a draft, whatever the request. */
@@ -53,7 +54,10 @@ export type HeroLoader = {
   /** Whether the hero's file can be read at all (a read, no decode): false is why a card would be drawn without it. */
   readable?: (hero: Upload, o?: { collection?: string }) => Promise<boolean>
 }
-export type Renderer = { render(el: ReactElement, o: { width: number; height: number; fonts: LoadedFont[] }): Promise<Uint8Array> }
+/** `encoding` absent is PNG. */
+export type Renderer = {
+  render(el: ReactElement, o: { width: number; height: number; fonts: LoadedFont[]; encoding?: CardEncoding }): Promise<Uint8Array>
+}
 export type HandlerDeps = {
   targets: Record<string, Target>
   statics: Record<string, StaticCard>
@@ -67,6 +71,10 @@ export type HandlerDeps = {
   /** Effective palette tags when not the default: part of the version (the card's of every card, the hero's of a card with a hero). */
   cardPalette?: string
   heroPalette?: string
+  /** The plugin's card format and JPEG settings (a target's own win). Unset: PNG. */
+  format?: CardFormat
+  jpeg?: JpegOptions
+  webp?: WebpOptions
   serverUrl: string
   source: DocSource
   store: CardStore
@@ -126,7 +134,8 @@ export type PreviewWarnings = {
   /** Mode `off`: the page advertises no card of its own; the picture is what `generated` would show. */
   modeOff: boolean
 }
-export type PreviewResult = { kind: 'none' } | { kind: 'png'; bytes: Uint8Array; warnings: PreviewWarnings }
+/** `kind: 'png'` names any card image (as before 0.6); `type` is its media type. */
+export type PreviewResult = { kind: 'none' } | { kind: 'png'; bytes: Uint8Array; type: CardMime; warnings: PreviewWarnings }
 /** A card over this many bytes is flagged in a preview. */
 export const PREVIEW_BUDGET_BYTES = 300 * 1024
 
@@ -189,6 +198,9 @@ export function createCardHandler(d: HandlerDeps): CardHandler {
       path: card.path,
       kind: card.kind,
       template: card.template,
+      format: card.format,
+      jpeg: card.jpeg,
+      webp: card.webp,
       props: async ({ site }) => card.props({ payload: await d.payload?.(), site }),
       alt:
         card.alt === undefined
@@ -209,7 +221,11 @@ export function createCardHandler(d: HandlerDeps): CardHandler {
           background: card.heroBackground,
         })
       : null
-    const { bytes, dropped } = await drawElement(d.renderer, card.template.render(card.props, ctxFor(fonts, hero)), { ...card.size, fonts })
+    const { bytes, dropped } = await drawElement(d.renderer, card.template.render(card.props, ctxFor(fonts, hero)), {
+      ...card.size,
+      fonts,
+      encoding: card.encoding,
+    })
     // Characters no face draws that came from somewhere other than a `textFields` prop (another prop, a glyph in the template itself).
     if (dropped.length > 0 && !o.quiet)
       d.events.emit({ name: 'glyph_missing', kind: card.key.kind, slug: card.key.slug, detail: { chars: dropped } })
@@ -220,7 +236,13 @@ export function createCardHandler(d: HandlerDeps): CardHandler {
   }
 
   /** The brand fallback card. A draft-mode request never memoises it (its site name may be draft text). */
-  async function fallbackCard(site: SiteInfo, fonts: LoadedFont[], digest: string, previewing: boolean): Promise<Uint8Array | null> {
+  async function fallbackCard(
+    site: SiteInfo,
+    fonts: LoadedFont[],
+    digest: string,
+    previewing: boolean,
+    encoding: CardEncoding,
+  ): Promise<Uint8Array | null> {
     // The fallback draws with the `default` stack: characters it has no glyph for are dropped, as for any card.
     const stack = d.stacks.default
     const stripped = stack && stack.length > 0 ? stripMissing(fonts, stack, site.name) : { text: site.name, missing: [] }
@@ -229,10 +251,13 @@ export function createCardHandler(d: HandlerDeps): CardHandler {
     const make = () =>
       d.gate.run(
         async () =>
-          (await drawElement(d.renderer, d.fallback.render({ site: name }, ctxFor(fonts, null)), { ...d.fallback.size, fonts })).bytes,
+          (await drawElement(d.renderer, d.fallback.render({ site: name }, ctxFor(fonts, null)), { ...d.fallback.size, fonts, encoding }))
+            .bytes,
       )
     try {
-      return previewing ? await make() : await d.memo.get(`fallback|${digest}|${d.fallback.revision}|${name}`, make)
+      return previewing
+        ? await make()
+        : await d.memo.get(`fallback|${digest}|${d.fallback.revision}|${encodingKey(encoding)}|${name}`, make)
     } catch {
       return null
     }
@@ -265,6 +290,9 @@ export function createCardHandler(d: HandlerDeps): CardHandler {
       heroHasAlpha: d.heroLoader.hasAlpha,
       cardPalette: d.cardPalette,
       heroPalette: d.heroPalette,
+      format: d.format,
+      jpeg: d.jpeg,
+      webp: d.webp,
       seoImage: a.isStatic ? undefined : d.seoImage,
       related: (collection, id) => d.source.related(collection, id, { previewing: a.previewing, request: a.request }),
     })
@@ -334,6 +362,7 @@ export function createCardHandler(d: HandlerDeps): CardHandler {
     return {
       kind: 'png',
       bytes,
+      type: forced.type,
       warnings: {
         missing: [...new Set([...forced.missing, ...dropped])],
         overBudget: bytes.byteLength > PREVIEW_BUDGET_BYTES,
@@ -412,7 +441,7 @@ export function createCardHandler(d: HandlerDeps): CardHandler {
       const served: { source: 'memo' | 'store' | 'render' | 'downgraded' } = { source: 'memo' }
       const bytes = await d.memo
         .get(`${card.pageId}|${card.v}`, async () => {
-          const stored = await d.store.get(card.pageId, card.v)
+          const stored = await d.store.get(card.pageId, card.v, card.encoding.format)
           if (stored) {
             served.source = 'store'
             return stored
@@ -420,7 +449,7 @@ export function createCardHandler(d: HandlerDeps): CardHandler {
           const out = await d.gate.run(() => draw(card, fonts))
           if (out.downgraded) throw new Downgraded(out.bytes) // the memo forgets it; every joiner gets this rejection
           served.source = 'render'
-          await d.store.put(card.pageId, card.v, out.bytes)
+          await d.store.put(card.pageId, card.v, out.bytes, card.encoding.format)
           return out.bytes
         })
         .catch((e) => {
@@ -451,9 +480,9 @@ export function createCardHandler(d: HandlerDeps): CardHandler {
         return unavailable()
       }
       d.events.emit({ name: 'render_error', kind: card.key.kind, slug: card.key.slug, detail: { message: errMessage(error) } })
-      const fb = await fallbackCard(site, fonts, digest, previewing)
+      const fb = await fallbackCard(site, fonts, digest, previewing, card.encoding)
       if (!fb) return unavailable()
-      return respond(200, previewing ? CACHE.none : CACHE.degraded, { 'content-type': 'image/png', 'x-og-cache': 'fallback' }, fb)
+      return respond(200, previewing ? CACHE.none : CACHE.degraded, { 'content-type': card.type, 'x-og-cache': 'fallback' }, fb)
     }
   }
 

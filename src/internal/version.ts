@@ -80,7 +80,7 @@ export function normalizeProps(value: unknown, path = 'props', seen: object[] = 
 /** `id:updatedAt`. The id makes a replaced or deleted upload change the version, which `updatedAt` alone misses. */
 export const heroTag = (h: Upload) => `${String(h.id)}:${h.updatedAt ?? ''}`
 
-// Slots 8-9 (locale, variant) are constants in 0.1; 0.2 fills them, and the defaults hash identically. Slot 10 is the nonce: 0 or absent is the 0.1 value.
+// Slots 8-9 (locale, variant) are constants in 0.1 (`''`, `og`); the variant slot carries a JPEG card's encoding (0.6), and the default hashes identically. Slot 10 is the nonce: 0 or absent is the 0.1 value.
 export const cardVersion = (i: VersionInput) =>
   sha(
     canonicalJson([
@@ -99,7 +99,7 @@ export const cardVersion = (i: VersionInput) =>
       i.fontsDigest,
       i.host,
       '',
-      'og',
+      i.variant ?? 'og',
       i.nonce ?? 0,
       // Appended only when set: the default encoding hashes exactly as before, so no existing card URL moves.
       ...(i.cardPalette ? [`pal:${i.cardPalette}`] : []),

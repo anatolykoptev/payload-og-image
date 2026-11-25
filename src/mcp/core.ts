@@ -172,7 +172,7 @@ const SPECS: Spec[] = [
     name: 'og_preview',
     kind: 'preview',
     description:
-      "The card PNG for a published page, as an image. A stored card is read from the store; otherwise it is drawn through the render queue (it may be refused when the queue is full) and stored under its versioned key, exactly as a crawler's request would. Drafts are never shown.",
+      "The card image (PNG, or JPEG for a JPEG card) for a published page. A stored card is read from the store; otherwise it is drawn through the render queue (it may be refused when the queue is full) and stored under its versioned key, exactly as a crawler's request would. Drafts are never shown.",
     properties: SHAPE.ref,
     async run(args, req, o) {
       try {
@@ -181,12 +181,12 @@ const SPECS: Spec[] = [
         if (typeof r === 'string') return text({ ok: false, reason: r }, true)
         const s = await i.serve(r)
         if (s.status !== 'png') return text(s, s.status !== 'shed')
-        const info = { status: 'png', url: s.url, v: s.v, source: s.source, bytes: s.bytes.byteLength, wasStored: s.stored }
+        const info = { status: 'png', type: s.type, url: s.url, v: s.v, source: s.source, bytes: s.bytes.byteLength, wasStored: s.stored }
         if (s.bytes.byteLength > (o.maxPreviewBytes ?? DEFAULT_PREVIEW_BYTES))
           return text({ ...info, image: `not sent: over ${o.maxPreviewBytes ?? DEFAULT_PREVIEW_BYTES} bytes` })
         return {
           content: [
-            { type: 'image', data: Buffer.from(s.bytes).toString('base64'), mimeType: 'image/png' },
+            { type: 'image', data: Buffer.from(s.bytes).toString('base64'), mimeType: s.type },
             { type: 'text', text: JSON.stringify(info) },
           ],
         }

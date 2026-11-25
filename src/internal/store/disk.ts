@@ -3,9 +3,10 @@ import { constants } from 'node:fs'
 import { access, lstat, mkdir, open, readdir, realpath, rename, statfs, unlink, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { safeCall } from '../events.js'
+import { type CardFormat, extensionOf } from '../format.js'
 import { assertInt, assertNumber } from '../limits.js'
 import type { CardStore, OnEvent } from '../types.js'
-import { isCompletePng } from './png.js'
+import { isWholeCard } from './validate.js'
 
 export type DiskStoreOptions = {
   dir: string
@@ -23,25 +24,27 @@ export type DiskStore = CardStore & { prune(): Promise<void>; readonly enabled: 
 const PAGE_ID = /^[0-9a-f]{16}$/
 const VERSION = /^[0-9a-f]{12}$/
 /** The only names this store owns: a card file, and a temporary file left by a write cut short. */
-const CARD_FILE = /^([0-9a-f]{16})-[0-9a-f]{12}\.png$/
-const TEMP_FILE = /^[0-9a-f]{16}-[0-9a-f]{12}\.png\.\d+\.[0-9a-f]{8}\.tmp$/
+const CARD_FILE = /^([0-9a-f]{16})-[0-9a-f]{12}\.(?:png|jpg|webp)$/
+const TEMP_FILE = /^[0-9a-f]{16}-[0-9a-f]{12}\.(?:png|jpg|webp)\.\d+\.[0-9a-f]{8}\.tmp$/
 const TEMP_TTL_MS = 60 * 60 * 1000
 /** Errors that retrying cannot fix: the store turns itself off with one event. */
 const PERMANENT = new Set(['EACCES', 'EPERM', 'EROFS', 'ENOTDIR'])
 
 const code = (e: unknown) => (e as NodeJS.ErrnoException | undefined)?.code
 const noop = () => undefined
+const fileOf = (pageId: string, v: string, format: CardFormat) => `${pageId}-${v}.${extensionOf(format)}`
 /** Open without following a symlink planted at a cache-shaped name (absent on Windows, where it is 0). */
 const O_NOFOLLOW = constants.O_NOFOLLOW ?? 0
 /** A FIFO at a cache-shaped name must not block open() before fstat can reject it. */
 const O_NONBLOCK = constants.O_NONBLOCK ?? 0
 
 /**
- * Rendered cards on disk, one file per version: `<pageId>-<v>.png`. A file is never stale for its name,
+ * Rendered cards on disk, one file per version: `<pageId>-<v>.png`, `.jpg` for a JPEG card, `.webp` for a WebP one. A file is never stale for its name,
  * because `v` changes whenever anything drawn changes.
  *
  * - Crash-safe write: temp file in the same dir, fsync, rename, best-effort dir fsync. A read validates the
- *   whole file (every chunk CRC, IEND at the end), so a torn file is a miss and is deleted.
+ *   whole file (a PNG: every chunk CRC, IEND at the end; a JPEG: its marker structure, EOI at the end; a WebP: its RIFF size and chunks; both then fully decoded),
+ *   so a torn file is a miss and is deleted.
  * - Pruning runs off the request path, throttled: it keeps the newest `keepPerPage` versions of a page,
  *   then trims oldest-first to `maxFiles` / `maxBytes`. Fresh temp files count toward the caps.
  * - Only files matching the two patterns above are ever counted or deleted.
@@ -198,9 +201,9 @@ export function diskStore(o: DiskStoreOptions): DiskStore {
       lastPrune = Date.now()
       return run
     },
-    async get(pageId, v) {
+    async get(pageId, v, format = 'png') {
       if (!PAGE_ID.test(pageId) || !VERSION.test(v) || !(await usable())) return null
-      const file = path.join(root, `${pageId}-${v}.png`)
+      const file = path.join(root, fileOf(pageId, v, format))
       let handle: Awaited<ReturnType<typeof open>>
       try {
         // O_NOFOLLOW: a symlink at a cache-shaped name fails to open (ELOOP), and is left alone.
@@ -229,28 +232,28 @@ export function diskStore(o: DiskStoreOptions): DiskStore {
       } finally {
         await handle.close().catch(noop)
       }
-      if (isCompletePng(bytes)) return bytes
+      if (await isWholeCard(bytes, format)) return bytes
       // A file cut short by a host crash is not a card: drop it so the next request draws it again.
       await dropIfSame(file, seen)
       emit({ name: 'store_corrupt', v, bytes: bytes.byteLength })
       return null
     },
-    async stat(pageId, v) {
+    async stat(pageId, v, format = 'png') {
       if (!PAGE_ID.test(pageId) || !VERSION.test(v) || !(await usable())) return null
       try {
-        const st = await lstat(path.join(root, `${pageId}-${v}.png`)) // lstat: a symlink at a card name is foreign
+        const st = await lstat(path.join(root, fileOf(pageId, v, format))) // lstat: a symlink at a card name is foreign
         return st.isFile() ? { bytes: st.size } : null
       } catch {
         return null
       }
     },
-    async put(pageId, v, bytes) {
+    async put(pageId, v, bytes, format = 'png') {
       if (!PAGE_ID.test(pageId) || !VERSION.test(v) || !(await usable())) return
-      if (!isCompletePng(bytes)) {
-        emit({ name: 'store_write_skipped', v, bytes: bytes.byteLength, detail: { reason: 'not_a_complete_png' } })
+      if (!(await isWholeCard(bytes, format))) {
+        emit({ name: 'store_write_skipped', v, bytes: bytes.byteLength, detail: { reason: `not_a_complete_${format}` } })
         return
       }
-      const target = path.join(root, `${pageId}-${v}.png`)
+      const target = path.join(root, fileOf(pageId, v, format))
       const tmp = `${target}.${process.pid}.${randomBytes(4).toString('hex')}.tmp`
       let owned = true // false once the exclusive create found the name already taken: not ours to unlink
       const write = async () => {

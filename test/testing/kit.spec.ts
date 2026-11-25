@@ -932,3 +932,35 @@ describe('versionCoversEverythingDrawn', () => {
     }
   })
 })
+
+describe('JPEG and WebP cards in the kit', () => {
+  it.each(['jpeg', 'webp'] as const)('everyRouteHasOwnCard and sizeBudget accept a %s card page', async (format) => {
+    const rt = installTestRuntime(
+      options({
+        format,
+        targets: { posts: { ...options().targets.posts, path: `/og/:kind/:slug/card.${format === 'jpeg' ? 'jpg' : 'webp'}` } },
+      }),
+      docs(),
+      { renderer: 'real' },
+    )
+    const { module, kit, meta } = site(rt)
+    await kit.everyRouteHasOwnCard({ routes: [{ path: '/posts/a', metadata: meta(1) }], cardRoute: cardRoute(module) })
+    await kit.sizeBudget({ module, params: [p('a')], maxBytes: 300 * 1024 })
+  })
+
+  it('everyRouteHasOwnCard rejects a card whose bytes are not the type it declares', async () => {
+    const rt = installTestRuntime(options({ format: 'jpeg' }), docs())
+    const { module, kit, meta } = site(rt)
+    // Declared and served as image/jpeg, but the bytes are a PNG: only the decode can tell.
+    const png = new Uint8Array(
+      await sharp({ create: { width: 8, height: 8, channels: 3, background: '#123456' } })
+        .png()
+        .toBuffer(),
+    )
+    const lying = { GET: async (r: Request, c: any) => new Response(png, { status: 200, headers: (await module.GET(r, c)).headers }) }
+    await reject(
+      kit.everyRouteHasOwnCard({ routes: [{ path: '/posts/a', metadata: meta(1) }], cardRoute: cardRoute(lying) }),
+      /serves a png, not a JPEG as declared/,
+    )
+  })
+})

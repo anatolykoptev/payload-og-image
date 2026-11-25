@@ -319,6 +319,15 @@ describe('og_preview', () => {
     expect(rt.stored()).toHaveLength(1)
   })
 
+  it.each(['jpeg', 'webp'] as const)('a %s card is sent with its own mime type and the type in the info', async (format) => {
+    installTestRuntime(options({ format }), docs())
+    const r = await run('og_preview', { target: 'posts', slug: 'a' })
+    const image = r.content.find((c) => c.type === 'image') as Content
+    expect(image.mimeType).toBe(`image/${format}`)
+    expect(r.json).toMatchObject({ status: 'png', type: `image/${format}` })
+    expect((await run('og_card', { target: 'posts', slug: 'a' })).json.card.type).toBe(`image/${format}`)
+  })
+
   it('draft mode is on, the card is still the published one, stored under its version', async () => {
     const rt = installTestRuntime(options(), docs())
     rt.draftMode(true, true)
