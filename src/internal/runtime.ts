@@ -13,10 +13,15 @@ import type { ResolvedCard } from './resolve.js'
 import { cachedSite } from './site.js'
 import { CUSTOM_KEY, type OgState } from './state.js'
 import type { CardStore } from './types.js'
+import { variantsOf } from './variants.js'
 
 export type OgRuntime = {
   handler(fixedTarget?: string): { GET(r: Request, c: RouteContext): Promise<Response> }
   resolveForMetadata(a: { target: string; id: string | number } | { static: string }, request?: Request): Promise<ResolvedCard>
+  /** The card of each of `targets` (a target and its variants) for one document, read once. A size that fails is a rejection of its own. */
+  resolveSizes(a: { targets: string[]; id: string | number }, request?: Request): Promise<PromiseSettledResult<ResolvedCard>[]>
+  /** The variant names declared on a target, in declaration order. */
+  variantsOf(target: string): string[]
   /** An editor's live preview of a document being typed (see `CardHandler.preview`). */
   preview: CardHandler['preview']
   emit: OgState['events']['emit']
@@ -98,6 +103,8 @@ export function buildRuntime(state: OgState, payload: Payload, over: RuntimeOver
     return {
       handler: () => disabledHandler,
       resolveForMetadata: async () => ({ kind: 'none' }),
+      resolveSizes: async (a) => a.targets.map(() => ({ status: 'fulfilled' as const, value: { kind: 'none' as const } })),
+      variantsOf: () => [],
       preview: async () => ({ kind: 'none' }),
       emit: state.events.emit,
       inspect: {
@@ -185,6 +192,18 @@ export function buildRuntime(state: OgState, payload: Payload, over: RuntimeOver
       return new Request(state.serverUrl, { headers: await headers() })
     })
 
+  const previewOf = async (request?: Request) => {
+    let previewing = true // when the draft check itself fails, behave as a draft
+    try {
+      previewing = await isDraftRequest(request ?? new Request(state.serverUrl))
+    } catch {
+      // stays true
+    }
+    return { previewing, req: previewing ? (request ?? (await requestForPage())) : undefined }
+  }
+  const docOf = async (target: string, id: string | number, previewing: boolean, req: Request | undefined) =>
+    (previewing && req ? await source.draft(target, { id }, req) : null) ?? (await source.publishedById(target, id))
+
   return {
     emit: state.events.emit,
     inspect,
@@ -200,26 +219,30 @@ export function buildRuntime(state: OgState, payload: Payload, over: RuntimeOver
       }
       return route
     },
+    variantsOf: (target) => variantsOf(o.targets, target),
     async resolveForMetadata(a, request) {
-      const base = handlerFor()
-      let previewing = true // when the draft check itself fails, behave as a draft
-      try {
-        previewing = await isDraftRequest(request ?? new Request(state.serverUrl))
-      } catch {
-        // stays true
-      }
-      const req = previewing ? (request ?? (await requestForPage())) : undefined
+      const { previewing, req } = await previewOf(request)
       if ('static' in a) {
         const card = Object.hasOwn(o.static ?? {}, a.static)
           ? (o.static as Record<string, { kind: string; slug: string }>)[a.static]
           : undefined
         if (!card) throw new Error(`payload-og-image: no static card "${a.static}"`)
-        return base.resolve({ staticKey: `${card.kind}/${card.slug}` }, { previewing, request: req })
+        return handlerFor().resolve({ staticKey: `${card.kind}/${card.slug}` }, { previewing, request: req })
       }
-      const doc =
-        (previewing && req ? await source.draft(a.target, { id: a.id }, req) : null) ?? (await source.publishedById(a.target, a.id))
+      const doc = await docOf(a.target, a.id, previewing, req)
       if (!doc) return { kind: 'none' }
-      return base.resolve({ target: a.target, doc }, { previewing, request: req })
+      return handlerFor().resolve({ target: a.target, doc }, { previewing, request: req })
+    },
+    async resolveSizes(a, request) {
+      const { previewing, req } = await previewOf(request)
+      // The first target names the collection; its variants share it, so one read serves every size.
+      const doc = await docOf(a.targets[0] as string, a.id, previewing, req)
+      return Promise.allSettled(
+        a.targets.map(async (target): Promise<ResolvedCard> => {
+          if (!doc) return { kind: 'none' }
+          return handlerFor().resolve({ target, doc }, { previewing, request: req })
+        }),
+      )
     },
   }
 }

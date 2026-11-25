@@ -5,7 +5,6 @@ import { type LoadedFont, type Stacks, stripMissing } from './fonts.js'
 import { encodingKey, type JpegOptions, type WebpOptions } from './format.js'
 import { createGate, type Gate, ShedError } from './gate.js'
 import type { Memo } from './memo.js'
-
 import {
   buildKindIndex,
   type GeneratedCard,
@@ -16,8 +15,8 @@ import {
   type ResolveInput,
   resolveCard,
 } from './resolve.js'
-
 import type { CardEncoding, CardFormat, CardMime, CardStore, OnEvent, SiteInfo, Size, Upload } from './types.js'
+import { isVariantName } from './variants.js'
 
 export type DocSource = {
   /** Published only: never a draft, whatever the request. */
@@ -277,6 +276,7 @@ export function createCardHandler(d: HandlerDeps): CardHandler {
     return resolveCard({
       target: a.target,
       targetName: a.targetName,
+      variant: isVariantName(d.targets, a.targetName),
       doc: a.doc,
       site: a.site,
       host,

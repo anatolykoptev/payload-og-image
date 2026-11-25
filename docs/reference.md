@@ -497,9 +497,66 @@ write is `og_preview` storing a card the route would have stored, under its vers
 
 `stored` means a file exists under the exact version in the store (a stat; the card is not re-validated).
 
+## Size variants
+
+A target can declare other sizes of the same card, for the schema.org `image` of a page. Google asks for Article images in three
+ratios (16:9, 4:3 and 1:1); the `og:image` stays one wide image.
+
+```ts
+posts: defineTarget({
+  path: '/og/:kind/:slug/card.png',
+  template: 'post', // 1200x630
+  props: ({ doc }) => ({ title: doc.title }),
+  variants: {
+    square: { path: '/og/:kind/:slug/square.png', template: 'post-square' }, // a template with size 1080x1080
+    '4x3': { path: '/og/:kind/:slug/4x3.png', template: 'post-4x3' },
+  },
+})
+```
+
+A variant has its own route `path` and `template` (the template sets the size). It shares the target's collection, `props()`, hero,
+format and slug field, and is served as a hidden target `posts~square` of kind `posts-square`: the same route, store, version and etag
+as any card, and its own URL. Add the route file for its path like the target's own (a route pinned with `createOgRoute({ config, target: 'posts~square' })` serves the hidden target by its name and takes no `:kind`). Names are `[a-z0-9-]+`; a variant whose kind
+or target name is already taken is refused at start-up, as is a bad path or an unknown template. `og_audit` and the test kit see the
+hidden targets as targets of their own.
+
+A variant always draws its template: an editor's own share image (`seoImage`, `share`, mode `custom`) has one size and is never used for
+a variant. It follows the wide image only in `og.mode: off`, which hides every size. The page's wide image is unchanged: it may still be the
+editor's image.
+
+`ogImages` from `payload-og-image/next` lists the sizes of a page, the wide image first (`variant: null`; the editor's own image when
+there is one), then the variants in declaration order or in the order of `variants: ['square']`:
+
+```ts
+const images = await ogImages({ config, target: 'posts', doc }) // [{ url, width, height, variant }, ...]
+```
+
+The document is read once for all sizes. A size that would be blank is left out; a size that fails to resolve is left out and, in production, an event (in development and test it throws); a name the target does not declare throws (in production: an event and `[]`). The test kit sees variants as targets, so `routesMatchPaths` wants a route file for each variant path.
+
+### Square and 4:3 images for Google structured data
+
+Keep `ogMetadata` as it is and give the structured data every size:
+
+```tsx
+const images = await ogImages({ config, target: 'posts', doc })
+const jsonLd = {
+  '@context': 'https://schema.org',
+  '@type': 'Article',
+  headline: doc.title,
+  image: images.map((i) => i.url), // 16:9, 1:1, 4:3
+}
+// <script type="application/ld+json">{JSON.stringify(jsonLd).replace(/</g, '\\u003c')}</script>
+```
+
+`image` may also be a list of `ImageObject` with `width` and `height`: `images.map(({ url, width, height }) => ({ '@type': 'ImageObject', url, width, height }))`.
+
+**Why `og:image` stays a single wide image.** Almost every crawler takes the first `og:image` tag and ignores the rest, so a second tag
+buys nothing there; and Discord turns two or more `og:image` tags into a gallery of all of them, which breaks the single preview. So
+`ogMetadata` never lists a variant, and has no option to. Variants live in JSON-LD only.
+
 ## Not implemented
 
-Pre-warming, locales, AVIF output, size variants, local emoji, another renderer, object-storage stores.
+Pre-warming, locales, AVIF output, local emoji, another renderer, object-storage stores.
 The version and URL formats already reserve the slots, so adding them later changes no existing URL.
 
 ## Threat model
