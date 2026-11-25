@@ -22,6 +22,14 @@ export type DocSource = {
   /** Published only: never a draft, whatever the request. */
   published(target: string, slug: string): Promise<Record<string, any> | null>
   publishedById(target: string, id: string | number): Promise<Record<string, any> | null>
+  /**
+   * One page of a target's published documents, by id: the same published-only, access-respecting read as `published`, with
+   * the uploads populated. `alsoSelect` names fields a caller needs beyond what the target reads (when the target restricts it).
+   */
+  listPublished?(
+    target: string,
+    a: { page: number; limit: number; alsoSelect?: string[] },
+  ): Promise<{ docs: Record<string, any>[]; totalDocs: number }>
   /** The draft, or null unless the request carries an authenticated editor. */
   draft(target: string, key: { slug?: string; id?: string | number }, request: Request): Promise<Record<string, any> | null>
   /**
@@ -35,7 +43,16 @@ export type DocSource = {
    */
   related(collection: string, id: string | number, ctx: { previewing: boolean; request?: Request }): Promise<Record<string, any> | null>
 }
-export type HeroLoader = (hero: Upload, box: Size, o?: { collection?: string }) => Promise<string | null>
+export type HeroLoader = {
+  (hero: Upload, box: Size, o?: { collection?: string; background?: string }): Promise<string | null>
+  /**
+   * Whether the hero has a see-through pixel. Asked only while the site has set no `heroBackground`, to give such a card a
+   * new URL (its bytes changed in 0.5.0). A loader without it (a test seam) reports none.
+   */
+  hasAlpha?: (hero: Upload, o?: { collection?: string }) => Promise<boolean>
+  /** Whether the hero's file can be read at all (a read, no decode): false is why a card would be drawn without it. */
+  readable?: (hero: Upload, o?: { collection?: string }) => Promise<boolean>
+}
 export type Renderer = { render(el: ReactElement, o: { width: number; height: number; fonts: LoadedFont[] }): Promise<Uint8Array> }
 export type HandlerDeps = {
   targets: Record<string, Target>
@@ -45,6 +62,8 @@ export type HandlerDeps = {
   stacks: Stacks
   /** Normalised hero background when not the default white: part of the version of a card with a hero. */
   heroBackground?: string
+  /** True when the site set `heroBackground` (white included): a transparent hero is then flattened, as before 0.5.0. */
+  heroFlattened?: boolean
   /** Effective palette tags when not the default: part of the version (the card's of every card, the hero's of a card with a hero). */
   cardPalette?: string
   heroPalette?: string
@@ -171,13 +190,25 @@ export function createCardHandler(d: HandlerDeps): CardHandler {
       kind: card.kind,
       template: card.template,
       props: async ({ site }) => card.props({ payload: await d.payload?.(), site }),
+      alt:
+        card.alt === undefined
+          ? undefined
+          : typeof card.alt === 'string'
+            ? () => card.alt as string
+            : ({ props, site }) =>
+                (card.alt as (a: { props: never; site: SiteInfo }) => string | null | undefined)({ props: props as never, site }),
     }
   }
 
   async function draw(card: GeneratedCard, fonts: LoadedFont[], o: { quiet?: boolean } = {}) {
     const t0 = Date.now()
     // After the store miss and inside the gate: a cache hit pays for none of this.
-    const hero = card.hero ? await d.heroLoader(card.hero, card.template.heroBox ?? card.size, { collection: card.heroCollection }) : null
+    const hero = card.hero
+      ? await d.heroLoader(card.hero, card.template.heroBox ?? card.size, {
+          collection: card.heroCollection,
+          background: card.heroBackground,
+        })
+      : null
     const { bytes, dropped } = await drawElement(d.renderer, card.template.render(card.props, ctxFor(fonts, hero)), { ...card.size, fonts })
     // Characters no face draws that came from somewhere other than a `textFields` prop (another prop, a glyph in the template itself).
     if (dropped.length > 0 && !o.quiet)
@@ -230,6 +261,8 @@ export function createCardHandler(d: HandlerDeps): CardHandler {
       fontsDigest: a.digest,
       stacks: d.stacks,
       heroBackground: d.heroBackground,
+      heroFlattened: d.heroFlattened,
+      heroHasAlpha: d.heroLoader.hasAlpha,
       cardPalette: d.cardPalette,
       heroPalette: d.heroPalette,
       seoImage: a.isStatic ? undefined : d.seoImage,

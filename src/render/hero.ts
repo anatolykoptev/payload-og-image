@@ -7,6 +7,7 @@ import type { HeroLoader } from '../internal/handler.js'
 import { MAX_SIDE } from '../internal/limits.js'
 import { DEFAULT_HERO_COLOURS } from '../internal/palette.js'
 import type { Upload } from '../internal/types.js'
+import { heroTag } from '../internal/version.js'
 import { guardedFetch, isPublicAddress, type ResolveHost, systemResolve } from './guardedFetch.js'
 
 export type HeroLoaderOptions = {
@@ -28,7 +29,7 @@ export type HeroLoaderOptions = {
   maxBytes?: number
   /** Largest source image in pixels (default 40 million); a bigger header is refused before any decode. */
   maxPixels?: number
-  /** Colour the image is flattened onto where it is transparent (default white). */
+  /** Colour a transparent image is flattened onto (sharp flattens before it scales). Unset: transparency is kept and the card shows through. */
   background?: string
   /** Colours the hero is cut to (2 to 256, default 256); `false` keeps truecolour. */
   colours?: false | number
@@ -138,7 +139,7 @@ async function prepare(
   bytes: Buffer,
   hero: Upload,
   box: { width: number; height: number },
-  o: { maxPixels: number; background: string; colours: false | number },
+  o: { maxPixels: number; background: string | undefined; colours: false | number },
 ): Promise<string | null> {
   try {
     const input = { limitInputPixels: o.maxPixels, failOn: 'error' as const }
@@ -156,7 +157,7 @@ async function prepare(
     if (cropW < 1 || cropH < 1) return null
     const at = (focus: number, size: number, crop: number) =>
       Math.round(Math.min(size - crop, Math.max(0, (focus / 100) * size - crop / 2)))
-    const png = await sharp(bytes, input)
+    const cut = sharp(bytes, input)
       .rotate()
       .extract({
         left: at(clamp(hero.focalX, 50), width, cropW),
@@ -165,12 +166,67 @@ async function prepare(
         height: cropH,
       })
       .resize(box.width, box.height)
-      .flatten({ background: o.background })
+    // Flattened only when the site chose a ground (sharp flattens before it scales, whatever the chain order). Without one the alpha stays in the PNG, so the card
+    // composites the hero as a direct `<img>` would (a flatten onto white first leaves a pale fringe on any other card colour).
+    const png = await (o.background === undefined ? cut : cut.flatten({ background: o.background }))
       .png(o.colours === false ? {} : o.colours === DEFAULT_HERO_COLOURS ? { palette: true } : { palette: true, colours: o.colours })
       .toBuffer()
     return `data:image/png;base64,${png.toString('base64')}`
   } catch {
     return null
+  }
+}
+
+/** Whether any pixel of the image is see-through: a header check first, then a pixel pass only for an image that has an alpha channel. */
+async function transparent(bytes: Buffer, maxPixels: number): Promise<boolean> {
+  try {
+    const input = { limitInputPixels: maxPixels, failOn: 'error' as const }
+    const meta = await sharp(bytes, input).metadata()
+    if (!meta.format || !RASTER.has(meta.format) || !meta.hasAlpha) return false
+    return !(await sharp(bytes, input).stats()).isOpaque
+  } catch {
+    return false
+  }
+}
+
+/** Uploads whose transparency is remembered; the least recently asked is dropped past this. */
+const ALPHA_CAP = 1000
+
+/**
+ * A question about an upload answered once and remembered: keyed (collection and tag), a bounded LRU, and concurrent askers share
+ * one computation. An answer that says `keep: false` (an unreadable file) is not remembered, so a fixed file is picked up.
+ * These run before the store lookup (a card's URL needs them) and from audits, so the steady state must cost nothing.
+ */
+function remembered<A extends unknown[]>(
+  keyOf: (...a: A) => string,
+  compute: (...a: A) => Promise<{ value: boolean; keep: boolean }>,
+): (...a: A) => Promise<boolean> {
+  const known = new Map<string, boolean>()
+  const inflight = new Map<string, Promise<boolean>>()
+  return (...a) => {
+    const key = keyOf(...a)
+    const seen = known.get(key)
+    if (seen !== undefined) {
+      known.delete(key) // most recently used last
+      known.set(key, seen)
+      return Promise.resolve(seen)
+    }
+    const running = inflight.get(key)
+    if (running) return running
+    const run = (async () => {
+      try {
+        const { value, keep } = await compute(...a)
+        if (keep) {
+          known.set(key, value)
+          if (known.size > ALPHA_CAP) known.delete(known.keys().next().value as string)
+        }
+        return value
+      } finally {
+        inflight.delete(key)
+      }
+    })()
+    inflight.set(key, run)
+    return run
   }
 }
 
@@ -185,17 +241,41 @@ export function payloadHeroLoader(o: HeroLoaderOptions): HeroLoader {
   const hosts = new Set((o.allowedHosts ?? []).map((h) => h.toLowerCase()))
   const resolveHost = o.resolveHost ?? systemResolve
   const fetchImpl = o.fetchImpl ?? ((url: string, init: { signal?: AbortSignal }) => guardedFetch(url, init, resolveHost))
-  const background = o.background ?? '#ffffff'
+  const background = o.background
   const colours = o.colours ?? DEFAULT_HERO_COLOURS
-  return async (hero, box, where) => {
+  const read = async (hero: Upload, where?: { collection?: string }) =>
+    (await readLocal(hero, await o.staticDirs(where?.collection), maxBytes)) ?? (await fetchRemote(hero, { hosts, fetchImpl, maxBytes }))
+  const load: HeroLoader = async (hero, box, where) => {
     try {
       if (![box.width, box.height].every((n) => Number.isInteger(n) && n >= 1 && n <= MAX_SIDE)) return null
-      const bytes =
-        (await readLocal(hero, await o.staticDirs(where?.collection), maxBytes)) ??
-        (await fetchRemote(hero, { hosts, fetchImpl, maxBytes }))
-      return bytes ? await prepare(bytes, hero, box, { maxPixels, background, colours }) : null
+      const bytes = await read(hero, where)
+      return bytes ? await prepare(bytes, hero, box, { maxPixels, background: where?.background ?? background, colours }) : null
     } catch {
       return null
     }
   }
+  const keyOf = (hero: Upload, where?: { collection?: string }) => `${where?.collection ?? ''}\u0000${heroTag(hero)}`
+  load.readable = remembered(
+    (hero, where) => keyOf(hero, where),
+    async (hero, where) => {
+      try {
+        return (await read(hero, where)) !== null ? { value: true, keep: true } : { value: false, keep: false } // an unreadable file may be fixed
+      } catch {
+        return { value: false, keep: false }
+      }
+    },
+  )
+  load.hasAlpha = remembered(
+    (hero, where) => keyOf(hero, where),
+    async (hero, where) => {
+      try {
+        const bytes = await read(hero, where)
+        if (!bytes) return { value: false, keep: false } // unreadable: the card is drawn without it and never stored, so nothing is remembered
+        return { value: await transparent(bytes, maxPixels), keep: true }
+      } catch {
+        return { value: false, keep: false }
+      }
+    },
+  )
+  return load
 }

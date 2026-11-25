@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.5.0](https://github.com/anatolykoptev/payload-og-image/compare/v0.4.0...v0.5.0) (2026-11-25)
+
+
+### Features
+
+* **mcp:** read-only og_card, og_audit, og_preview tools for @payloadcms/plugin-mcp; stacked on [#61](https://github.com/anatolykoptev/payload-og-image/issues/61) ([#63](https://github.com/anatolykoptev/payload-og-image/issues/63)) ([68fdb26](https://github.com/anatolykoptev/payload-og-image/commit/68fdb26e739bfb7165d0b019108004929cabe2fd))
+* site gaps from [#54](https://github.com/anatolykoptev/payload-og-image/issues/54) (alt, per-target heroBackground, ctx.fit ladder, kit options); stacked on [#59](https://github.com/anatolykoptev/payload-og-image/issues/59) ([#61](https://github.com/anatolykoptev/payload-og-image/issues/61)) ([cb914d3](https://github.com/anatolykoptev/payload-og-image/commit/cb914d36a6268e7d9abcd5de4c9d2e0eb5ddf7b3))
+
+
+### Bug Fixes
+
+* transparent hero keeps its alpha (0.4.1); kit spec timeout docs ([#59](https://github.com/anatolykoptev/payload-og-image/issues/59)) ([97ce4d5](https://github.com/anatolykoptev/payload-og-image/commit/97ce4d5225355596144c237d80f89834906ad99d))
+
 ## [0.4.0](https://github.com/anatolykoptev/payload-og-image/compare/v0.3.0...v0.4.0) (2026-11-25)
 
 

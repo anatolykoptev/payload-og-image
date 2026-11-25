@@ -1,13 +1,16 @@
+import { existsSync } from 'node:fs'
+import path from 'node:path'
 import type { Payload } from 'payload'
 import sharp from 'sharp'
 import type { HeroLoader, Renderer, RouteContext } from '../internal/handler.js'
 import { cardPaletteOf } from '../internal/palette.js'
-import { buildRuntime, type OgRuntime, setTestRuntime } from '../internal/runtime.js'
+import { buildRuntime, heroLoaderOptionsOf, type OgRuntime, setTestRuntime } from '../internal/runtime.js'
 import { createState, type OgState } from '../internal/state.js'
 import { memoryStore } from '../internal/store/memory.js'
 import type { CardStore } from '../internal/types.js'
 import type { OgImagePluginOptions } from '../plugin/index.js'
 import { payloadSource } from '../plugin/payloadSource.js'
+import { payloadHeroLoader } from '../render/hero.js'
 import { nextOgRenderer } from '../render/nextOg.js'
 
 export type KitDocs = {
@@ -56,7 +59,21 @@ export type TestRuntime = {
   readonly runtime: TestRuntimeHandle
 }
 
-export type TestRuntimeOptions = { renderer?: 'real' | 'stub'; serverUrl?: string }
+export type TestRuntimeOptions = {
+  renderer?: 'real' | 'stub'
+  serverUrl?: string
+  /**
+   * Which stand-in heroes count as having a see-through pixel (default none: every stand-in is an opaque image). A card with a
+   * transparent hero and no `heroBackground` has a different URL from an opaque one, and only the kit can see that when it is set.
+   */
+  transparentHero?: (hero: { id: string | number; filename?: string | null; updatedAt?: string | null }) => boolean
+  /**
+   * A folder of real hero files. A hero whose `filename` is a file in it is prepared by the production hero loader (the same
+   * cut, `heroBackground` and `palette.hero` the plugin's options say), so a card with a real icon is drawn as it will be. Any
+   * other hero stays the small stand-in image; a `missing...` filename is still unreadable.
+   */
+  heroDir?: string
+}
 
 const EDITOR_AUTH = 'JWT kit-editor'
 
@@ -121,10 +138,13 @@ export function installTestRuntime(options: OgImagePluginOptions, docs: KitDocs,
     auth: async ({ headers }: { headers: Headers }) => ({
       user: headers.get('authorization') === EDITOR_AUTH ? { id: 1, collection: editorCollection } : null,
     }),
-    find: async (args: { collection: string; where: unknown; draft?: boolean }) => {
+    find: async (args: { collection: string; where?: unknown; draft?: boolean; page?: number; limit?: number; sort?: string }) => {
       const name = targetOfCollection(args.collection)
-      const found = table(name, args.draft === true).filter((d) => matches(args.where, d))
-      return { docs: found.slice(0, 1).map((d) => structuredClone(d)) }
+      const found = table(name, args.draft === true).filter((d) => args.where === undefined || matches(args.where, d))
+      if (args.sort === 'id') found.sort((a: any, b: any) => String(a.id).localeCompare(String(b.id), undefined, { numeric: true }))
+      const limit = args.limit ?? 1
+      const from = ((args.page ?? 1) - 1) * limit
+      return { docs: found.slice(from, from + limit).map((d) => structuredClone(d)), totalDocs: found.length }
     },
   } as unknown as Payload
   const inner: Renderer =
@@ -147,8 +167,17 @@ export function installTestRuntime(options: OgImagePluginOptions, docs: KitDocs,
     },
   }
   const heroImages = new Map<string, string>()
-  const heroLoader: HeroLoader = async (hero) => {
+  const heroDir = o.heroDir
+  const real = heroDir === undefined ? undefined : payloadHeroLoader({ staticDirs: async () => [heroDir], ...heroLoaderOptionsOf(options) })
+  /** A hero with a file in `heroDir` (by base name, as the loader reads it). */
+  const isReal = (hero: { filename?: string | null }) => {
+    if (heroDir === undefined || typeof hero.filename !== 'string') return false
+    const name = path.basename(hero.filename)
+    return name !== '' && existsSync(path.join(heroDir, name))
+  }
+  const heroLoader: HeroLoader = async (hero, box, where) => {
     heroLoads += 1
+    if (real && isReal(hero)) return real(hero, box, where)
     if (typeof hero.filename === 'string' && hero.filename.startsWith('missing')) return null
     const tag = `${String(hero.id)}:${hero.updatedAt ?? ''}`
     let url = heroImages.get(tag)
@@ -161,6 +190,12 @@ export function installTestRuntime(options: OgImagePluginOptions, docs: KitDocs,
     }
     return url
   }
+  heroLoader.readable = async (hero, where) =>
+    real && isReal(hero)
+      ? (real.readable as NonNullable<HeroLoader['readable']>)(hero, where)
+      : !(typeof hero.filename === 'string' && hero.filename.startsWith('missing'))
+  heroLoader.hasAlpha = async (hero, where) =>
+    real && isReal(hero) ? (real.hasAlpha as NonNullable<HeroLoader['hasAlpha']>)(hero, where) : o.transparentHero?.(hero) === true
 
   const build = (keepStore: boolean) => {
     state = createState(options, serverUrl)
@@ -171,6 +206,7 @@ export function installTestRuntime(options: OgImagePluginOptions, docs: KitDocs,
           storeReads += 1
           return memoryOnly.get(p, v)
         },
+        stat: (p, v) => memoryOnly.stat(p, v), // a stat is not a read: an audit must not move `storeReads`
         async put(p, v, b) {
           puts.push({ pageId: p, v })
           await memoryOnly.put(p, v, b)

@@ -1,4 +1,6 @@
 /** Mutation table (production line -> the test that goes RED). Each check must pass on a correct setup and fail on a site module the test breaks by hand.
+ * - kit.ts `glyphCoverage` ignores `stacks` (checks `samples` only) or never rejects an unknown stack name -> "glyphCoverage: a stack with its own samples ..." RED
+ * - runtime.ts `isReal` always false (a real file never used) -> "the test runtime hero: a real file in `heroDir` ..." RED
  * - kit.ts:110  accept an http:// image URL -> "everyRouteHasOwnCard: https > rejects an http image URL unless allowHttpImages" RED
  * - kit.ts:120  apply the https rule to the first og image only, or skip the twitter list -> "everyRouteHasOwnCard: https > applies to every image of both lists, not only the first" RED
  * - kit.ts:103  accept a page with no og:image -> "everyRouteHasOwnCard > rejects a metadata function that returns no image" RED
@@ -10,6 +12,7 @@
  * - kit.ts:96  ignore header differences -> "rejects a route module whose HEAD answers an empty 200" RED
  * - kit.ts:409  restHeadParity compares nothing (drop the `sameHeadAndGet` call) -> "restHeadParity > rejects a REST route that answers HEAD 404 ..." and "... headers differ" RED (the dev spec dev/tests/restHead.spec.ts runs the same check on the dev app's real REST route)
  * - kit.ts:397  accept bytes that changed under an unchanged URL -> "versionCoversEverythingDrawn > rejects a template that draws module-level state" RED
+ * - runtime.ts `heroLoader.hasAlpha` always false -> "the test runtime hero > a stand-in hero can be declared transparent" RED
  * - kit.ts:301  accept a queue that never sheds -> "queueSheds rejects a route that hides the shedding" RED
  * - kit.ts:227  accept a cacheable draft answer -> "draftNeverCached rejects a route that makes draft answers cacheable" RED
  * - kit.ts:344  accept an immutable stale version -> "staleVersionShort rejects a route that serves every version immutable" RED
@@ -48,6 +51,7 @@ import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { createElement } from 'react'
+import sharp from 'sharp'
 import { afterEach, describe, expect, it } from 'vitest'
 import { installTestRuntime, ogKit } from '../../src/exports/testing.js'
 import { CACHE } from '../../src/internal/handler.js'
@@ -282,6 +286,18 @@ describe('routesMatchPaths', () => {
   })
 })
 
+describe('the test runtime hero', () => {
+  it('a stand-in hero can be declared transparent: its card URL then differs from an opaque one, unless the site flattens it', async () => {
+    const url = async (o: Parameters<typeof installTestRuntime>[2], over: Partial<OgImagePluginOptions> = {}) => {
+      installTestRuntime(options(over), docs(), o)
+      return ((await ogMetadata({ config: {} as never, target: 'posts', doc: { id: 3 } })).openGraph as any).images[0].url as string
+    }
+    const opaque = await url({})
+    expect(await url({ transparentHero: () => true })).not.toBe(opaque)
+    expect(await url({ transparentHero: () => true }, { heroBackground: '#336699' })).toBe(await url({}, { heroBackground: '#336699' }))
+  })
+})
+
 describe('the request-level checks pass on a correct site', () => {
   it('draftNeverCached, storeHitSkipsRender, headParity, staleVersionShort, requestVersionNeverStored, downgradeNotStored, sizeBudget, queueSheds', async () => {
     const rt = installTestRuntime(options(), docs())
@@ -298,6 +314,77 @@ describe('the request-level checks pass on a correct site', () => {
     const rt = installTestRuntime(options(), docs())
     await ogKit(rt).glyphCoverage({ samples: ['Привет, «мир» — №1', 'Plain text'] })
     await reject(ogKit(rt).glyphCoverage({ samples: ['Hi 🚀'] }), /stack "default" cannot draw "🚀"/)
+  })
+})
+
+describe('kit options', () => {
+  it('glyphCoverage: a stack with its own samples is checked against those; a stack nobody covers, or a typo, is an error', async () => {
+    const archivo = () => readFile(new URL('../fixtures/fonts/archivo-latin-600.woff', import.meta.url))
+    const rt = installTestRuntime(
+      options({
+        fonts: [
+          { family: 'Inter', weight: 800, data: font },
+          { family: 'Archivo', weight: 600, data: archivo },
+        ],
+        stacks: { default: ['Inter'], mono: ['Archivo'] }, // the mono face is Latin only
+      }),
+      docs(),
+    )
+    const kit = ogKit(rt)
+    const cyrillic = 'Привет'
+    await reject(kit.glyphCoverage({ samples: [cyrillic] }), /stack "mono" cannot draw/) // the old rule: every stack, every sample
+    await kit.glyphCoverage({ samples: [cyrillic], stacks: { mono: ['Plain text'] } })
+    await reject(kit.glyphCoverage({ samples: [cyrillic], stacks: { mono: [cyrillic] } }), /stack "mono" cannot draw/) // its own list is still enforced
+    await reject(kit.glyphCoverage({ samples: ['ok'], stacks: { mon0: ['ok'] } }), /"mon0", which is not configured/)
+    await reject(kit.glyphCoverage({ stacks: { mono: ['ok'] } }), /give `samples` for the stacks that have no entry/)
+    await reject(kit.glyphCoverage({ samples: ['ok'], stacks: { mono: [] } }), /no samples given for the stack "mono"/) // an empty list is not a pass
+    await kit.glyphCoverage({ stacks: { default: [cyrillic], mono: ['Plain'] } }) // every stack named: no shared list needed
+  })
+  it('the test runtime hero: a real file in `heroDir` is prepared by the production loader, any other hero stays the stand-in', async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), 'og-kit-hero-'))
+    const icon = (alpha: number, r = 200) =>
+      sharp({ create: { width: 16, height: 16, channels: 4, background: { r, g: 10, b: 10, alpha } } })
+        .png()
+        .toBuffer()
+    await writeFile(path.join(dir, 'h.jpg'), await icon(1)) // the file the 'hero' document names (sharp reads the content, not the name)
+    const drawsHero = defineTemplate<{ title: string }>({
+      id: 'draws-hero',
+      revision: '1',
+      render: (p, ctx) => createElement('div', { style: { display: 'flex' } }, ctx.hero ?? p.title),
+    })
+    const card = async (heroDir?: string) => {
+      const rt = installTestRuntime(
+        options({
+          templates: [drawsHero],
+          targets: {
+            posts: defineTarget<any, any>({
+              path: '/og/:kind/:slug/card.png',
+              template: 'draws-hero',
+              props: ({ doc }: any) => ({ title: doc.title }),
+              hero: ({ doc }: any) => doc.heroImage,
+            }),
+          },
+        }),
+        docs(),
+        { heroDir },
+      )
+      const { module } = site(rt)
+      const res = await module.GET(new Request('https://example.test/og/posts/hero/card.png'), { params: Promise.resolve(p('hero')) })
+      const bytes = Buffer.from(await res.arrayBuffer()).toString('base64')
+      const meta = await ogMetadata({ config: {} as never, target: 'posts', doc: { id: 3 } })
+      return { bytes, url: (meta.openGraph as any).images[0].url as string }
+    }
+    const stand = await card()
+    const real = await card(dir)
+    expect(real.bytes).not.toBe(stand.bytes) // drawn from the file, not the stand-in
+    await writeFile(path.join(dir, 'h.jpg'), await icon(1, 10))
+    expect((await card(dir)).bytes).not.toBe(real.bytes) // another file, another card
+    const empty = await mkdtemp(path.join(os.tmpdir(), 'og-kit-empty-'))
+    expect((await card(empty)).bytes).toBe(stand.bytes) // no such file: the stand-in
+    // The production probe sees the file's transparency: the card's URL moves, as it does in production.
+    expect(real.url).toBe(stand.url)
+    await writeFile(path.join(dir, 'h.jpg'), await icon(0.5))
+    expect((await card(dir)).url).not.toBe(real.url)
   })
 })
 

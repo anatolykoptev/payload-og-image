@@ -70,6 +70,8 @@ export type CardKey = { kind: string; slug: string }
 export type VersionInput = {
   /** Normalised hero background when it is not the default white; hashed with each hero only. */
   heroBackground?: string
+  /** The hero has a see-through pixel and no `heroBackground` flattens it (the alpha is kept, from 0.5.0); hashed with each hero only. */
+  heroTransparent?: boolean
   /** Effective card palette when not the default (`'false'` or the colour count); hashed for every card. */
   cardPalette?: string
   /** Effective hero palette when not the default; hashed with each hero only. */
@@ -86,5 +88,10 @@ export type VersionInput = {
 
 export interface CardStore {
   get(pageId: string, v: string): Promise<Uint8Array | null>
+  /**
+   * Whether a card is kept under this exact key, and its size: a stat, never a read of the bytes, and never a write or a delete
+   * (an audit asks it for many cards). It does not validate the PNG: `get` does that.
+   */
+  stat(pageId: string, v: string): Promise<{ bytes: number } | null>
   put(pageId: string, v: string, bytes: Uint8Array): Promise<void>
 }

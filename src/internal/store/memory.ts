@@ -10,6 +10,10 @@ export function memoryStore({ maxBytes = 16 * 1024 * 1024 }: { maxBytes?: number
     async get(pageId, v) {
       return entries.get(`${pageId}|${v}`) ?? null
     },
+    async stat(pageId, v) {
+      const e = entries.get(`${pageId}|${v}`)
+      return e ? { bytes: e.byteLength } : null
+    },
     async put(pageId, v, view) {
       if (view.byteLength === 0 || view.byteLength > maxBytes) return // nothing, or larger than the whole budget: never kept
       const data = new Uint8Array(view) // an exact copy: a view would pin its whole backing buffer and share mutations
