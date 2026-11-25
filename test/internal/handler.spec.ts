@@ -3,6 +3,7 @@
  * - handler.ts:237  store keyed by the request ?v -> "3: a stale ?v is served short, stored under the CURRENT v" RED
  * - handler.ts:225  immutable without the `current` check -> "3" RED
  * - handler.ts:235  decide the downgrade inside the memo closure (store and memoise it) -> "17" RED
+ * - hero.ts `known.set` removed (the probe forgets) -> "a store hit in the steady state reads no hero file" RED
  * - handler.ts:229  call heroLoader before store.get -> "4: a store hit renders nothing and loads no hero" RED
  * - handler.ts:276  fail open when the draft check throws -> "20" RED
  * - handler.ts:154  memoise the fallback in draft mode -> "21" RED
@@ -23,11 +24,16 @@
  * - handler.ts:256  answer 304 before the bytes exist (early return) -> "30: a revalidation is answered 304 only when the current bytes are available" RED
  * - handler.ts:138  do not tell the hero loader which upload collection to read -> "32: the hero loader is told which upload collection the hero belongs to" RED
  * - handler.ts:183  Promise.all instead of allSettled (a fonts failure frees the admission slot while the site read runs) -> "33: the admission slot is held until BOTH the fonts and the site read have settled" RED */
+import { mkdtemp, writeFile } from 'node:fs/promises'
+import os from 'node:os'
+import path from 'node:path'
+import sharp from 'sharp'
 import { describe, expect, it, vi } from 'vitest'
 import { createGate } from '../../src/internal/gate.js'
 import { CACHE, createCardHandler } from '../../src/internal/handler.js'
 import { createMemo } from '../../src/internal/memo.js'
 import { memoryStore } from '../../src/internal/store/memory.js'
+import { payloadHeroLoader } from '../../src/render/hero.js'
 import { defineTarget, defineTemplate } from '../../src/template.js'
 import { loadTestFonts, realPng } from '../helpers.js'
 
@@ -143,6 +149,31 @@ describe('card handler', () => {
     expect(r.headers.get('cache-control')).toBe(CACHE.immutable)
     expect(renderer.render).not.toHaveBeenCalled()
     expect(heroLoader).not.toHaveBeenCalled()
+  })
+  it('a store hit in the steady state reads no hero file: the transparency probe is remembered, not repeated', async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), 'og-steady-'))
+    const clear = await sharp({ create: { width: 8, height: 8, channels: 4, background: { r: 1, g: 2, b: 3, alpha: 0.5 } } })
+      .png()
+      .toBuffer()
+    await writeFile(path.join(dir, 'h.jpg'), clear) // the name the fixture hero has; the bytes are what sharp reads
+    let reads = 0
+    const loader = payloadHeroLoader({
+      staticDirs: async () => {
+        reads += 1
+        return [dir]
+      },
+    })
+    const first = setup({ heroLoader: loader })
+    const r0 = await first.h.GET(req('/og/posts/h/card.png'), ctx('h'))
+    expect(r0.status).toBe(200)
+    expect(reads).toBeGreaterThan(0) // the miss probed and prepared the hero: the guard below is not vacuous
+    const { h, store, renderer } = setup({ heroLoader: loader })
+    await store.put((first.put.mock.calls[0] as unknown[])[0] as string, vOf(r0), await realPng('stored'))
+    const before = reads
+    const r = await h.GET(req(`/og/posts/h/card.png?v=${vOf(r0)}`), ctx('h'))
+    expect(r.headers.get('x-og-cache')).toBe('store')
+    expect(renderer.render).not.toHaveBeenCalled()
+    expect(reads).toBe(before)
   })
   it('6: draft mode + editor -> draft words, no-store, nothing stored, the published card untouched', async () => {
     const { h, put, renderer } = setup()

@@ -150,7 +150,7 @@ describe('ogMetadata', () => {
     expect(await vOf({ heroBackground: '#fff' }, withHero)).toBe(await vOf({}, withHero))
     expect(await vOf({ heroBackground: '#336699' }, plain)).toBe(await vOf({}, plain))
   })
-  it('a transparent hero nobody flattens is a new card URL (its bytes changed in 0.4.1); an opaque one, or a flattened one, keeps its URL', async () => {
+  it('a transparent hero nobody flattens is a new card URL (its bytes changed in 0.5.0); an opaque one, or a flattened one, keeps its URL', async () => {
     const withAlpha = (alpha: boolean): HeroLoader =>
       Object.assign(async () => 'data:image/png;base64,AAAA', { hasAlpha: async () => alpha })
     const url = async (over: Partial<OgImagePluginOptions>, loader?: HeroLoader) => {

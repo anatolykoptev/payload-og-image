@@ -380,6 +380,11 @@ export type TestRuntimeHandle = {
 export type TestRuntimeOptions = {
     renderer?: 'real' | 'stub';
     serverUrl?: string;
+    transparentHero?: (hero: {
+        id: string | number;
+        filename?: string | null;
+        updatedAt?: string | null;
+    }) => boolean;
 };
 
 // @public (undocumented)

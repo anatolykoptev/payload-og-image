@@ -56,7 +56,15 @@ export type TestRuntime = {
   readonly runtime: TestRuntimeHandle
 }
 
-export type TestRuntimeOptions = { renderer?: 'real' | 'stub'; serverUrl?: string }
+export type TestRuntimeOptions = {
+  renderer?: 'real' | 'stub'
+  serverUrl?: string
+  /**
+   * Which stand-in heroes count as having a see-through pixel (default none: every stand-in is an opaque image). A card with a
+   * transparent hero and no `heroBackground` has a different URL from an opaque one, and only the kit can see that when it is set.
+   */
+  transparentHero?: (hero: { id: string | number; filename?: string | null; updatedAt?: string | null }) => boolean
+}
 
 const EDITOR_AUTH = 'JWT kit-editor'
 
@@ -161,6 +169,7 @@ export function installTestRuntime(options: OgImagePluginOptions, docs: KitDocs,
     }
     return url
   }
+  heroLoader.hasAlpha = async (hero) => o.transparentHero?.(hero) === true
 
   const build = (keepStore: boolean) => {
     state = createState(options, serverUrl)

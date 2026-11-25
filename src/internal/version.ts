@@ -3,7 +3,7 @@ import type { CardKey, Upload, VersionInput } from './types.js'
 
 export const VERSION_FORMAT = 1
 
-/** Bumped when the bytes a transparent, unflattened hero draws change. 2: the alpha is kept (0.4.1); before, it was flattened onto white. */
+/** Bumped when the bytes a transparent, unflattened hero draws change. 2: the alpha is kept (0.5.0); before, it was flattened onto white. */
 export const HERO_ALPHA_REVISION = 2
 
 const sha = (t: string) => createHash('sha256').update(t).digest('hex')

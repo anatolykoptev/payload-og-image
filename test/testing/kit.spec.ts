@@ -10,6 +10,7 @@
  * - kit.ts:96  ignore header differences -> "rejects a route module whose HEAD answers an empty 200" RED
  * - kit.ts:409  restHeadParity compares nothing (drop the `sameHeadAndGet` call) -> "restHeadParity > rejects a REST route that answers HEAD 404 ..." and "... headers differ" RED (the dev spec dev/tests/restHead.spec.ts runs the same check on the dev app's real REST route)
  * - kit.ts:397  accept bytes that changed under an unchanged URL -> "versionCoversEverythingDrawn > rejects a template that draws module-level state" RED
+ * - runtime.ts `heroLoader.hasAlpha` always false -> "the test runtime hero > a stand-in hero can be declared transparent" RED
  * - kit.ts:301  accept a queue that never sheds -> "queueSheds rejects a route that hides the shedding" RED
  * - kit.ts:227  accept a cacheable draft answer -> "draftNeverCached rejects a route that makes draft answers cacheable" RED
  * - kit.ts:344  accept an immutable stale version -> "staleVersionShort rejects a route that serves every version immutable" RED
@@ -279,6 +280,18 @@ describe('routesMatchPaths', () => {
       ogKit(rt).routesMatchPaths({ appDir: app }),
       /target "posts" declares \/share\/:kind\/:slug\/og\.png, but no route file.*serves \/og\/:kind\/:slug\/card\.png, which no target or static card declares/,
     )
+  })
+})
+
+describe('the test runtime hero', () => {
+  it('a stand-in hero can be declared transparent: its card URL then differs from an opaque one, unless the site flattens it', async () => {
+    const url = async (o: Parameters<typeof installTestRuntime>[2], over: Partial<OgImagePluginOptions> = {}) => {
+      installTestRuntime(options(over), docs(), o)
+      return ((await ogMetadata({ config: {} as never, target: 'posts', doc: { id: 3 } })).openGraph as any).images[0].url as string
+    }
+    const opaque = await url({})
+    expect(await url({ transparentHero: () => true })).not.toBe(opaque)
+    expect(await url({ transparentHero: () => true }, { heroBackground: '#336699' })).toBe(await url({}, { heroBackground: '#336699' }))
   })
 })
 

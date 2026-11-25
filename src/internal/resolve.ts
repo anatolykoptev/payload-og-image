@@ -193,7 +193,7 @@ export async function resolveCard(i: ResolveInput): Promise<ResolvedCard> {
   const slug = routable(nonEmpty(getPath(i.doc, i.target.slugField ?? 'slug')))
   if (slug === undefined) return { kind: 'none' }
   const key = { kind: i.target.kind ?? i.targetName, slug }
-  // A transparent hero nobody flattens is drawn with its alpha (0.4.1); its bytes differ from 0.4.0's, so its URL must too.
+  // A transparent hero nobody flattens is drawn with its alpha (0.5.0); its bytes differ from 0.4.0's, so its URL must too.
   const heroTransparent =
     hero !== null && !i.heroFlattened && i.heroHasAlpha ? await i.heroHasAlpha(hero, { collection: i.target.heroCollection }) : false
   const v = cardVersion({

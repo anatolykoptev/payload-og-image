@@ -1,6 +1,11 @@
 /** Mutation table (production line -> the test that goes RED). Silent-failure surface: a transparent hero drawn with a pale fringe, or a card whose bytes changed and whose URL did not.
  * - hero.ts:171 `cut.flatten(...)` applied with a default white when no ground is set -> "drawn at its own size, a transparent hero is the pixels of a direct <img>" RED
  * - hero.ts:186 `hasAlpha` always false -> "hasAlpha: a see-through pixel is true; opaque, jpeg and unreadable are false" RED
+ * - hero.ts `hasAlpha` key without the collection -> "hasAlpha: the same upload tag in two collections is two answers" RED
+ * - hero.ts `known.set` removed (no memory) -> "hasAlpha asks the file once per upload ..." RED and handler.spec "a store hit in the steady state reads no hero file" RED
+ * - hero.ts `inflight` removed -> same first test RED (two concurrent askers read twice)
+ * - hero.ts the LRU touch on a hit removed, or no eviction -> "the memory is a bounded LRU" RED
+ * - hero.ts the JPEG shortcut removed -> "a JPEG upload is never read" RED
  * - hero.ts:186 `hasAlpha` ignores `isOpaque` (true for any alpha channel) -> same test RED (the opaque RGBA PNG) */
 import { mkdtemp, writeFile } from 'node:fs/promises'
 import os from 'node:os'
@@ -77,5 +82,74 @@ describe('a transparent hero', () => {
       false,
       false,
     ])
+  })
+
+  const countingLoader = async (files: Record<string, Record<string, Buffer>>) => {
+    const dirs: Record<string, string> = {}
+    for (const [collection, f] of Object.entries(files)) dirs[collection] = await dirWith(f)
+    const reads: string[] = []
+    const l = payloadHeroLoader({
+      staticDirs: async (collection) => {
+        reads.push(collection ?? '')
+        return collection === undefined ? Object.values(dirs) : [dirs[collection] as string]
+      },
+      colours: false,
+    })
+    return {
+      l,
+      reads,
+      has: (hero: Parameters<NonNullable<typeof l.hasAlpha>>[0], collection?: string) =>
+        (l.hasAlpha as NonNullable<typeof l.hasAlpha>)(hero, { collection }),
+    }
+  }
+
+  it('hasAlpha: the same upload tag in two collections is two answers', async () => {
+    const solid = { create: { width: 8, height: 8, channels: 4 as const, background: { r: 9, g: 9, b: 9, alpha: 1 } } }
+    const { has } = await countingLoader({
+      docs: { 'icon.png': await sharp(solid).png().toBuffer() },
+      media: { 'icon.png': await sharp(Buffer.from(ICON)).png().toBuffer() },
+    })
+    const hero = upload('icon.png') // the same id and updatedAt in both
+    expect(await has(hero, 'docs')).toBe(false)
+    expect(await has(hero, 'media')).toBe(true)
+    expect(await has(hero, 'docs')).toBe(false)
+  })
+
+  it('hasAlpha asks the file once per upload: concurrent askers share a read, later ones read nothing', async () => {
+    const { has, reads } = await countingLoader({ m: { 'icon.png': await sharp(Buffer.from(ICON)).png().toBuffer() } })
+    const hero = upload('icon.png')
+    const answers = await Promise.all([has(hero, 'm'), has(hero, 'm'), has(hero, 'm')])
+    expect(answers).toEqual([true, true, true])
+    expect(reads).toHaveLength(1)
+    await has(hero, 'm')
+    expect(reads).toHaveLength(1)
+  })
+
+  it('a JPEG upload is never read', async () => {
+    const { has, reads } = await countingLoader({
+      m: {
+        'p.jpg': await sharp({ create: { width: 8, height: 8, channels: 3, background: '#123456' } })
+          .jpeg()
+          .toBuffer(),
+      },
+    })
+    expect(await has({ ...upload('p.jpg'), mimeType: 'image/jpeg' } as never, 'm')).toBe(false)
+    expect(reads).toHaveLength(0)
+  })
+
+  it('the memory is a bounded LRU: the least recently asked upload is the one forgotten', async () => {
+    const tiny = { create: { width: 4, height: 4, channels: 4 as const, background: { r: 1, g: 2, b: 3, alpha: 0.5 } } }
+    const { has, reads } = await countingLoader({ m: { 'icon.png': await sharp(tiny).png().toBuffer() } })
+    const at = (n: number) => ({ ...upload('icon.png'), id: n })
+    await has(at(0), 'm')
+    for (let n = 1; n <= 1000; n++) {
+      await has(at(n), 'm')
+      if (n === 500) await has(at(0), 'm') // touched again: now newer than 1..500
+    }
+    expect(reads).toHaveLength(1001) // 0..1000 read once each; the touch at 500 was a hit
+    await has(at(0), 'm') // kept: it was touched
+    expect(reads).toHaveLength(1001)
+    await has(at(1), 'm') // the oldest untouched one went when the cap was passed
+    expect(reads).toHaveLength(1002)
   })
 })

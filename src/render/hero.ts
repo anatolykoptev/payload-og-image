@@ -29,7 +29,7 @@ export type HeroLoaderOptions = {
   maxBytes?: number
   /** Largest source image in pixels (default 40 million); a bigger header is refused before any decode. */
   maxPixels?: number
-  /** Colour a transparent image is flattened onto, after it is cut to the box. Unset: transparency is kept and the card shows through. */
+  /** Colour a transparent image is flattened onto (sharp flattens before it scales). Unset: transparency is kept and the card shows through. */
   background?: string
   /** Colours the hero is cut to (2 to 256, default 256); `false` keeps truecolour. */
   colours?: false | number
@@ -166,7 +166,7 @@ async function prepare(
         height: cropH,
       })
       .resize(box.width, box.height)
-    // Flattened only when the site chose a ground, and after the cut. Without one the alpha stays in the PNG, so the card
+    // Flattened only when the site chose a ground (sharp flattens before it scales, whatever the chain order). Without one the alpha stays in the PNG, so the card
     // composites the hero as a direct `<img>` would (a flatten onto white first leaves a pale fringe on any other card colour).
     const png = await (o.background === undefined ? cut : cut.flatten({ background: o.background }))
       .png(o.colours === false ? {} : o.colours === DEFAULT_HERO_COLOURS ? { palette: true } : { palette: true, colours: o.colours })
@@ -189,7 +189,7 @@ async function transparent(bytes: Buffer, maxPixels: number): Promise<boolean> {
   }
 }
 
-/** Heroes whose transparency is known, by upload tag. Bounded: it is cleared whole at the cap. */
+/** Uploads whose transparency is remembered; the least recently asked is dropped past this. */
 const ALPHA_CAP = 1000
 
 /**
@@ -207,7 +207,6 @@ export function payloadHeroLoader(o: HeroLoaderOptions): HeroLoader {
   const colours = o.colours ?? DEFAULT_HERO_COLOURS
   const read = async (hero: Upload, where?: { collection?: string }) =>
     (await readLocal(hero, await o.staticDirs(where?.collection), maxBytes)) ?? (await fetchRemote(hero, { hosts, fetchImpl, maxBytes }))
-  const known = new Map<string, boolean>()
   const load: HeroLoader = async (hero, box, where) => {
     try {
       if (![box.width, box.height].every((n) => Number.isInteger(n) && n >= 1 && n <= MAX_SIDE)) return null
@@ -217,20 +216,37 @@ export function payloadHeroLoader(o: HeroLoaderOptions): HeroLoader {
       return null
     }
   }
-  load.hasAlpha = async (hero, where) => {
-    const key = heroTag(hero)
+  // The probe runs before the store lookup (the card's URL needs it), so it is cheap in the steady state: a JPEG is never read, an
+  // answer is remembered per upload (collection and tag) in a bounded LRU, and concurrent askers share one read.
+  const known = new Map<string, boolean>()
+  const inflight = new Map<string, Promise<boolean>>()
+  load.hasAlpha = (hero, where) => {
+    if (hero.mimeType === 'image/jpeg') return Promise.resolve(false) // no alpha channel to find
+    const key = `${where?.collection ?? ''}\u0000${heroTag(hero)}`
     const seen = known.get(key)
-    if (seen !== undefined) return seen
-    try {
-      const bytes = await read(hero, where)
-      if (!bytes) return false // unreadable: the card is drawn without it and never stored, so nothing is remembered
-      const alpha = await transparent(bytes, maxPixels)
-      if (known.size >= ALPHA_CAP) known.clear()
-      known.set(key, alpha)
-      return alpha
-    } catch {
-      return false
+    if (seen !== undefined) {
+      known.delete(key) // most recently used last
+      known.set(key, seen)
+      return Promise.resolve(seen)
     }
+    const running = inflight.get(key)
+    if (running) return running
+    const probe = (async () => {
+      try {
+        const bytes = await read(hero, where)
+        if (!bytes) return false // unreadable: the card is drawn without it and never stored, so nothing is remembered
+        const alpha = await transparent(bytes, maxPixels)
+        known.set(key, alpha)
+        if (known.size > ALPHA_CAP) known.delete(known.keys().next().value as string)
+        return alpha
+      } catch {
+        return false
+      } finally {
+        inflight.delete(key)
+      }
+    })()
+    inflight.set(key, probe)
+    return probe
   }
   return load
 }
