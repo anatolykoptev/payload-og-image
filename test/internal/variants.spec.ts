@@ -100,7 +100,7 @@ const ctx = (kind: string, slug: string) => ({ params: Promise.resolve({ kind, s
 
 describe('size variants', () => {
   it('the plugin expands each variant into a hidden sibling target right after its parent', () => {
-    const targets = (apply(options()).custom?.[CUSTOM_KEY] as OgState).options.targets
+    const targets = (apply(options()).custom![CUSTOM_KEY] as OgState).options.targets
     expect(Object.keys(targets)).toEqual(['posts', 'posts~square', 'posts~4x3'])
     expect(targets['posts~square']).toMatchObject({ kind: 'posts-square', path: '/og/:kind/:slug/square.png', template: 'square' })
     expect(targets['posts~square']?.variants).toBeUndefined()
