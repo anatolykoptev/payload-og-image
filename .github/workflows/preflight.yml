@@ -28,14 +28,36 @@ jobs:
       - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v7
         with:
-          # Node 24 on purpose: the env-proxy test in test/render/render.spec.ts needs http.setGlobalProxyFromEnv (Node >= 24) and
+          # Node 26 on purpose: the env-proxy test in test/render/render.spec.ts needs http.setGlobalProxyFromEnv (Node >= 24) and
           # is skipped below it, so a lower pin would silently drop that check.
-          node-version: 24
+          node-version: 26.13.1
       - run: pnpm install --frozen-lockfile
       - run: make preflight
       # What lives in the Next layer (HEAD, route wiring, the page cache) is only seen over HTTP: build the dev app,
       # serve it with `next start` and probe a card, a stale ?v, an unknown slug and a REST upload. Needs the build above.
       - run: node scripts/probe-dev-server.mjs
+
+  # The package declares engines ^22.23.5 || ^24.22.3 || >=26.13.1. `preflight` runs on 26.13.1; this runs the suite on the
+  # other two declared lines so a Node API that only exists on the newest one cannot ship unseen.
+  runtime-compat:
+    if: ${{ !github.event.repository.private || github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+    runs-on: ${{ github.event.repository.private && fromJSON('["self-hosted","linux","arm64"]') || 'ubuntu-24.04-arm' }}
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [22.23.5, 24.22.3]
+    name: runtime-compat (Node ${{ matrix.node }})
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ matrix.node }}
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test
 
   # Payload 4 support, a gate like `preflight`: the type check, the suite, the public surface and the dev-app HTTP probe against the newest published
   # Payload 4 beta that clears the release-age cooldown. Nothing from this job ships or is committed back.
@@ -52,7 +74,7 @@ jobs:
       - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v7
         with:
-          node-version: 24
+          node-version: 26.13.1
       - run: pnpm install --frozen-lockfile
       # One exact version for every @payloadcms/* package (Payload 4 pins them to each other). The picker applies the
       # release-age cooldown to `payload` itself (the `beta` dist-tag can name one the cooldown refuses, or a build that is no
