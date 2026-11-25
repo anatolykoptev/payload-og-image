@@ -61,7 +61,7 @@ jobs:
       - run: |
           beta=$(npm view payload time --json | node scripts/latest-payload-beta.mjs)
           echo "Payload beta: $beta"
-          pnpm add --save-dev --save-exact --config.minimumReleaseAge=0 "payload@$beta" "@payloadcms/db-sqlite@$beta" "@payloadcms/next@$beta" "@payloadcms/richtext-lexical@$beta" "@payloadcms/ui@$beta"
+          pnpm add --save-dev --save-exact --config.minimumReleaseAge=0 "payload@$beta" "@payloadcms/db-sqlite@$beta" "@payloadcms/next@$beta" "@payloadcms/richtext-lexical@$beta" "@payloadcms/ui@$beta" "@payloadcms/plugin-mcp@$beta"
       - name: Type check against the beta types (src, tests, dev app)
         run: |
           node_modules/.bin/tsc --noEmit
