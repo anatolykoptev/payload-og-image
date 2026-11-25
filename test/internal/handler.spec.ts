@@ -1,4 +1,5 @@
 /** Mutation table (production line -> the test that goes RED). Silent-failure surface: a draft cached, a stale or request-chosen version stored, a degraded card pinned.
+ * - handler.ts `background: card.heroBackground` left out of the hero loader call -> "a ground set on the target reaches the hero loader" RED
  * - handler.ts:218  delete the draft branch -> "6", "7", "7b", "16", "20" RED
  * - handler.ts:237  store keyed by the request ?v -> "3: a stale ?v is served short, stored under the CURRENT v" RED
  * - handler.ts:225  immutable without the `current` check -> "3" RED
@@ -174,6 +175,25 @@ describe('card handler', () => {
     expect(r.headers.get('x-og-cache')).toBe('store')
     expect(renderer.render).not.toHaveBeenCalled()
     expect(reads).toBe(before)
+  })
+  it("a ground set on the target reaches the hero loader; a card without one passes none, so the plugin's applies", async () => {
+    const withGround = {
+      targets: {
+        posts: defineTarget({
+          path: '/og/:kind/:slug/card.png',
+          template: 'post',
+          heroBackground: '#336699',
+          props: ({ doc }: any) => ({ title: doc.title, label: 'Blog' }),
+          hero: ({ doc }: any) => doc.heroImage,
+        }),
+      },
+    }
+    const set = setup(withGround)
+    await set.h.GET(req('/og/posts/h/card.png'), ctx('h'))
+    expect((set.heroLoader.mock.calls[0] as unknown[])[2]).toEqual({ collection: undefined, background: '#336699' })
+    const plain = setup()
+    await plain.h.GET(req('/og/posts/h/card.png'), ctx('h'))
+    expect(((plain.heroLoader.mock.calls[0] as unknown[])[2] as { background?: string }).background).toBeUndefined()
   })
   it('6: draft mode + editor -> draft words, no-store, nothing stored, the published card untouched', async () => {
     const { h, put, renderer } = setup()

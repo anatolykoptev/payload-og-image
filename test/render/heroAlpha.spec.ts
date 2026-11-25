@@ -1,4 +1,5 @@
 /** Mutation table (production line -> the test that goes RED). Silent-failure surface: a transparent hero drawn with a pale fringe, or a card whose bytes changed and whose URL did not.
+ * - hero.ts `where?.background ?? background` -> `background` -> "a ground given for one card flattens that card's hero, over the loader's own" RED
  * - hero.ts:171 `cut.flatten(...)` applied with a default white when no ground is set -> "drawn at its own size, a transparent hero is the pixels of a direct <img>" RED
  * - hero.ts:186 `hasAlpha` always false -> "hasAlpha: a see-through pixel is true; opaque, jpeg and unreadable are false" RED
  * - hero.ts `hasAlpha` key without the collection -> "hasAlpha: the same upload tag in two collections is two answers" RED
@@ -65,6 +66,22 @@ describe('a transparent hero', () => {
     expect(differing(await drawn(viaLoader), direct)).toBe(0)
     const flattened = (await loaderFor(dir, '#ffffff')(upload('icon.png'), box)) as string
     expect(differing(await drawn(flattened), direct)).toBeGreaterThan(1000) // 0.4.0: a pale fringe round the icon
+  })
+  it("a ground given for one card flattens that card's hero, over the loader's own", async () => {
+    const dir = await dirWith({ 'icon.png': await sharp(Buffer.from(ICON)).png().toBuffer() })
+    const px = async (own: string | undefined, general: string | undefined) => {
+      const l = loaderFor(dir, general)
+      const url = (await l(upload('icon.png'), { width: 256, height: 256 }, { background: own })) as string
+      const { data } = await sharp(Buffer.from(url.split(',')[1] as string, 'base64'))
+        .ensureAlpha()
+        .raw()
+        .toBuffer({ resolveWithObject: true })
+      return [...data.subarray(0, 4)] // the transparent corner
+    }
+    expect(await px('#336699', undefined)).toEqual([51, 102, 153, 255]) // the card's own ground, though the plugin set none
+    expect(await px('#336699', '#ffffff')).toEqual([51, 102, 153, 255]) // and over the plugin's
+    expect(await px(undefined, '#112233')).toEqual([17, 34, 51, 255]) // none of its own: the plugin's
+    expect((await px(undefined, undefined))[3]).toBe(0) // neither: the alpha is kept
   })
   it('hasAlpha: a see-through pixel is true; opaque, jpeg and unreadable are false', async () => {
     const solid = { create: { width: 8, height: 8, channels: 4 as const, background: { r: 9, g: 9, b: 9, alpha: 1 } } }

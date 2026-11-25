@@ -211,7 +211,7 @@ export function payloadHeroLoader(o: HeroLoaderOptions): HeroLoader {
     try {
       if (![box.width, box.height].every((n) => Number.isInteger(n) && n >= 1 && n <= MAX_SIDE)) return null
       const bytes = await read(hero, where)
-      return bytes ? await prepare(bytes, hero, box, { maxPixels, background, colours }) : null
+      return bytes ? await prepare(bytes, hero, box, { maxPixels, background: where?.background ?? background, colours }) : null
     } catch {
       return null
     }

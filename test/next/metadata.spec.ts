@@ -1,4 +1,5 @@
 /** Mutation table (production line -> the test that goes RED). Silent-failure surface: a page advertising a card URL the route does not serve (a different v, a different image).
+ * - handler.ts `alt` of a static card not mapped onto its target -> "alt on a static card" RED
  * - runtime.ts:149  resolve from the document the page passed instead of re-reading by id (patched through metadata.ts and runtime.ts together) -> "4: the page passes a doc whose hero is a bare id ..." RED
  * - resolve.ts:169 leave heroBackground out of the version -> "a changed heroBackground is a new card URL" RED
  * - runtime.ts:118 `heroFlattened: true` always -> "a transparent hero nobody flattens is a new card URL" RED
@@ -199,6 +200,28 @@ describe('ogMetadata', () => {
     const { config } = setup({})
     const m = await ogMetadata({ config, static: 'index/blog' })
     expect((m.openGraph as any).images[0].url).toMatch(/^https:\/\/x\.test\/og\/index\/blog\/card\.png\?v=[0-9a-f]{12}$/)
+  })
+  it('alt on a static card: a string, or a function of its props; none keeps the title, and the URL does not move', async () => {
+    const card = (alt?: any) => ({
+      'index/blog': {
+        path: '/og/index/blog/card.png',
+        kind: 'index',
+        slug: 'blog',
+        template: 'post',
+        props: () => ({ title: 'Blog', label: '' }),
+        alt,
+      },
+    })
+    const meta = async (alt?: any) => {
+      const { config } = setup({}, { static: card(alt) })
+      const image = ((await ogMetadata({ config, static: 'index/blog' })).openGraph as any).images[0]
+      return [image.alt as string, image.url as string] as const
+    }
+    const [none, url] = await meta()
+    expect(none).toBe('Blog')
+    expect((await meta('Our blog: every post'))[0]).toBe('Our blog: every post')
+    expect((await meta(({ props, site }: any) => `${props.title} of ${site.name}`))[0]).toBe('Blog of Site')
+    expect((await meta('Our blog: every post'))[1]).toBe(url) // not drawn, so not versioned
   })
   it('descriptorOf is the one place the metadata shape is built', () => {
     expect(descriptorOf({ kind: 'none' })).toEqual({})
