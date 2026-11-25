@@ -115,4 +115,12 @@ describe('decodesImage / isWholeCard', () => {
       [false, false, false, false],
     )
   })
+  it('bytes the renderer already validated are not decoded again (checked by identity)', async () => {
+    const b = await jpeg()
+    expect(await isWholeCard(b, 'jpeg')).toBe(true)
+    const damaged = b.subarray(0, 10).slice() // a different buffer is checked afresh
+    expect(await isWholeCard(damaged, 'jpeg')).toBe(false)
+    b.fill(0) // the same buffer, now garbage: the identity record is what answers
+    expect(await isWholeCard(b, 'jpeg')).toBe(true)
+  })
 })

@@ -3,15 +3,29 @@
  * - disk.ts put(): drop the `isWholeCard` check -> "put refuses bytes that are not a whole <format>" RED
  * - disk.ts `fileOf` always `.png` -> "a whole <format> round-trips" (file name) RED
  * - disk.ts CARD_FILE without `jpg|webp` -> "prune counts and trims JPEG and WebP files" RED
+ * - disk.ts `validated` set: a repeat get validates again -> "a file is validated in full once per process" RED; key without ino/mtime/size -> "... a file replaced on disk is validated again" RED
+ * - validate.ts `checked` WeakSet dropped -> validate.spec "bytes the renderer already validated are not decoded again" RED
  * - disk.ts get(): the `format` argument ignored (validated as PNG) -> "a PNG at a .jpg name is a miss" RED */
-import { mkdtemp, readdir, utimes, writeFile } from 'node:fs/promises'
+import { mkdtemp, readdir, rename, utimes, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import type { CardFormat } from '../../../src/internal/format.js'
 import { diskStore } from '../../../src/internal/store/disk.js'
 import type { OgEvent } from '../../../src/internal/types.js'
 import { realCard } from '../../helpers.js'
+
+const decodes = vi.hoisted(() => ({ calls: 0 }))
+vi.mock('../../../src/internal/store/validate.js', async (orig) => {
+  const actual = await orig<typeof import('../../../src/internal/store/validate.js')>()
+  return {
+    ...actual,
+    isWholeCard: async (...a: Parameters<typeof actual.isWholeCard>) => {
+      decodes.calls += 1
+      return actual.isWholeCard(...a)
+    },
+  }
+})
 
 const P = 'a'.repeat(16)
 const V = (c: string) => c.repeat(12)
@@ -71,6 +85,25 @@ describe.each(['jpeg', 'webp'] as const)('diskStore, %s cards', (format) => {
     expect(ev.list.filter((e) => e.name === 'store_write_skipped').map((e) => e.detail?.reason)).toEqual(
       Array(3).fill(`not_a_complete_${format}`),
     )
+  })
+
+  it('a file is validated in full once per process; a file replaced on disk is validated again', async () => {
+    const dir = await tmp()
+    const s = diskStore({ dir })
+    await s.put(P, V('f'), await card('one'), format)
+    const file = path.join(dir, `${P}-${V('f')}.${ext}`)
+    decodes.calls = 0
+    expect(await s.get(P, V('f'), format)).not.toBeNull()
+    expect(await s.get(P, V('f'), format)).not.toBeNull()
+    expect(decodes.calls).toBe(1) // the second read trusts the first
+    const other = await card('two, a different card')
+    await writeFile(`${file}.new`, other)
+    await rename(`${file}.new`, file) // replaced: another inode, size and mtime
+    expect(await s.get(P, V('f'), format)).toEqual(other)
+    expect(decodes.calls).toBe(2)
+    await writeFile(file, other.subarray(0, other.length >> 1)) // torn after validation: size changed, so it is decoded, found torn, deleted
+    expect(await s.get(P, V('f'), format)).toBeNull()
+    expect(decodes.calls).toBe(3)
   })
 
   it('prune counts and trims JPEG and WebP files with the PNGs', async () => {

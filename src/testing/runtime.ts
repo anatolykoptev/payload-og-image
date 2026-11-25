@@ -154,7 +154,8 @@ export function installTestRuntime(options: OgImagePluginOptions, docs: KitDocs,
           // The stub draws the element's JSON: any change to what a template would draw changes the bytes.
           render: async (el, a) => {
             const image = sharp({ create: { width: 8, height: 8, channels: 3, background: colourOf(JSON.stringify(el)) } })
-            return new Uint8Array(await (a.encoding?.format === 'jpeg' ? image.jpeg() : image.png()).toBuffer())
+            const format = a.encoding?.format ?? 'png'
+            return new Uint8Array(await (format === 'jpeg' ? image.jpeg() : format === 'webp' ? image.webp() : image.png()).toBuffer())
           },
         }
   const renderer: Renderer = {

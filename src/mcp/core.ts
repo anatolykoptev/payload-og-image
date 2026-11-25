@@ -172,7 +172,7 @@ const SPECS: Spec[] = [
     name: 'og_preview',
     kind: 'preview',
     description:
-      "The card image (PNG, or JPEG for a JPEG card) for a published page. A stored card is read from the store; otherwise it is drawn through the render queue (it may be refused when the queue is full) and stored under its versioned key, exactly as a crawler's request would. Drafts are never shown.",
+      "The card image (PNG, JPEG or WebP, as the card is configured) for a published page. A stored card is read from the store; otherwise it is drawn through the render queue (it may be refused when the queue is full) and stored under its versioned key, exactly as a crawler's request would. Drafts are never shown.",
     properties: SHAPE.ref,
     async run(args, req, o) {
       try {

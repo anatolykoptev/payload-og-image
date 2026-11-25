@@ -934,19 +934,27 @@ describe('versionCoversEverythingDrawn', () => {
 })
 
 describe('JPEG and WebP cards in the kit', () => {
-  it.each(['jpeg', 'webp'] as const)('everyRouteHasOwnCard and sizeBudget accept a %s card page', async (format) => {
-    const rt = installTestRuntime(
-      options({
-        format,
-        targets: { posts: { ...options().targets.posts, path: `/og/:kind/:slug/card.${format === 'jpeg' ? 'jpg' : 'webp'}` } },
-      }),
-      docs(),
-      { renderer: 'real' },
-    )
-    const { module, kit, meta } = site(rt)
-    await kit.everyRouteHasOwnCard({ routes: [{ path: '/posts/a', metadata: meta(1) }], cardRoute: cardRoute(module) })
-    await kit.sizeBudget({ module, params: [p('a')], maxBytes: 300 * 1024 })
-  })
+  it.each([
+    ['jpeg', 'real'],
+    ['webp', 'real'],
+    ['jpeg', 'stub'],
+    ['webp', 'stub'],
+  ] as const)(
+    'everyRouteHasOwnCard accepts a %s card page on the %s renderer (and sizeBudget on the real one)',
+    async (format, renderer) => {
+      const rt = installTestRuntime(
+        options({
+          format,
+          targets: { posts: { ...options().targets.posts, path: `/og/:kind/:slug/card.${format === 'jpeg' ? 'jpg' : 'webp'}` } },
+        }),
+        docs(),
+        { renderer },
+      )
+      const { module, kit, meta } = site(rt)
+      await kit.everyRouteHasOwnCard({ routes: [{ path: '/posts/a', metadata: meta(1) }], cardRoute: cardRoute(module) })
+      if (renderer === 'real') await kit.sizeBudget({ module, params: [p('a')], maxBytes: 300 * 1024 })
+    },
+  )
 
   it('everyRouteHasOwnCard rejects a card whose bytes are not the type it declares', async () => {
     const rt = installTestRuntime(options({ format: 'jpeg' }), docs())

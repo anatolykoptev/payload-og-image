@@ -8,8 +8,14 @@ export type ParityRow = { card: string; layoutEqual: boolean; pixelDiff: number;
 
 const CARD_EXT = /\.(png|jpe?g|webp)$/i
 /** The card images of a directory by name (extension dropped): `<card>.png`, `<card>.jpg`, `<card>.jpeg` or `<card>.webp`. */
-const cardsIn = async (dir: string) =>
-  new Map((await readdir(dir)).filter((f) => CARD_EXT.test(f)).map((f) => [f.replace(CARD_EXT, ''), f] as const))
+const cardsIn = async (dir: string) => {
+  const cards = new Map<string, string[]>()
+  for (const f of (await readdir(dir)).filter((f) => CARD_EXT.test(f)).sort()) {
+    const name = f.replace(CARD_EXT, '')
+    cards.set(name, [...(cards.get(name) ?? []), f])
+  }
+  return cards
+}
 const formatOfFile = (f: string) => (/\.png$/i.test(f) ? 'png' : /\.webp$/i.test(f) ? 'webp' : 'jpeg')
 const layoutOf = async (dir: string, card: string): Promise<unknown> => {
   try {
@@ -45,7 +51,18 @@ export async function parity(oldDir: string, newDir: string): Promise<ParityRow[
   const [a, b] = await Promise.all([cardsIn(oldDir), cardsIn(newDir)])
   const rows: ParityRow[] = []
   for (const card of [...new Set([...a.keys(), ...b.keys()])].sort()) {
-    const [fileA, fileB] = [a.get(card), b.get(card)]
+    const [filesA, filesB] = [a.get(card) ?? [], b.get(card) ?? []]
+    const twice = filesA.length > 1 ? filesA : filesB.length > 1 ? filesB : undefined
+    if (twice) {
+      rows.push({
+        card,
+        layoutEqual: false,
+        pixelDiff: Number.POSITIVE_INFINITY,
+        note: `one card name, several files: ${twice.join(', ')}`,
+      })
+      continue
+    }
+    const [fileA, fileB] = [filesA[0], filesB[0]]
     if (fileA === undefined || fileB === undefined) {
       rows.push({ card, layoutEqual: false, pixelDiff: Number.POSITIVE_INFINITY, note: `only in ${fileA === undefined ? 'new' : 'old'}` })
       continue

@@ -15,8 +15,8 @@ export type CardEncoding = { format: 'png' } | { format: 'jpeg' | 'webp'; qualit
 export type CardMime = 'image/png' | 'image/jpeg' | 'image/webp'
 
 /**
- * mozjpeg quality 82: a full-bleed 1200x630 photograph with a title on a scrim is about a fifth of the truecolour PNG and
- * stays under 300 KB, the size crawlers are happy with; the text edges show no ringing at this level (measured, docs/reference.md).
+ * mozjpeg quality 82: a full-bleed 1200x630 photograph with a title on a scrim is about a quarter of the palette PNG (one sample
+ * photograph) and stays under 100 KB, the size crawlers are happy with; the text edges show no ringing at this level (measured, docs/reference.md).
  */
 export const DEFAULT_JPEG_QUALITY = 82
 /** libwebp quality 80 (see docs/reference.md for the measured sizes against JPEG 82). */

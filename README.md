@@ -102,7 +102,7 @@ export async function generateMetadata({ params }: Props) {
 A working Payload + Next app that wires all three is in [`dev/`](dev).
 
 **Photo cards.** Cards are PNG by default. For a photo-first card set `format: 'jpeg'` (plugin level, or on one target) and give the
-target a `.jpg` path: the same card is a fifth to a quarter of the size and keeps the photograph's colour. `format: 'webp'` is smaller still
+target a `.jpg` path: the same card is about a quarter of the size of the palette PNG on one sample photograph and keeps the photograph's colour. `format: 'webp'` is smaller still
 but opt-in, because not every link-preview crawler reads WebP. See [JPEG and WebP cards](docs/reference.md#jpeg-and-webp-cards) and
 [crawlers](docs/crawlers.md#image-formats).
 

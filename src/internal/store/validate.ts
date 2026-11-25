@@ -30,5 +30,14 @@ export async function decodesImage(b: Uint8Array): Promise<boolean> {
  */
 export async function isWholeCard(bytes: Uint8Array, format: CardFormat): Promise<boolean> {
   if (format === 'png') return isCompletePng(bytes)
-  return (format === 'jpeg' ? isCompleteJpeg(bytes) : isCompleteWebp(bytes)) && (await decodesImage(bytes))
+  if (checked.get(bytes) === format) return true
+  const whole = (format === 'jpeg' ? isCompleteJpeg(bytes) : isCompleteWebp(bytes)) && (await decodesImage(bytes))
+  if (whole) checked.set(bytes, format)
+  return whole
 }
+
+/**
+ * Buffers that already passed the full check as a given format, by identity: the renderer validates a card it just drew, and the store's `put` of that
+ * same buffer does not decode it a second time. Nothing mutates a card after it is drawn.
+ */
+const checked = new WeakMap<Uint8Array, CardFormat>()

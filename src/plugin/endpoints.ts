@@ -70,7 +70,7 @@ const isKey = (v: unknown): v is string | number =>
   (typeof v === 'string' && v !== '' && v.length <= 256) || (typeof v === 'number' && Number.isFinite(v))
 
 /**
- * `POST /api/payload-og-image/preview`: the card an editor would get for the document they are typing, as a PNG (a JPEG for a JPEG card).
+ * `POST /api/payload-og-image/preview`: the card an editor would get for the document they are typing, as a PNG (a JPEG or WebP for such a card).
  *
  * Access is ported from plugin-seo's generate endpoint (which does not export it): a user is required and must be an editor
  * (a user of the admin collection or of `options.editors`); the collection must be one of the plugin's targets; with an `id`

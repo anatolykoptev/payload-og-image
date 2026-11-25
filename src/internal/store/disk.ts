@@ -67,6 +67,9 @@ export function diskStore(o: DiskStoreOptions): DiskStore {
   let ready: Promise<boolean> | undefined
   let lastPrune = 0
   let tail: Promise<void> = Promise.resolve()
+  /** JPEG and WebP files already decoded in full by this process (name, inode, mtime, size): a repeat read does not decode again; a replaced file is a new key. Bounded. */
+  const validated = new Set<string>()
+  const MAX_VALIDATED = 4096
 
   const disable = (error: unknown) => {
     if (off) return
@@ -232,7 +235,15 @@ export function diskStore(o: DiskStoreOptions): DiskStore {
       } finally {
         await handle.close().catch(noop)
       }
-      if (await isWholeCard(bytes, format)) return bytes
+      const key = `${file}|${seen.ino}|${seen.mtimeMs}|${seen.size}`
+      if (format !== 'png' && validated.has(key)) return bytes
+      if (await isWholeCard(bytes, format)) {
+        if (format !== 'png') {
+          validated.add(key)
+          if (validated.size > MAX_VALIDATED) validated.delete(validated.values().next().value as string)
+        }
+        return bytes
+      }
       // A file cut short by a host crash is not a card: drop it so the next request draws it again.
       await dropIfSame(file, seen)
       emit({ name: 'store_corrupt', v, bytes: bytes.byteLength })

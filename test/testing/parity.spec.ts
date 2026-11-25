@@ -123,4 +123,13 @@ describe('parity of JPEG and WebP cards', () => {
       { card: 'post', layoutEqual: false, pixelDiff: Number.POSITIVE_INFINITY, note: 'format png vs jpeg' },
     ])
   })
+  it('one card name with two files on a side is reported, not silently resolved', async () => {
+    const [a, b] = [await dir(), await dir()]
+    await write(a, 'post.png', '#cc3333')
+    await write(a, 'post.jpg', '#cc3333')
+    await write(b, 'post.png', '#cc3333')
+    expect(await parity(a, b)).toEqual([
+      { card: 'post', layoutEqual: false, pixelDiff: Number.POSITIVE_INFINITY, note: 'one card name, several files: post.jpg, post.png' },
+    ])
+  })
 })

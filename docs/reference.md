@@ -295,7 +295,7 @@ HEAD answers, the fallback and downgraded cards, the admin preview, the MCP `og_
 
 - **Choose JPEG for photo cards; WebP is opt-in.** Every crawler we could check reads JPEG. WebP is documented for X and Discord only; Facebook and
   LinkedIn publish no list of formats and Telegram is reported to drop a WebP preview ([crawlers](crawlers.md#image-formats)). WebP is
-  16 to 20 percent smaller at the same look, which is not worth a missing preview on one platform.
+  16 to 20 percent smaller at the defaults, on the sample photograph below, which is not worth a missing preview on one platform.
 - **No alpha.** JPEG cannot hold it, and a WebP card is flattened too, because crawlers composite a see-through card onto whatever they like. A pixel the
   template leaves see-through is flattened onto the card's ground: the target's or template's `heroBackground`, else the plugin's, else white.
   A transparent hero is drawn over the template's own background as always, so it shows that background through its see-through pixels, and
@@ -491,7 +491,7 @@ write is `og_preview` storing a card the route would have stored, under its vers
   description (the gap that leaves a share without text). No card is drawn and no stored card is read, only stat'ed; a row's version is
   built from the document, so a hero file is read once per upload (`checkHeroes` also reads every hero to find cards that would be
   drawn without it).
-- `og_preview`: the card as an image. A stored card is read from the store; otherwise it is drawn through the route's own admission
+- `og_preview`: the card as an image (`mimeType` is the card's). Its info line keeps `status: 'png'`, which means "an image" (kept for compatibility); `type` carries the media type. A stored card is read from the store; otherwise it is drawn through the route's own admission
   gate and render queue (a full queue answers `shed`, retry later), memoised and stored under its versioned key, exactly as a crawler's
   request would. A card over `maxPreviewBytes` (1.5 MiB) is described, not sent.
 
