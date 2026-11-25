@@ -2,6 +2,7 @@
  * - endpoints.ts  skip the `req.user` check -> "anonymous -> 403" RED
  * - endpoints.ts  skip the admin-collection check -> "a user of another auth collection -> 403" RED
  * - endpoints.ts  skip the `access.admin` check -> "an admin-collection user whose access.admin says no -> 403" RED
+ * - endpoints.ts:196  a missing `access.admin` refuses (`admin === undefined ? false`) -> "on a stock users collection (no access.admin) > a user of the admin collection gets the answer" RED
  * - endpoints.ts  expose more than the four named parts (a path, a config value) -> "the answer has exactly these keys" RED
  * - endpoints.ts  `cache-control` other than no-store -> "an admin gets the shape" RED
  * - endpoints.ts  read the counters from somewhere else than the event sink -> "after one rendered GET counters.render is 1" RED */
@@ -107,6 +108,48 @@ const endpoint = () => {
 }
 const get = (as: string | null) =>
   endpoint().handler({ user: as ? users[as] : null, payload, headers: new Headers(), context: {} } as never)
+
+describe('GET /api/payload-og-image/stats on a stock users collection (no access.admin)', () => {
+  // The sanitized config of `{ slug: 'users', auth: true }`, as a site that never set `access.admin` has it. No database is needed:
+  // the handler reads the sanitized collection config and the user it was given.
+  let stock: Awaited<ReturnType<typeof buildConfig>>
+  beforeAll(async () => {
+    stock = await buildConfig({
+      secret: 'test-secret-test-secret',
+      serverURL: 'https://x.test',
+      db: sqliteAdapter({ client: { url: 'file::memory:' } }),
+      editor: lexicalEditor(),
+      collections: [
+        { slug: 'users', auth: true, fields: [] },
+        { slug: 'customers', auth: true, fields: [] },
+      ],
+    })
+  })
+  const as = async (user: Record<string, unknown> | null) => {
+    const s = createState(
+      { site: () => ({ name: 'S' }), fonts: [], stacks: { default: [] }, templates: [], targets: {}, store: { memory: true } } as never,
+      'https://x.test',
+    )
+    const collections = Object.fromEntries(stock.collections.map((c) => [c.slug, { config: c }]))
+    return statsEndpoint(s).handler({ user, payload: { config: stock, collections }, headers: new Headers(), context: {} } as never)
+  }
+
+  it('a user of the admin collection gets the answer', async () => {
+    expect((await as({ collection: 'users', email: 'a@x.test' })).status).toBe(200)
+  })
+  it('anonymous and a user of another auth collection are still refused', async () => {
+    expect((await as(null)).status).toBe(403)
+    expect((await as({ collection: 'customers', email: 'c@x.test' })).status).toBe(403)
+  })
+  it('an access.admin that is set but is not a function refuses', async () => {
+    const s = createState(
+      { site: () => ({ name: 'S' }), fonts: [], stacks: { default: [] }, templates: [], targets: {}, store: { memory: true } } as never,
+      'https://x.test',
+    )
+    const payload = { config: { admin: { user: 'users' } }, collections: { users: { config: { access: { admin: 'yes' } } } } }
+    expect((await statsEndpoint(s).handler({ user: { collection: 'users' }, payload } as never)).status).toBe(403)
+  })
+})
 
 describe('GET /api/payload-og-image/stats', () => {
   it('anonymous -> 403', async () => {

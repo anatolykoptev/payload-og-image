@@ -205,7 +205,7 @@ It adds no collection, job or hook other than the `afterChange` hook on `siteGlo
 per event name (`render`, `hit_memo`, `shed`, ...), counted in this process since it started; `dir` is the disk store's
 folder and is given only for a disk store. Only a user of the admin user collection whose collection's `access.admin`
 passes gets an answer; anyone else, an anonymous request included, gets 403. `access.admin` must return exactly `true`: a
-truthy value, an error or a missing function is a refusal. For a disk store, `dir` (an absolute path on your server) is shown
+truthy value or an error is a refusal. A collection with no `access.admin` at all (the stock `users` on Payload 3) lets in every user of the admin collection, as Payload's own admin check does. For a disk store, `dir` (an absolute path on your server) is shown
 to every admin who may read the answer. The answer is `no-store` and holds nothing else
 (no config value, key or file name).
 

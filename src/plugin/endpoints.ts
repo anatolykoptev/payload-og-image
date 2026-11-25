@@ -189,8 +189,15 @@ export function statsEndpoint(state: OgState): Endpoint {
         if (!user || user.collection !== adminCollection) return text(403, 'Forbidden')
         const known = req.payload.collections as unknown as Record<string, { config?: { access?: { admin?: unknown } } } | undefined>
         const admin = known[adminCollection]?.config?.access?.admin
+        // A collection with no `access.admin` (the stock `users` on Payload 3) lets in whoever the admin user collection holds:
+        // Payload's own admin check does the same, and the line above already proved the user belongs to it. Anything that is
+        // set but is not a function is not understood, and refuses.
         const allowed =
-          typeof admin === 'function' ? await (async () => (admin as (a: unknown) => unknown)({ req }))().catch(() => false) : false
+          admin === undefined
+            ? true
+            : typeof admin === 'function'
+              ? await (async () => (admin as (a: unknown) => unknown)({ req }))().catch(() => false)
+              : false
         if (allowed !== true) return text(403, 'Forbidden')
 
         const seen = state.events.counters()
