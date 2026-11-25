@@ -230,6 +230,42 @@ collection's folder. A transparent hero is flattened onto `heroBackground` (`#rg
 agent (never an environment proxy), from a vetted public address only (IANA special-purpose ranges are refused), with no
 redirect.
 
+## Card and hero encoding
+
+By default the renderer keeps the smaller of the truecolour PNG and a palette re-encoding of it (`palette.card`), and a hero is
+cut to a palette PNG before it is drawn (`palette.hero`). A palette PNG is a fraction of the size for flat cards, but it
+moves pixels: a flat field can shift by a level, and photographs and gradients in a hero band. A site that must keep its pixels, or
+migrates cards that were drawn without a palette, turns either off:
+
+```ts
+ogImagePlugin({
+  // ...
+  palette: { card: false, hero: false }, // truecolour for both; each is `false` or a colour count from 2 to 256
+})
+```
+
+Unset keeps today's behaviour exactly: no existing card URL or bytes change. A value other than the default is part of
+the card version (`card` for every card, `hero` for a card with a hero), so flipping it gives new URLs and never serves
+a stored card of the other encoding. A number is a ceiling: the encoder rounds it up to 2, 4, 16 or 256 colours, so
+17 to 256 all give the 256-colour palette (the default `card` of 128 and a `hero` of 256 are the same bytes at the sizes below).
+The test kit draws with the same setting, so `sizeBudget` measures what you serve.
+
+Size, measured with sharp 0.35.5 on 1200x630 cards (Inter 72px text on a dark ground; the hero is a 460x630 noisy photographic
+gradient). Your numbers depend on the artwork; measure a real card with `ogKit(rt).sizeBudget`.
+
+| Card              | `card` / `hero`      |   Bytes |
+| ----------------- | -------------------- | ------: |
+| Flat, no hero     | `false`              |  34,741 |
+| Flat, no hero     | default              |  11,768 |
+| Flat, no hero     | `card: 16`           |   8,630 |
+| Photographic hero | `false` / `false`    | 657,266 |
+| Photographic hero | `false` / default    | 196,629 |
+| Photographic hero | default / `false`    | 157,810 |
+| Photographic hero | default / default    | 141,182 |
+| Photographic hero | `card: 16` / default |  62,960 |
+
+A flat card is about three times larger without the palette, and a card with a photographic hero about 4.7 times larger with both off.
+
 ## Where the cards live
 
 `store: { dir }` must be an absolute path to a volume that only the app writes, with room for the cap
@@ -299,6 +335,32 @@ you give for its id (`{ [templateId]: props }`), and fails naming a template tha
 of its size: a `div` with several children and no `display: flex` is caught in CI, not by the first crawler. The plugin
 also draws the brand fallback card once when Payload starts, so fonts and the renderer are proved at boot (an error
 outside production, a `render_error` event in production).
+
+### Specs that boot Payload
+
+- **Run them in a Node environment.** The plugin's start-up self-test draws a card with `next/og` and `sharp`, which refuse a
+  `Uint8Array` or `Buffer` from another realm, and under `jsdom` the test global is a different realm: the self-test fails with
+  `Unsupported input ... of type object`. jsdom also replaces the global `URL`, so `new URL('...', import.meta.url)` resolves to
+  `http://localhost/...` and a font loader built on it tries to fetch. Put such specs in a Node environment: `// @vitest-environment node` at the top of the file, or `environment: 'node'` in a vitest project for them.
+- **Inline the plugin when you mock `next/headers.js`.** `vi.mock('next/headers.js', ...)` only reaches modules that vite
+  processes, and vitest leaves a dependency in `node_modules` to Node. Inline the package so the mock applies to it:
+  `test: { server: { deps: { inline: ['payload-og-image'] } } }`.
+- **Do not build font paths with `new URL('...', import.meta.url)`.** Under vite and Next (and any jsdom or other web
+  transform) that URL is rewritten to an asset URL or a path, not a `file:` URL, and `readFile` on it fails. Read from a folder
+  relative to the project root instead, which is `process.cwd()` under vitest, `next dev` and `next build`:
+
+  ```ts
+  import { readFile } from 'node:fs/promises'
+  import path from 'node:path'
+
+  // fonts live in ./assets/fonts in the repository
+  export const fontFile = (name: string) => () => readFile(path.join(process.cwd(), 'assets/fonts', name))
+  // fonts: [{ family: 'Inter', weight: 800, data: fontFile('inter-800.woff') }]
+  ```
+
+  A standalone build (`output: 'standalone'`) runs from `.next/standalone`, which holds only the files Next traced: list the
+  folder in `next.config` (`outputFileTracingIncludes: { '/**': ['./assets/fonts/**'] }`) so the fonts are copied. The dev app
+  in this repository reads its fonts this way (`dev/src/og/options.ts`) and `scripts/probe-dev-server.mjs` serves it with `next start`.
 
 `og-parity --old <dir> --new <dir>` compares two directories of rendered cards (`<card>.png` plus
 `<card>.layout.json`) pixel for pixel, for a migration that must not change a card.

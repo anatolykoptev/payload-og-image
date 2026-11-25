@@ -45,6 +45,9 @@ export type HandlerDeps = {
   stacks: Stacks
   /** Normalised hero background when not the default white: part of the version of a card with a hero. */
   heroBackground?: string
+  /** Effective palette tags when not the default: part of the version (the card's of every card, the hero's of a card with a hero). */
+  cardPalette?: string
+  heroPalette?: string
   serverUrl: string
   source: DocSource
   store: CardStore
@@ -227,6 +230,8 @@ export function createCardHandler(d: HandlerDeps): CardHandler {
       fontsDigest: a.digest,
       stacks: d.stacks,
       heroBackground: d.heroBackground,
+      cardPalette: d.cardPalette,
+      heroPalette: d.heroPalette,
       seoImage: a.isStatic ? undefined : d.seoImage,
       related: (collection, id) => d.source.related(collection, id, { previewing: a.previewing, request: a.request }),
     })

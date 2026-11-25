@@ -85,12 +85,14 @@ export const cardVersion = (i: VersionInput) =>
       i.templateId,
       i.templateRevision,
       i.props,
-      i.heroes.map((h) => (i.heroBackground ? `${heroTag(h)}|bg:${i.heroBackground}` : heroTag(h))),
+      i.heroes.map((h) => heroTag(h) + (i.heroBackground ? `|bg:${i.heroBackground}` : '') + (i.heroPalette ? `|hp:${i.heroPalette}` : '')),
       i.fontsDigest,
       i.host,
       '',
       'og',
       i.nonce ?? 0,
+      // Appended only when set: the default encoding hashes exactly as before, so no existing card URL moves.
+      ...(i.cardPalette ? [`pal:${i.cardPalette}`] : []),
     ]),
   ).slice(0, 12)
 

@@ -2,9 +2,9 @@
 // compare its exports with the agreed public surface (S§D1). Fails while any entry is empty or a declared
 // bin is missing, so a release is impossible until the surface is real.
 import { execFileSync } from 'node:child_process'
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 
 const EXPECTED = {
   'payload-og-image': ['defineTarget', 'defineTemplate', 'ogFields', 'ogImagePlugin'],
@@ -41,6 +41,14 @@ const project = join(work, 'project')
 run('mkdir', ['-p', project], work)
 writeFileSync(join(project, 'package.json'), JSON.stringify({ name: 'verify', private: true, type: 'module' }))
 run('npm', ['install', '--no-audit', '--no-fund', tarball], project)
+
+// A `//# sourceMappingURL=` comment must point at a file that ships: the package excludes `*.map`, and a dangling reference is
+// ENOENT noise for every consumer that inlines the package under vite/vitest.
+const installed = join(project, 'node_modules', pkg.name)
+for (const f of packed.files.map((x) => x.path).filter((x) => x.endsWith('.js'))) {
+  const m = /^\/\/# sourceMappingURL=(\S+)\s*$/m.exec(readFileSync(join(installed, f), 'utf8'))
+  if (m && !existsSync(resolve(dirname(join(installed, f)), m[1]))) errors.push(`${f}: sourceMappingURL ${m[1]} is not in the tarball`)
+}
 
 for (const [entry, names] of Object.entries(EXPECTED)) {
   let got = []
