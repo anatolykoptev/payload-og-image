@@ -57,6 +57,32 @@ Cards are drawn by satori through `next/og`, which supports a subset of CSS:
 - Fonts must be TTF, OTF or WOFF files. WOFF2 is refused when the plugin starts, naming the family.
 - Text has no automatic fitting: use `ctx.fit(text, box, stack)`, which measures with the registered font's own
   advance widths, shrinks the size in steps of 2 until the text fits, and cuts with an ellipsis at `minSize`.
+  A design that sets its title from a fixed ladder can say so in the box instead of keeping its own fitter; every option
+  below is opt-in, and a box without them measures and answers exactly as before:
+
+  ```ts
+  const fit = ctx.fit(title, {
+    width: 1000, height: 380, leading: 0.98,
+    sizes: [104, 96, 88, [80, 3], [72, 3], 60, 50, 42], // largest first; [size, maxLines] caps the lines a size may take
+    tracking: -0.02,    // em, added to every character's advance (set the same `letterSpacing` on the text)
+    descent: 0.14,      // em kept under the last line, so a descender is never cut
+    fewerLines: true,   // take the next size down when it needs fewer lines (a lone last word, or one line fewer)
+    balance: true,      // also answer `width`: the narrowest width that keeps the line count; set it as the text block's width
+  }, 'title')
+  ```
+
+  With `sizes`, `maxSize` and `minSize` are not needed; the last size is where a text that still does not fit is cut with an
+  ellipsis. Changing a ladder changes the card, so bump the template's `revision`.
+
+## Alt text and the hero's ground, per target
+
+`alt` on a target is the card's alt text, as the page advertises it (`og:image:alt`), from the props the template draws; a
+static card takes a string or the same function. The default stays `<label>: <title>`, and an empty answer takes it. It is
+not drawn, so it is not part of a card's URL.
+
+`heroBackground` on a target or a template flattens that card's transparent hero onto the colour (`#rgb` or `#rrggbb`); the
+target's wins over the template's, which wins over the plugin's. A card that sets one is versioned by it like the
+plugin's option, only when it is set.
 
 ## Fonts and stacks
 
