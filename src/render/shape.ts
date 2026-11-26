@@ -4,8 +4,8 @@
 import { contrast, DEFAULT_MIN_CONTRAST, luminance, rgbOf } from '../internal/colour.js'
 import { DepLoadError, loadSharp } from '../internal/deps.js'
 import type { ImageShape } from '../template.js'
+import { RASTER_FORMATS } from './sniff.js'
 
-const RASTER = new Set(['jpeg', 'png', 'webp', 'gif', 'avif', 'tiff', 'heif'])
 /** A source larger than this is scaled down before any pixel is read: a logo needs no more. */
 const WORK = 1000
 
@@ -15,7 +15,7 @@ async function upright(bytes: Buffer, maxPixels: number): Promise<Raw | null> {
   const sharp = await loadSharp()
   const input = { limitInputPixels: maxPixels, failOn: 'error' as const }
   const meta = await sharp(bytes, input).metadata()
-  if (!meta.format || !RASTER.has(meta.format)) return null
+  if (!meta.format || !RASTER_FORMATS.has(meta.format)) return null
   const { data, info } = await sharp(bytes, input)
     .rotate()
     .resize(WORK, WORK, { fit: 'inside', withoutEnlargement: true })

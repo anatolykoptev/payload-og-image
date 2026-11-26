@@ -1,3 +1,4 @@
+import type { Sharp } from 'sharp'
 import { loadSharp } from '../internal/deps.js'
 import { DEFAULT_PALETTE, type Palette } from '../internal/palette.js'
 
@@ -27,6 +28,13 @@ export async function encodePng(png: Uint8Array, palette: Palette | false): Prom
 }
 
 /**
+ * The JPEG every card and photo is written as: a see-through pixel flattened onto `ground`, mozjpeg at `quality`, no metadata (sharp writes none unless asked,
+ * so a phone photo's EXIF and GPS never ship). The one place these settings are written.
+ */
+export const toJpeg = (image: Sharp, { quality, ground }: { quality: number; ground: string }): Sharp =>
+  image.flatten({ background: ground }).jpeg({ quality, mozjpeg: true })
+
+/**
  * A lossy card from the renderer's PNG: any see-through pixel is flattened onto `ground` first (neither format is used with alpha
  * here: crawlers composite it on whatever they like), then JPEG by mozjpeg (progressive, trellis quantisation, an optimised scan
  * script) or WebP by libwebp (`smartSubsample` keeps chroma edges, the reason a coloured title on a photo does not bleed).
@@ -37,10 +45,9 @@ export async function encodeLossy(
   { format, quality, ground }: { format: 'jpeg' | 'webp'; quality: number; ground: string },
 ): Promise<Uint8Array> {
   const sharp = await loadSharp()
-  const flat = sharp(png).flatten({ background: ground })
   const out = await (format === 'jpeg'
-    ? flat.jpeg({ quality, mozjpeg: true })
-    : flat.webp({ quality, effort: WEBP_EFFORT, smartSubsample: true })
+    ? toJpeg(sharp(png), { quality, ground })
+    : sharp(png).flatten({ background: ground }).webp({ quality, effort: WEBP_EFFORT, smartSubsample: true })
   ).toBuffer()
   return new Uint8Array(out.buffer, out.byteOffset, out.byteLength)
 }

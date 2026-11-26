@@ -146,7 +146,7 @@ are never overwritten. Detection rules, every per-collection override, the logos
   `og` group (mode, headline, subtitle, label, accent; see [reference](docs/reference.md#per-document-share-card-fields)).
 - `payload-og-image/client`: the admin's live card preview (`OgPreviewField`), referenced by the `og` group; run
   `payload generate:importmap` after adding the plugin.
-- `payload-og-image/next`: `createOgRoute`, `ogMetadata`, `ogImages` (every size of a page, for JSON-LD), `withHead` for Payload's REST route (which does not
+- `payload-og-image/next`: `createOgRoute`, `ogMetadata`, `ogPhotoImages` (clean crops of the hero for JSON-LD and Discover: [reference](docs/reference.md#photo-set-for-structured-data-and-discover)), `ogPrimaryImageOfPage`, `withLargeImagePreview`, `ogImages` (every size of the card), `withHead` for Payload's REST route (which does not
   answer HEAD, and LinkedIn sends one), and `ogTag` / `OG_SITE_TAG` for revalidating cached pages on save.
 - `payload-og-image/testing`: `installTestRuntime` and `ogKit`, a test kit that calls your real route and metadata
   modules and checks the failures this plugin exists to prevent (a draft cached, a stale version served as

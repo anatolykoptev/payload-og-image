@@ -63,9 +63,13 @@ static: {
 
 Page side: `ogMetadata({ config, static: 'home' })`: the argument is the key in the plugin's `static` map. The card route serves it at the path with `:kind` = `static` and `:slug` = `home`. A static card's `kind` must not equal any target's kind (a target's kind defaults to its key in `targets`, so a `pages` kind collides with a `pages` target): start-up refuses it with a "collides with a target kind" error.
 
+## Photo set for JSON-LD and Discover
+
+A target with a `hero` (or `photo`, an upload resolver of its own; `photo: false` opts out) has clean crops of that photograph, served beside the card as `photo-16x9.jpg`, `photo-4x3.jpg` and `photo-1x1.jpg`: `ogPhotoImages({ config, target, doc })` lists them for the page's JSON-LD, `ogPrimaryImageOfPage(images)` gives the 16:9 as an `ImageObject`, `withLargeImagePreview(robots)` adds `max-image-preview:large` to the page's robots without dropping a `noindex`. Never enlarged, none under 600 px wide, never the editor's share image, none at all without a hero; needs a card path ending in `.:ext` (the `[file]` route). Rules, versions and the JSON-LD example: `docs/reference.md`, "Photo set for structured data and Discover".
+
 ## Size variants (0.7.0 and later)
 
-For the schema.org `image` of a page (Google asks for 16:9, 4:3 and 1:1), never for `og:image`, which stays one wide image. Declare `variants: { square: { path, template } }` on a target and read every size with `ogImages({ config, target, doc })` into JSON-LD. Full rules, naming, the example and why `og:image` stays single: `docs/reference.md`, "Size variants".
+Other sizes of the CARD (not for structured data, where Google asks for no logo or text: use the photo set above). Declare `variants: { square: { path, template } }` on a target and read every size with `ogImages({ config, target, doc })`. Full rules, naming and why `og:image` stays single: `docs/reference.md`, "Size variants".
 
 - **Add a route file for each variant path**, like the target's own. Or pin a route to the hidden target: `createOgRoute({ config, target: 'posts~square' })` takes no `:kind` in its params, so give that variant a `path` without `:kind` (for example `/og/posts/:slug/square.png`, route folder `app/og/posts/[slug]/square.png/route.ts`), or `kit.routesMatchPaths` flags the route.
 

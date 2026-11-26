@@ -1,4 +1,6 @@
 import { createHash } from 'node:crypto'
+import { focalOf } from './crop.js'
+import { PHOTO_SET, type PhotoName } from './photo.js'
 import type { CardKey, VersionInput } from './types.js'
 import { collectionOf, type VerifiedUpload } from './uploads.js'
 
@@ -134,3 +136,32 @@ export const cardVersion = (i: VersionInput) => {
 }
 
 export const pageId = (k: CardKey) => sha(`${k.kind}\u0000${k.slug}`).slice(0, 16)
+
+/**
+ * The version of one photo-set image: everything its bytes come from and nothing else. The spec whole (ratios, cap, floor, revision), the size, the upload (its collection,
+ * id and `updatedAt`), its recorded size, its focal point (clamped as the cropper clamps it, so moving the point moves the URL even where a window happens not to move), the
+ * JPEG quality and the ground a see-through pixel is flattened onto. 12 hex characters, as the store keys.
+ */
+export const photoVersion = (i: {
+  name: PhotoName
+  upload: VerifiedUpload
+  source: { width: number; height: number }
+  quality: number
+  ground: string
+}) =>
+  sha(
+    canonicalJson([
+      'photo',
+      PHOTO_SET,
+      i.name,
+      collectionOf(i.upload),
+      heroTag(i.upload),
+      [i.source.width, i.source.height],
+      focalOf(i.upload),
+      i.quality,
+      i.ground,
+    ]),
+  ).slice(0, 12)
+
+/** The store key of one photo-set image: one page id per size, because the disk store keeps a few versions per page id and the three sizes must not evict each other. */
+export const photoPageId = (k: CardKey, name: PhotoName) => pageId({ kind: `photo:${name}:${k.kind}`, slug: k.slug })

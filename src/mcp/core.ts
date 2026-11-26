@@ -148,7 +148,7 @@ const SPECS: Spec[] = [
     name: 'og_audit',
     kind: 'audit',
     description:
-      'Cards across the site, no renders: with no `scope`, the scopes (each target and `static`) and how many documents each has; with a `scope`, one page of rows (published documents only) with the card URL, whether it is stored and its size, and, when the server is set up for it, whether the document has a meta description. `checkHeroes` also reads each hero file to report cards that would be drawn without it.',
+      "Cards across the site, no renders: with no `scope`, the scopes (each target and `static`) and how many documents each has; with a `scope`, one page of rows (published documents only) with the card URL, whether it is stored and its size, and, when the server is set up for it, whether the document has a meta description. `checkHeroes` also reads each hero file to report cards that would be drawn without it. Each row also has a `discover` object: the page's photo set for structured data and Google Discover (ratios and sizes, or why there is none) and whether its 16:9 image is at least 1200 px wide; `max-image-preview` is a tag of the page, which this tool cannot check.",
     properties: SHAPE.audit,
     async run(args, req, o) {
       try {

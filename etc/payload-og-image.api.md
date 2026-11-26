@@ -361,6 +361,7 @@ export type Target<D = any, P = any> = {
     }) => string | null | undefined;
     share?: (a: ResolverArgs<D>) => unknown[];
     select?: Record<string, true>;
+    photo?: false | ((a: ResolverArgs<D>) => Upload | ImageRef | null | undefined);
     format?: CardFormat;
     jpeg?: JpegOptions;
     webp?: WebpOptions;
@@ -413,6 +414,7 @@ export type Upload = {
     alt?: string | null;
     updatedAt?: string | null;
     filename?: string | null;
+    filesize?: number | null;
     focalX?: number | null;
     focalY?: number | null;
     sizes?: Record<string, Partial<Upload> | undefined> | null;

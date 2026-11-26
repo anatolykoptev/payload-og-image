@@ -678,8 +678,8 @@ write is `og_preview` storing a card the route would have stored, under its vers
 
 ## Size variants
 
-A target can declare other sizes of the same card, for the schema.org `image` of a page. Google asks for Article images in three
-ratios (16:9, 4:3 and 1:1); the `og:image` stays one wide image.
+A target can declare other sizes of the same card. For the schema.org `image` and Discover use the [photo set](#photo-set-for-structured-data-and-discover) instead: Google asks for Article images in three
+ratios (16:9, 4:3 and 1:1) **without** a logo or text, and the card has both. The `og:image` stays one wide image.
 
 ```ts
 posts: defineTarget({
@@ -712,26 +712,73 @@ const images = await ogImages({ config, target: 'posts', doc }) // [{ url, width
 
 The document is read once for all sizes. A size that would be blank is left out; a size that fails to resolve is left out and, in production, an event (in development and test it throws); a name the target does not declare throws (in production: an event and `[]`). The test kit sees variants as targets, so `routesMatchPaths` wants a route file for each variant path.
 
-### Square and 4:3 images for Google structured data
+## Photo set for structured data and Discover
 
-Keep `ogMetadata` as it is and give the structured data every size:
+Google asks for no logo and no text in the schema.org `image` or the Discover image, in three ratios (16:9, 4:3 and 1:1), and wants Discover's large preview at least 1200 px wide.
+The branded card is the wrong image for that, so the plugin makes a second, separate set for every page that has a hero: **clean crops of the hero photograph**, and nothing drawn on them (no text, logo,
+scrim, border or fill). `og:image` stays the one branded card for messengers, and `ogMetadata` never lists a photo. The rules for the platforms are in the [share image specification](share-image-spec.md#4-what-goes-where).
+
+| Image | Largest size | File             |
+| ----- | ------------ | ---------------- |
+| 16:9  | 1200×675     | `photo-16x9.jpg` |
+| 4:3   | 1200×900     | `photo-4x3.jpg`  |
+| 1:1   | 1200×1200    | `photo-1x1.jpg`  |
+
+The sizes, the 1200 px cap and the 600 px floor are one object, `PHOTO_SET` in `src/internal/photo.ts`; the width and height a page advertises come from the function that crops. **Nothing is ever enlarged:** a source narrower than the cap
+gives a smaller crop (a 900×600 photograph gives 900×506, 800×600 and 600×600), and a size that would come out under 600 px wide does not exist (no URL, not in the list). A source under 1200 px wide still gives valid Search images but no 16:9 image
+for Discover's large preview. No hero, or nothing reaching 600 px, means no set at all: never the card or the logo as a stand-in.
+
+**The crop.** The largest window of the ratio inside the photograph, centred on the upload's Payload focal point (`focalX`, `focalY`; the centre when unset) and clamped to the image, from the upright image (EXIF rotation applied). A portrait photograph
+gives a band around the focal point. It is the window the card's own hero uses (`cropWindow` in `src/internal/crop.ts`, one function for both); the photo set only differs in never scaling up. The file is JPEG at the plugin's `jpeg.quality` (mozjpeg, progressive), in sRGB,
+with no metadata: no EXIF, GPS or profile ships. A see-through pixel is flattened onto `heroBackground` (white without one).
+
+**Big originals.** A window that has to shrink is cut by scaling the whole image so the window lands at its output size and then extracting it, so the decoder can shrink while it loads: a phone original costs a fraction of a full decode. The photo set therefore has its own limits, separate from the card hero's (15 MiB, 40 MP, unchanged): **50 MiB, and 120 MP for JPEG, 48 MP for WebP and PNG** (these two decode in full: a 120 MP WebP measured 685 MB and 6.8 s for the three sizes); every other format (GIF, AVIF) keeps the card's limits, because nothing was measured for it. The loader applies the limits from the upload's record when a page lists the set (`canPhoto`) and again, from the file itself, when it cuts, so a page never lists a photo whose URL could only fail: an upload over them has no set, and `og_audit` says so. Measured with sharp 0.35.5 on one Mac, peak resident memory of the whole Node process and time for the three sizes one after another: a 48 MP 22 MB JPEG 170 MB and 0.5 s, a 108 MP JPEG 138 MB and 0.2 s, a 48 MP WebP 345 MB and 0.3 s, a flat 108 MP PNG 210 MB and 0.3 s (a baseline Node process is about 50 MB; the render gate admits two at a time). Your numbers depend on the photograph.
+
+**Which upload.** The hero upload field, read whether or not the card draws it: a 680×470 hero is too small for the photo card and still gives 680×383 and 627×470. It is read like a hero: by id through the request's upload reader, with the visitor's access, so a draft-only upload gives no
+set to the public, and an editor previewing sees the draft (never cached, never stored). It must be a raster image (JPEG, PNG, WebP, GIF or AVIF) with a size on record, within the limits above; an SVG never counts, whatever its record says. It is **never the editor's share image**
+(`seoImage`, `meta.image`): a collection whose `hero` is `meta.image` (detected or named) gets no set, and neither does one whose `hero` is the same field as the share image. Name the upload yourself with the target's `photo` resolver (default: `hero`;
+`photo: false` gives a target no set), or name a different `hero` field on the collection. The set does not depend on the document's `og.mode`, and not on the card (a page that shares an editor's own image as `og:image` still has its photo set).
+
+**Zero config, same route.** Every preset collection with a hero has the set; a hand-written target has it when it names a `hero` (or `photo`). The images are served by the card route beside the card (`/og/posts/a/photo-16x9.jpg?v=...`): the zero-config `[file]` route
+answers them with no new route file, through the same memo, store, gate, etag and cache headers as a card (`immutable` for the current version, `no-store` in a preview), and no satori. **A target whose card path is a fixed file (`card.png`) has no set**, because its route would answer 404:
+end its path in `card.:ext` and use the `[file]` route. The last segment must be a plain file name with `:ext` (`card.:ext`, `card-v2.:ext`): `/og/:kind/:slug.:ext` has none, because the photo path replaces the whole segment. A page never lists a URL the route cannot serve (one rule, `photosEnabled`, decides both), on the assumption that a `.:ext` path is answered by a route that takes any file name in its folder: a site that serves such a path from fixed route files must add the three `photo-*.jpg` routes or use `[file]`. An upload whose file cannot be read right now (deleted from the disk) is still listed, and its URLs answer 503 until the file is back, never a card in its place.
+
+**Versions.** The URL's `v` is made from the crop spec (ratios, cap, floor, revision), the size, the upload's collection, id and `updatedAt`, its recorded size, its **focal point**, the JPEG quality and the ground. Moving the focal point, replacing the file or changing the quality gives new URLs;
+retitling the page changes nothing. If the upload's record disagrees with its file (a stale record, or an EXIF quarter-turn upload whose recorded size is the stored, unrotated one: Payload's `getImageSize` reads the stored size, and whether a rotated copy is written depends on its upload options), the pixels produced differ from the size the page advertised: that image is served
+briefly (`max-age=300`, no etag, never stored, a `downgraded` event) rather than immutable. The three sizes are stored under a page id each, so they do not evict one another; they count against the store's file and byte caps with the cards (three JPEGs of at most 1200 px per page, sized by the photograph: check your store's headroom).
+
+### JSON-LD and robots
 
 ```tsx
-const images = await ogImages({ config, target: 'posts', doc })
+import { ogMetadata, ogPhotoImages, ogPrimaryImageOfPage, withLargeImagePreview } from 'payload-og-image/next'
+
+// generateMetadata: og:image stays the one card; robots keeps the page's own rules and adds max-image-preview:large
+return { ...(await ogMetadata({ config, target: 'posts', doc })), robots: withLargeImagePreview(robotsOf(doc)) }
+
+// the page: the photographs only, never the card
+const photos = await ogPhotoImages({ config, target: 'posts', doc }) // [{ url, width, height, ratio: '16x9' | '4x3' | '1x1' }], [] with no photograph
+const primary = ogPrimaryImageOfPage(photos) // the 16:9 as an ImageObject, or undefined
 const jsonLd = {
   '@context': 'https://schema.org',
-  '@type': 'Article',
-  headline: doc.title,
-  image: images.map((i) => i.url), // 16:9, 1:1, 4:3
+  '@graph': [
+    { '@type': 'WebPage', '@id': `${url}#webpage`, url, ...(primary ? { primaryImageOfPage: primary } : {}) },
+    { '@type': 'Article', mainEntityOfPage: { '@id': `${url}#webpage` }, headline: doc.title, ...(photos.length ? { image: photos.map((i) => i.url) } : {}) },
+  ],
 }
 // <script type="application/ld+json">{JSON.stringify(jsonLd).replace(/</g, '\\u003c')}</script>
 ```
 
-`image` may also be a list of `ImageObject` with `width` and `height`: `images.map(({ url, width, height }) => ({ '@type': 'ImageObject', url, width, height }))`.
+A page with no photograph carries no `image` from this feature. `image` may also be a list of `ImageObject` with `width` and `height`. Google may still pick the card from `og:image`; that is the cost of keeping the branded card for messengers. The helpers read like `ogMetadata`: the document is read again by id, an editor in draft mode sees the draft, and
+a failure is an event and `[]` in production and a throw in development and test.
 
-**Why `og:image` stays a single wide image.** Almost every crawler takes the first `og:image` tag and ignores the rest, so a second tag
-buys nothing there; and Discord turns two or more `og:image` tags into a gallery of all of them, which breaks the single preview. So
-`ogMetadata` never lists a variant, and has no option to. Variants live in JSON-LD only.
+**`max-image-preview:large`.** In Next a page's `robots` metadata **replaces** the layout's whole `robots` object, so a page that sets only the preview size would drop a site's `noindex`. The plugin emits no `robots` tag; `withLargeImagePreview(robots)` takes the robots a page would have
+(an object, a string such as `'noindex, nofollow'`, or none) and returns it with `max-image-preview:large` added and every other rule untouched: `index: false`, `follow`, `nosnippet`, `googleBot` and a `max-image-preview` the site chose itself all stay. Share one robots object between the layout and the pages that
+override it and pass it through the helper; an `X-Robots-Tag: max-image-preview:large` header does the same for every page at once. A `noindex` page is out of Discover whatever the image says.
+
+**`og_audit`** (MCP) adds a `discover` object to each row, with the photo set (ratios and sizes, or why there is none), whether its 16:9 image is at least 1200 px wide (`large`), a summary count, and a `discoverNote`: `max-image-preview` is a tag of the page, which the plugin cannot see, so check it on the page.
+The test kit has a photo set only for a hero with a real file (`installTestRuntime(..., { heroDir })`): the stand-in heroes have none, so a page with one lists none.
+
+The card `variants` above stay for a surface that wants the card at another size. They are not for structured data: Google advises against a logo or text there.
 
 ## Not implemented
 

@@ -23,6 +23,8 @@ then every 100th); values that came from a request are printed as plain ASCII.
 | `not_found`             | an unknown route, kind or slug                                                                                                                                                           |
 | `crawler`               | a sampled card request (`crawlerEvents`): `ua_family`, `method`, `status`, `cache`                                                                                                       |
 
+The photo-set images (`photo-16x9.jpg` and the others, see [reference](reference.md#photo-set-for-structured-data-and-discover)) report through the same events: `render` when one is cut, `hit_memo` and `hit_store`, `downgraded` with `detail.reason` when the upload's recorded size disagrees with its file (served for 5 minutes, never stored), and `render_error` with a message starting `photo <size>` when the file cannot be read (a 503).
+
 Alert on `store_disabled` and on `render_error` above zero per hour, and on `shed` above about 50 per hour.
 
 ## Playbooks
