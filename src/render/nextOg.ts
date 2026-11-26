@@ -3,6 +3,7 @@ import { MAX_SIDE } from '../internal/limits.js'
 import { isWholeCard } from '../internal/store/validate.js'
 import { assertPalette, DEFAULT_PALETTE, encodeLossy, encodePng, type Palette } from './encode.js'
 import { withoutNetwork } from './noNetwork.js'
+import { inNodeRealm } from './realm.js'
 
 /**
  * Draws a card with `next/og` (satori + resvg), then keeps the smaller of the truecolour and palette PNGs, or flattens it into a mozjpeg JPEG or a libwebp WebP when the card asks for one.
@@ -20,15 +21,18 @@ export function nextOgRenderer(o: { palette?: Palette | false } = {}): Renderer 
       const { ImageResponse } = await import('next/og.js')
       // `next/og` fetches a font or an emoji image from a CDN for any character no registered face has, and has no option to refuse:
       // the draw runs with fetch refused. (Callers remove such characters first, so this is the backstop, not the path.)
-      const png = await withoutNetwork(async () => {
-        const res = new ImageResponse(el, {
-          width,
-          height,
-          fonts: fonts.map((f) => ({ name: f.family, data: f.data, weight: f.weight as 400, style: f.style })),
-        })
-        if (!res.ok) throw new Error(`payload-og-image: next/og answered ${res.status}`)
-        return new Uint8Array(await res.arrayBuffer())
-      })
+      const png = await inNodeRealm(() =>
+        withoutNetwork(async () => {
+          const res = new ImageResponse(el, {
+            width,
+            height,
+            fonts: fonts.map((f) => ({ name: f.family, data: f.data, weight: f.weight as 400, style: f.style })),
+          })
+          if (!res.ok) throw new Error(`payload-og-image: next/og answered ${res.status}`)
+          // A Buffer, not `new Uint8Array(...)`: `Buffer` is always the Node realm's, which sharp accepts.
+          return Buffer.from(await res.arrayBuffer())
+        }),
+      )
       const format = encoding?.format ?? 'png'
       const out = encoding && encoding.format !== 'png' ? await encodeLossy(png, encoding) : await encodePng(png, palette)
       // Whatever leaves here may be cached as immutable: it must be a whole, decodable card of the format asked for.

@@ -540,10 +540,10 @@ outside production, a `render_error` event in production).
 
 ### Specs that boot Payload
 
-- **Run them in a Node environment.** The plugin's start-up self-test draws a card with `next/og` and `sharp`, which refuse a
-  `Uint8Array` or `Buffer` from another realm, and under `jsdom` the test global is a different realm: the self-test fails with
-  `Unsupported input ... of type object`. jsdom also replaces the global `URL`, so `new URL('...', import.meta.url)` resolves to
-  `http://localhost/...` and a font loader built on it tries to fetch. Put such specs in a Node environment: `// @vitest-environment node` at the top of the file, or `environment: 'node'` in a vitest project for them.
+- **A jsdom environment works for the start-up self-test.** The plugin hands `next/og` and `sharp` bytes they accept whatever realm the
+  test globals come from, so the self-test draws under `jsdom` too. jsdom also replaces the global `URL`, so `new URL('...', import.meta.url)`
+  resolves to `http://localhost/...` and a font loader built on it tries to fetch: read fonts from a path (below), or put the spec in a Node
+  environment (`// @vitest-environment node`, or `environment: 'node'` in a vitest project for them).
 - **Inline the plugin when you mock `next/headers.js`.** `vi.mock('next/headers.js', ...)` only reaches modules that vite
   processes, and vitest leaves a dependency in `node_modules` to Node. Inline the package so the mock applies to it:
   `test: { server: { deps: { inline: ['payload-og-image'] } } }`.
