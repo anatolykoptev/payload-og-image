@@ -40,7 +40,8 @@ const MAX_RENDER_PIXELS = 1_000_000
  * The pages (64 KiB each) the renderer's WebAssembly memory may grow to: 2048 = 128 MiB. The module's memory section is rewritten with this maximum before
  * it is compiled, so a drawing that needs more fails fast with a RuntimeError (about 55 ms, measured) instead of reaching gigabytes. Chosen by
  * measurement: the deepest drawing `sanitiseSvg` allows at `MAX_RENDER_PIXELS` renders in under 768 pages, the nested-`svg` and `use`/`symbol` bombs
- * that reach 1.1 to 2.1 GiB uncapped do not fit in 2048.
+ * that reach 1.1 to 2.1 GiB uncapped do not fit in 2048. A deep drawing with off-canvas content (layers are sized to the content) is therefore
+ * refused with `memory` on purpose: a logo does not need it, and nothing smaller than the budget is promised for it.
  */
 const WASM_MAX_PAGES = 2048
 /** The longest side of a logo over its shortest: a wordmark is 10:1 at most, and a thinner strip renders as one pixel row. */
@@ -599,9 +600,13 @@ export type SvgOutcome = { png: Buffer } | { reason: SvgReason }
 
 let running = 0
 const waiting: (() => void)[] = []
-/** One render at a time; a caller that would wait longer than `QUEUE_WAIT_MS` gets `undefined` (busy) and renders nothing. */
+/**
+ * One render at a time; a caller that would wait longer than `waitMs` gets `undefined` (busy) and renders nothing. A finishing render hands its place
+ * straight to the next waiter (`running` is not lowered), so no caller can slip in between the two.
+ */
 async function slot<T>(run: () => Promise<T>, waitMs: number): Promise<T | undefined> {
-  if (running >= CONCURRENT_RENDERS) {
+  if (running < CONCURRENT_RENDERS) running += 1
+  else {
     const got = await new Promise<boolean>((resolve) => {
       const go = () => {
         clearTimeout(timer)
@@ -614,14 +619,15 @@ async function slot<T>(run: () => Promise<T>, waitMs: number): Promise<T | undef
       }, waitMs)
       waiting.push(go)
     })
-    if (!got) return undefined
+    if (!got) return undefined // the place was never taken
   }
-  running += 1
   try {
     return await run()
   } finally {
-    running -= 1
-    waiting.shift()?.()
+    const next = waiting.shift()
+    if (next)
+      next() // the place passes on, still counted
+    else running -= 1
   }
 }
 

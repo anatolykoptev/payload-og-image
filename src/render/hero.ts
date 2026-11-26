@@ -31,6 +31,8 @@ export type HeroLoaderOptions = {
   maxBytes?: number
   /** Largest source image in pixels (default 40 million); a bigger header is refused before any decode. */
   maxPixels?: number
+  /** Test seam for the SVG render: its timeout, and how long a timed-out upload is left alone (default 10 minutes). */
+  svg?: { timeoutMs?: number; retryMs?: number }
   /** Hears why an SVG gave no PNG (`svg_rejected`, with `detail.reason`). Default: nothing. */
   onEvent?: OnEvent
   /** Colour a transparent image is flattened onto (sharp flattens before it scales). Unset: transparency is kept and the card shows through. */
@@ -144,25 +146,37 @@ const clamp = (n: unknown, fallback: number) => (typeof n === 'number' && Number
 const SVG_COVER = { width: 1000, height: 1000 }
 /** Rasterised SVGs remembered per upload version (the least recently used goes first): an SVG is drawn once per version per process. */
 const SVG_CACHE = 16
+/** How long an SVG whose render timed out is left alone before it is tried again. */
+const SVG_RETRY_MS = 10 * 60 * 1000
 
 /**
  * The bytes ready for the raster pipeline. A document that opens as SVG is vetted and drawn by `renderSvg` (never handed to sharp, which would
  * give it to librsvg); raster bytes pass as they are; anything else is nothing. `remember`: the answer is a property of the file (a drawing, or
  * a refusal by the sanitiser), not of this attempt (a timeout, a memory limit, a busy queue). `onReason` hears why an SVG gave no PNG.
  */
+/** How long what a render's attempt found is kept: for good, for `svg.retryMs`, or not at all. */
+type Remember = 'always' | 'a while' | false
+
 async function decode(
   source: Buffer,
   maxPixels: number,
   onReason: (reason: string) => void,
-): Promise<{ bytes: Buffer | null; svg: boolean; remember: boolean }> {
+  o: { timeoutMs?: number } = {},
+): Promise<{ bytes: Buffer | null; svg: boolean; remember: Remember }> {
   // The SVG test first: a document that merely contains the bytes of a raster signature is still an SVG, and must never reach sharp.
   if (looksLikeSvg(source)) {
     // The XML parser and the WebAssembly renderer load the first time an SVG is seen, never for a site that has none.
     const { renderSvg } = await import('./svg.js')
-    const out = await renderSvg(source, SVG_COVER, maxPixels)
-    if ('png' in out) return { bytes: out.png, svg: true, remember: true }
+    const out = await renderSvg(source, SVG_COVER, maxPixels, o)
+    if ('png' in out) return { bytes: out.png, svg: true, remember: 'always' }
     onReason(out.reason)
-    return { bytes: null, svg: true, remember: out.reason === 'refused' }
+    // A refusal and a memory limit are properties of the file (the page cap is fixed): remembered. A timeout may be a slow machine or a heavy but
+    // honest logo: remembered for a while, so a hostile one cannot hold the single render slot on every request. `busy` and a crash are nobody's fault.
+    return {
+      bytes: null,
+      svg: true,
+      remember: out.reason === 'refused' || out.reason === 'memory' ? 'always' : out.reason === 'timeout' ? 'a while' : false,
+    }
   }
   // Neither an SVG document nor a raster image: nothing is handed to a decoder (an SVG in an encoding the sanitiser cannot read included).
   return { bytes: looksRaster(source) ? source : null, svg: false, remember: false }
@@ -289,6 +303,8 @@ export function payloadHeroLoader(o: HeroLoaderOptions): HeroLoader {
     (await readLocal(hero, await o.staticDirs(where?.collection), maxBytes)) ?? (await fetchRemote(hero, { hosts, fetchImpl, maxBytes }))
   const keyOf = (hero: Upload, where?: { collection?: string }) => `${where?.collection ?? ''}\u0000${heroTag(hero)}`
   const svgs = new Map<string, Buffer | null>()
+  /** Uploads whose last render timed out, and until when they are not tried again. */
+  const slow = new Map<string, number>()
   type Ready = { bytes: Buffer | null; svg: boolean; unreadable: boolean; transient: boolean }
   const inflight = new Map<string, Promise<Ready>>()
   /**
@@ -304,19 +320,30 @@ export function payloadHeroLoader(o: HeroLoaderOptions): HeroLoader {
       svgs.set(key, hit)
       return Promise.resolve({ bytes: hit, svg: true, unreadable: false, transient: false })
     }
+    const heavy = slow.get(key)
+    if (heavy !== undefined) {
+      if (heavy > Date.now()) return Promise.resolve({ bytes: null, svg: true, unreadable: false, transient: true })
+      slow.delete(key) // the window is over: it may be drawn again
+    }
     const running = inflight.get(key)
     if (running) return running
     const run = (async (): Promise<Ready> => {
       const source = await read(hero, where)
       if (!source) return { bytes: null, svg: false, unreadable: true, transient: false }
-      const d = await decode(source, maxPixels, (reason) =>
-        o.onEvent?.({ name: 'svg_rejected', detail: { reason, collection: where?.collection } }),
+      const d = await decode(
+        source,
+        maxPixels,
+        (reason) => o.onEvent?.({ name: 'svg_rejected', detail: { reason, collection: where?.collection } }),
+        { timeoutMs: o.svg?.timeoutMs },
       )
-      if (d.remember) {
+      if (d.remember === 'always') {
         svgs.set(key, d.bytes)
         if (svgs.size > SVG_CACHE) svgs.delete(svgs.keys().next().value as string)
+      } else if (d.remember === 'a while') {
+        slow.set(key, Date.now() + (o.svg?.retryMs ?? SVG_RETRY_MS))
+        if (slow.size > SVG_CACHE) slow.delete(slow.keys().next().value as string)
       }
-      return { bytes: d.bytes, svg: d.svg, unreadable: false, transient: d.svg && !d.remember }
+      return { bytes: d.bytes, svg: d.svg, unreadable: false, transient: d.svg && d.remember !== 'always' }
     })().finally(() => inflight.delete(key))
     inflight.set(key, run)
     return run

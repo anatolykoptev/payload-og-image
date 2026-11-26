@@ -9,8 +9,10 @@
  * - svg.ts `MAX_RENDER_PIXELS` 1_000_000 -> 8_000_000 -> "a pixel cap bounds the render", "the deepest allowed drawing at the pixel cap ..." RED
  * - hero.ts `rasterReady`: the `inflight` lookup removed -> "many cards asking for one SVG at once read and draw it once" RED
  * - hero.ts `rasterReady`: the `svgs` lookup removed -> "an upload version is rasterised once per process ..." RED
- * - hero.ts `decode`: `remember: out.reason === 'refused'` -> `true` -> "a failure of this attempt is not remembered ..." RED
- * - hero.ts `decode`: the `onReason` call (the `svg_rejected` event) removed -> the same test RED
+ * - hero.ts `decode`: `remember` 'always' for a refusal and `memory` -> `false` -> "what is a property of the file is remembered ..." RED; `timeout` -> `false` or `'always'` -> "a logo too heavy to draw in time costs one render per retry window ..." RED
+ * - hero.ts `rasterReady`: the `slow` window check removed -> the same heavy-logo test RED
+ * - hero.ts `decode`: the `onReason` call (the `svg_rejected` event) removed -> "what is a property of the file is remembered ..." RED
+ * - sniff.ts `HEIF_BRANDS` without `miaf` / `MiHE` / `avio` -> "the HEIF brands ..." RED
  * - hero.ts `decode`: `looksRaster` tested before `looksLikeSvg`, or sniff.ts `HEIF_BRANDS` check removed -> "an SVG that carries the bytes of a raster signature ..." RED
  * - svg.ts HOSTILE element check / reference cycle check / `MAX_EXPANDED` / `MAX_DEPTH` / `MAX_STOPS` removed -> "hostile SVGs are refused: no logo, no crash, and nothing is fetched" RED
  * - svg.ts worker `setTimeout` removed -> "a render that outlives the worker timeout is cut off" RED
@@ -454,31 +456,71 @@ describe('hostile SVGs', () => {
     expect(outs[6]).toBe(true)
   })
 
-  it('a failure of this attempt is not remembered (only the sanitiser refusing the file is), and the probe says nothing then', async () => {
+  it('what is a property of the file is remembered (a refusal, a memory limit), and nothing else of that is re-drawn on every request', async () => {
     const dir = await mkdtemp(path.join(os.tmpdir(), 'og-svg-'))
     const events: OgEvent[] = []
     const load = payloadHeroLoader({ staticDirs: async () => [dir], onEvent: (e) => events.push(e) })
-    const hero = { id: 'retry', filename: 'logo.svg', url: '/m/logo.svg', updatedAt: 'v1' }
     const where = { collection: 'media' }
     const box = { width: 120, height: 40 }
-    // A drawing that does not fit the memory budget: the render's failure, not the file's.
+    const memory = { id: 'memory', filename: 'logo.svg', url: '/m/logo.svg', updatedAt: 'v1' }
     await writeFile(path.join(dir, 'logo.svg'), bombs['sixteen nested <svg> around a huge rect'] as string)
-    expect(await load(hero, box, where)).toBeNull()
-    expect(await load.hasAlpha?.(hero, where)).toBe(false)
-    await writeFile(path.join(dir, 'logo.svg'), LOGO) // same version, the file is fine now: not remembered, so it is drawn
-    expect(await load(hero, box, where)).toMatch(/^data:image\/png/)
-    // A file the sanitiser refuses IS remembered: fixing the file without a new version changes nothing.
-    const bad = { ...hero, id: 'refused' }
+    expect(await load(memory, box, where)).toBeNull()
+    await writeFile(path.join(dir, 'logo.svg'), LOGO) // the file is fine now, the version has not changed: the limit is the file's, and remembered
+    expect(await load(memory, box, where)).toBeNull()
+    expect(await load.hasAlpha?.(memory, where)).toBe(false)
+    // A refusal by the sanitiser likewise.
+    const refused = { ...memory, id: 'refused' }
     await writeFile(path.join(dir, 'logo.svg'), svg('<image href="http://x.test/a.png" width="1" height="1"/>'))
-    expect(await load(bad, box, where)).toBeNull()
+    expect(await load(refused, box, where)).toBeNull()
     await writeFile(path.join(dir, 'logo.svg'), LOGO)
-    expect(await load(bad, box, where)).toBeNull()
+    expect(await load(refused, box, where)).toBeNull()
     expect(events.map((e) => [e.name, e.detail?.reason])).toEqual([
       ['svg_rejected', 'memory'],
-      ['svg_rejected', 'memory'], // the probe asked again: the failure was not remembered
       ['svg_rejected', 'refused'],
     ])
     expect(events.every((e) => e.detail?.collection === 'media')).toBe(true)
+    // A new version is a new file.
+    expect(await load({ ...memory, updatedAt: 'v2' }, box, where)).toMatch(/^data:image\/png/)
+  })
+
+  it('a logo too heavy to draw in time costs one render per retry window, never keeps the slot from the others, and is tried again after it', async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), 'og-svg-'))
+    const events: OgEvent[] = []
+    // 4000 leaf rectangles with opacity in a 100 x 100 svg (about 230 KB): allowed by every bound, and seconds of CPU.
+    const heavy = svg(
+      `${'<rect width="100" height="100" opacity="0.5" fill="red"/>'.repeat(4000)}`,
+      'width="100" height="100" viewBox="0 0 100 100"',
+    )
+    await writeFile(path.join(dir, 'heavy.svg'), heavy)
+    await writeFile(path.join(dir, 'good.svg'), LOGO)
+    const load = payloadHeroLoader({ staticDirs: async () => [dir], onEvent: (e) => events.push(e), svg: { timeoutMs: 100, retryMs: 600 } })
+    const where = { collection: 'media' }
+    const box = { width: 120, height: 40 }
+    const slowOne = { id: 'heavy', filename: 'heavy.svg', url: '/m/heavy.svg', updatedAt: 'v1' }
+    const good = { id: 'good', filename: 'good.svg', url: '/m/good.svg', updatedAt: 'v1' }
+    const timeouts = () => events.filter((e) => e.detail?.reason === 'timeout').length
+    expect(await load(slowOne, box, where)).toBeNull()
+    expect(timeouts()).toBe(1)
+    // Steady traffic to its card: no more renders, and a good logo meanwhile is drawn (not busy).
+    for (let i = 0; i < 5; i++) {
+      expect(await load(slowOne, box, where)).toBeNull()
+      expect(await load(good, box, where), `request ${i}`).toMatch(/^data:image\/png/)
+    }
+    expect(timeouts()).toBe(1)
+    expect(events.some((e) => e.detail?.reason === 'busy')).toBe(false)
+    // The probe says nothing about it while it is in the window (a verdict must not be remembered for a file that was not drawn) ...
+    expect(await load.hasAlpha?.(slowOne, where)).toBe(false)
+    await new Promise((r) => setTimeout(r, 700)) // ... and after the window it is tried again
+    expect(await load(slowOne, box, where)).toBeNull()
+    expect(timeouts()).toBe(2)
+  })
+
+  it('the HEIF brands: every brand an AVIF or HEIF file announces is raster, an unknown one is not', () => {
+    const header = (brand: string) => Buffer.from([0, 0, 0, 24, 0x66, 0x74, 0x79, 0x70, ...Buffer.from(brand)])
+    for (const brand of ['avif', 'avis', 'avio', 'heic', 'heix', 'heim', 'heis', 'hevc', 'hevx', 'mif1', 'msf1', 'miaf', 'MiHE']) {
+      expect(looksRaster(header(brand)), brand).toBe(true)
+    }
+    expect(looksRaster(header('isom'))).toBe(false) // an MP4, not an image sharp reads here
   })
 
   it('an SVG that carries the bytes of a raster signature is an SVG, never raster: it never reaches sharp', async () => {

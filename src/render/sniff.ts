@@ -4,7 +4,7 @@
 export const MAX_SVG_BYTES = 1024 * 1024
 
 /** The `ftyp` brands of AVIF and HEIF files: the box type alone is not a signature (`<!--ftyp-->` puts the same four bytes at offset 4). */
-const HEIF_BRANDS = new Set(['avif', 'avis', 'heic', 'heix', 'heim', 'heis', 'hevc', 'hevx', 'mif1', 'msf1'])
+const HEIF_BRANDS = new Set(['avif', 'avis', 'heic', 'heix', 'heim', 'heis', 'hevc', 'hevx', 'mif1', 'msf1', 'miaf', 'MiHE', 'avio'])
 
 /** Raster magic numbers (JPEG, PNG, GIF, WebP, AVIF/HEIF, TIFF): bytes that start with one are never read as an SVG. */
 export function looksRaster(b: Uint8Array): boolean {
