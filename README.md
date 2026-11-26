@@ -174,6 +174,8 @@ at `node_modules/payload-og-image/skills/payload-og-image/SKILL.md`. Copy the wh
 
 ## Documentation
 
+Every card conforms to the [share image specification](docs/share-image-spec.md): platform rules, safe zones, the standard design, the pre-ship checklist.
+
 Start at [docs/INDEX.md](docs/INDEX.md): [reference](docs/reference.md) (image selection, cache headers, drafts,
 the store, the admin preview, the endpoints, the MCP tools), [templates](docs/templates.md), [crawlers](docs/crawlers.md), [operations](docs/operations.md).
 
