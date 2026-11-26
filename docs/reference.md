@@ -59,6 +59,10 @@ fresh URL (`?preview=1`) if you need to be sure.
   handler's `params` arrive already decoded (`a%b`). Decode in the page component only: decoding the others
   again throws on a literal `%`. The card route never decodes.
 - The card route exports `GET` and `HEAD = GET`. `withHead` is for Payload's own REST route only (see below).
+- The card route, the preset's `[file]` route and a classic `card.png` route alike, needs no `dynamic` export. A `GET` route
+  handler is not cached by default in Next 16, and a `[kind]/[slug]` route has nothing to prerender (measured in a scratch
+  app, Next 16.4.6 `next build`: both routes are listed as dynamic, `ƒ`). Do not add `export const dynamic`: with
+  `cacheComponents: true` it fails the build ("Route segment config "dynamic" is not compatible with `nextConfig.cacheComponents`").
 - A collection with drafts must allow public reads of published documents, because the plugin reads with
   `overrideAccess: false`:
   `read: ({ req: { user } }) => (user ? true : { _status: { equals: 'published' } })`.
@@ -71,7 +75,7 @@ URL, not the cached page that links to it, so a crawler reading the page finds t
 Next 16.4.6: a dynamic-segment page without `generateStaticParams` is rendered on every request and has no such problem).
 Two ways out:
 
-- **Render on every request**: `export const dynamic = 'force-dynamic'` on the page, as the dev app's `posts/[slug]` does.
+- **Render on every request**: `export const dynamic = 'force-dynamic'` on the page, as the dev app's `posts/[slug]` does (not with `cacheComponents: true`, where it fails the build: tag the page instead).
 - **Revalidate on save**: tag what the page reads and expire the tag from an `afterChange` hook. `ogTag(collection, key)` and
   `OG_SITE_TAG` from `payload-og-image/next` only name the tags, so the page and the hook agree (`key` is anything both
   know: the slug, the id; a tag over Next's 256-character limit (`unstable_cache` drops it with a console warning, `revalidateTag` silently matches

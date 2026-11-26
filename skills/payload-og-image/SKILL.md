@@ -100,7 +100,6 @@ Card route, `app/(frontend)/og/[kind]/[slug]/card.png/route.ts` (the folder name
 import config from '@payload-config'
 import { createOgRoute } from 'payload-og-image/next'
 
-export const dynamic = 'force-dynamic'
 const route = createOgRoute({ config })
 export const GET = route.GET
 export const HEAD = GET // crawlers HEAD first

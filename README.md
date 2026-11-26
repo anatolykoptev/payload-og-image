@@ -84,8 +84,6 @@ export default buildConfig({
 import config from '@payload-config'
 import { createOgRoute } from 'payload-og-image/next'
 
-export const dynamic = 'force-dynamic'
-
 const route = createOgRoute({ config })
 export const GET = route.GET
 export const HEAD = GET
