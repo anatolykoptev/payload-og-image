@@ -9,6 +9,7 @@ import { createGate, isShedError, ShedError } from '../../src/internal/gate.js'
 import type { CardHandler, DocSource } from '../../src/internal/handler.js'
 import { createInspector } from '../../src/internal/inspect.js'
 import { memoryStore } from '../../src/internal/store/memory.js'
+import { collectionOf, type VerifiedUpload } from '../../src/internal/uploads.js'
 import { verifiedUpload } from '../helpers.js'
 
 describe('createInspector: the hero collection', () => {
@@ -36,7 +37,7 @@ describe('createInspector: the hero collection', () => {
       statics: {},
       source: { publishedById: async () => ({ id: 1, slug: 'a' }) } as unknown as DocSource,
       store: memoryStore(),
-      heroLoader: { readable: async (_h: unknown, w: { collection?: string }) => (asked.push(w.collection), true) } as never,
+      heroLoader: { readable: async (h: VerifiedUpload) => (asked.push(collectionOf(h)), true) } as never,
       handler: { resolve: async () => card } as unknown as CardHandler,
     })
     const r = await inspector.card({ target: 'posts', id: 1 })

@@ -275,7 +275,7 @@ describe('named images: drawing', () => {
   it('named images are prepared in their own box and collection, never flattened', async () => {
     const { h, heroLoader } = setup(async () => 'data:image/png;base64,AAAA', table)
     await get(h)
-    const calls = heroLoader.mock.calls.map(([u, box, where]) => [u.id, box, where])
+    const calls = heroLoader.mock.calls.map(([u, box, where]) => [u.id, box, { collection: collectionOf(u), ...where }])
     expect(calls).toEqual(
       expect.arrayContaining([
         [1, { width: 200, height: 100 }, { collection: 'media', keepAlpha: true }],
