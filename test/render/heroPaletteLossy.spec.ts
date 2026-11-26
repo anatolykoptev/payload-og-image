@@ -33,7 +33,7 @@ function setup(over: Partial<OgImagePluginOptions>, path = '/og/:kind/:slug/card
     publishedById: async () => doc,
     draft: async () => null,
     site: async () => ({ name: 'Site' }),
-    related: async () => null,
+    related: async () => doc.heroImage, // the public read of the hero upload
   }
   const options: OgImagePluginOptions = {
     site: () => ({ name: 'Site' }),
@@ -46,6 +46,7 @@ function setup(over: Partial<OgImagePluginOptions>, path = '/og/:kind/:slug/card
         template: 'post',
         props: ({ doc }: any) => ({ title: doc.title }),
         hero: ({ doc }: any) => doc.heroImage,
+        heroCollection: 'media',
       }),
     },
     store: { memory: true },
