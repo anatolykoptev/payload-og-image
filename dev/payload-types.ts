@@ -168,6 +168,14 @@ export interface Post {
      * A second line on the generated card, where the template draws one.
      */
     subtitle?: string | null;
+    /**
+     * The short category line of the generated card. Leave empty to use the collection’s label.
+     */
+    label?: string | null;
+    /**
+     * A hex colour such as #3366ff for the strip and pills of this card. Leave empty for the preset’s accent.
+     */
+    accent?: string | null;
     nonce?: number | null;
   };
   updatedAt: string;
@@ -307,6 +315,8 @@ export interface PostsSelect<T extends boolean = true> {
         mode?: T;
         headline?: T;
         subtitle?: T;
+        label?: T;
+        accent?: T;
         nonce?: T;
       };
   updatedAt?: T;

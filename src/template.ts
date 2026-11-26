@@ -186,10 +186,11 @@ export function defineTemplate<P extends PropsModel>(t: Omit<Template<P>, 'size'
 export type RelatedFn = (collection: string, id: string | number) => Promise<Record<string, any> | null>
 
 /**
- * What the editor typed into the document's `og` group: a headline and a subtitle, trimmed, undefined when empty.
+ * What the editor typed into the document's `og` group: a headline, a subtitle and a label, trimmed, and an accent colour as
+ * `#rrggbb` (lowercase; a value that is not a hex colour is none): each undefined when empty.
  * They change a card only when a target's `props` reads them (`overrides?.headline ?? doc.title`).
  */
-export type OgOverrides = { headline?: string; subtitle?: string }
+export type OgOverrides = { headline?: string; subtitle?: string; label?: string; accent?: string }
 
 export type ResolverArgs<D> = {
   doc: D

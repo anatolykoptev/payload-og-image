@@ -4,6 +4,7 @@
 //   node scripts/share-image-spec.mjs --check  exit 1 when a block is stale or a marker is missing
 // Node strips the types of src/presets/spec.ts itself; the render functions take the spec as an argument, so the test passes it in.
 import { readFileSync, realpathSync, writeFileSync } from 'node:fs'
+import { registerHooks } from 'node:module'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const DOC = new URL('../docs/share-image-spec.md', import.meta.url)
@@ -118,6 +119,17 @@ export function applyBlocks(doc, rendered) {
 
 // Node resolves symlinks in `import.meta.url` but not in `argv[1]`, so the entry path is resolved too.
 if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) {
+  // The sources import each other as `./x.js` (the compiled names); Node strips types but does not map `.js` to `.ts`, so this does.
+  registerHooks({
+    resolve(specifier, context, next) {
+      try {
+        return next(specifier, context)
+      } catch (error) {
+        if (!specifier.startsWith('.') || !specifier.endsWith('.js')) throw error
+        return next(`${specifier.slice(0, -3)}.ts`, context)
+      }
+    },
+  })
   const spec = await import('../src/presets/spec.ts')
   const path = fileURLToPath(DOC)
   const doc = readFileSync(path, 'utf8')

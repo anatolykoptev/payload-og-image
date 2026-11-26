@@ -45,7 +45,7 @@ export type PresetCollections = PresetCollection[] | Record<string, PresetCollec
 
 export type OgImagePluginOptions = {
   /**
-   * The built-in presets, `payload-og-image:photo@1` (JPEG) and `payload-og-image:text@1` (PNG). Installing the plugin with neither `collections` nor
+   * The built-in presets, `payload-og-image:photo@2` (JPEG) and `payload-og-image:text@2` (PNG). Installing the plugin with neither `collections` nor
    * `targets` serves EVERY public page: each collection that is not an upload or auth collection, that an anonymous request may read (its `access.read`
    * answers `true` or a `Where` when the config is built; a throw, a Promise or `false` skips it) and that has a title field the public may read gets a
    * card. A collection that is unclear is skipped with one start-up line naming it and the reason, never a crash. `collections` customises:
@@ -122,7 +122,7 @@ export type OgImagePluginOptions = {
   crawlerEvents?: { sample: number }
   brand?: { ink?: string; paper?: string }
   /**
-   * Adds the per-document `og` group (mode, headline, subtitle) to each target's collection. Off by default: the schema
+   * Adds the per-document `og` group (mode, headline, subtitle, label, accent) to each target's collection. Off by default: the schema
    * is then exactly what it was without the option. Enabling it changes the database schema, so run `payload migrate:create`
    * in the site. `position` is `sidebar` (default) or `tab` (a "Share card" tab). To place the group yourself, use `ogFields()` (top level, named `og`).
    */

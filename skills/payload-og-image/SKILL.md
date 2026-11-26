@@ -111,7 +111,6 @@ Card route, `app/(frontend)/og/[kind]/[slug]/card.png/route.ts` (the folder name
 import config from '@payload-config'
 import { createOgRoute } from 'payload-og-image/next'
 
-export const dynamic = 'force-dynamic'
 const route = createOgRoute({ config })
 export const GET = route.GET
 export const HEAD = GET // crawlers HEAD first
@@ -132,7 +131,7 @@ export async function generateMetadata({ params }: Props) {
 
 ## Per-document `og` fields
 
-`fields: { enabled: true }` on the plugin adds a top-level group `og` to each target collection: `mode` (`inherit` default, `generated`, `custom`, `off`), `headline`, `subtitle`, plus a hidden `nonce` and a live "Card preview" in the admin. Headline and subtitle reach a card only through `overrides` in `props`. To place the group yourself, call `ogFields()` and leave `fields` off; it must be named `og` and sit at the top level (directly, or in a row, collapsible or unnamed tab). **The new fields are columns: the site runs `payload migrate:create` and ships the migration.** Then run `payload generate:importmap` for the preview component. Full rules: `references/fields-and-mcp.md`.
+`fields: { enabled: true }` on the plugin adds a top-level group `og` to each target collection: `mode` (`inherit` default, `generated`, `custom`, `off`), `headline`, `subtitle`, `label`, `accent`, plus a hidden `nonce` and a live "Card preview" in the admin. Headline, subtitle, label and accent reach a card through `overrides` in `props` (the presets read all four themselves). To place the group yourself, call `ogFields()` and leave `fields` off; it must be named `og` and sit at the top level (directly, or in a row, collapsible or unnamed tab). **The new fields are columns: the site runs `payload migrate:create` and ships the migration.** Then run `payload generate:importmap` for the preview component. Full rules: `references/fields-and-mcp.md`.
 
 ## Verify (an agent proves the setup, never assumes)
 

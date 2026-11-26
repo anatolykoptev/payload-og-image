@@ -4,7 +4,8 @@
  * - fields.ts:67  add the group twice (no `has og` check) -> "a collection that already carries og is left alone" RED
  * - fields.ts:82  let carriesOg descend into named groups -> "og is a top-level field: an og nested under a named group is not already there" RED
  * - payloadSource.ts:39  leave `og` out of the select -> "a target select always keeps og" RED
- * - index.ts:131  accept `fields.position` other than sidebar/tab -> "refuses a fields.position that is neither" RED */
+ * - index.ts:131  accept `fields.position` other than sidebar/tab -> "refuses a fields.position that is neither" RED
+ * - fields.ts `validateAccent` always true -> "og.accent is a #rgb or #rrggbb colour ..." RED (and, against real Payload, "og.accent: a value that is not a hex colour is refused on save") */
 import { readFile } from 'node:fs/promises'
 import type { Config } from 'payload'
 import { describe, expect, it, vi } from 'vitest'
@@ -41,13 +42,13 @@ const preview = (c: Config) => (c.endpoints ?? []).filter((e) => e.path === '/pa
 const fieldsOf = (c: Config, slug: string) => (c.collections ?? []).find((x) => x.slug === slug)?.fields as any[]
 
 describe('ogFields()', () => {
-  it('is one group `og` with mode (default inherit), headline and subtitle, in the sidebar', () => {
+  it('is one group `og` with mode (default inherit), headline, subtitle, label and accent, in the sidebar', () => {
     const [group, ...rest] = ogFields() as any[]
     expect(rest).toEqual([])
     expect(group).toMatchObject({ type: 'group', name: 'og', admin: { position: 'sidebar' } })
-    const [mode, headline, subtitle, , preview] = group.fields
-    expect(group.fields).toHaveLength(5)
-    expect(group.fields[3]).toMatchObject({ name: 'nonce', type: 'number', defaultValue: 0, admin: { hidden: true } })
+    const [mode, headline, subtitle, label, accent, nonce, preview] = group.fields
+    expect(group.fields).toHaveLength(7)
+    expect(nonce).toMatchObject({ name: 'nonce', type: 'number', defaultValue: 0, admin: { hidden: true } })
     expect(preview).toMatchObject({
       name: 'preview',
       type: 'ui',
@@ -57,6 +58,19 @@ describe('ogFields()', () => {
     expect(mode.options.map((o: { value: string }) => o.value)).toEqual(['inherit', 'generated', 'custom', 'off'])
     expect(headline).toMatchObject({ name: 'headline', type: 'text' })
     expect(subtitle).toMatchObject({ name: 'subtitle', type: 'text' })
+    expect(label).toMatchObject({ name: 'label', type: 'text', maxLength: 30 })
+    expect(accent).toMatchObject({ name: 'accent', type: 'text' })
+  })
+  it('og.accent is a #rgb or #rrggbb colour: anything else is refused by name, empty is fine, and a saved value is lowercase #rrggbb', async () => {
+    const accent = (ogFields() as any[])[0].fields.find((f: any) => f.name === 'accent')
+    for (const ok of [undefined, null, '', '  ', '#fff', '#3366FF', ' #3366ff ']) expect(accent.validate(ok), String(ok)).toBe(true)
+    for (const bad of ['red', '3366ff', '#12345', '#3366ff80', '#ggg', 'rgb(1,2,3)', 5])
+      expect(accent.validate(bad), String(bad)).toMatch(/hex colour/)
+    const normalise = accent.hooks.beforeValidate[0]
+    expect(normalise({ value: '#F60' })).toBe('#ff6600')
+    expect(normalise({ value: ' #3366FF ' })).toBe('#3366ff')
+    expect(normalise({ value: 'red' })).toBe('red') // left for validate to refuse
+    expect(normalise({ value: null })).toBeNull()
   })
 })
 

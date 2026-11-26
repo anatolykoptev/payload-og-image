@@ -21,9 +21,11 @@ export type ResolvedPreset = {
   artOpacity?: number
   /** The editor's own share image for this collection (the plugin's `seoImage`, else plugin-seo's `meta.image`), when there is one. */
   seo?: { path: string; isDeliberate?: (image: unknown) => boolean; collection?: string }
-  /** The document's `og.headline` and `og.subtitle` may be drawn (the fields are absent or pass the field rules). */
+  /** The document's `og.headline`, `og.subtitle`, `og.label` and `og.accent` may be drawn (the fields are absent or pass the field rules). */
   ogHeadline: boolean
   ogSubtitle: boolean
+  ogLabel: boolean
+  ogAccent: boolean
 }
 
 /** An own property, never the prototype's: `constructor.name` is not a field path. */
@@ -87,7 +89,10 @@ export function presetTarget(p: ResolvedPreset): Target {
     props: ({ doc, site, overrides }: ResolverArgs<unknown>): PresetProps => ({
       title: (p.ogHeadline ? overrides?.headline : undefined) ?? str(read(doc, p.title)) ?? '',
       subtitle: (p.ogSubtitle ? overrides?.subtitle : undefined) ?? (p.subtitle ? str(read(doc, p.subtitle)) : undefined),
-      label: p.label,
+      // The document's own label wins over the collection's, never the other way round.
+      label: (p.ogLabel ? overrides?.label : undefined) ?? p.label,
+      // Only a document that set one hashes it: the preset's own accent is the template's.
+      ...(p.ogAccent && overrides?.accent ? { accent: overrides.accent } : {}),
       byline: p.byline ? str(read(doc, p.byline)) : undefined,
       site: site.name,
       // Only a site that chose one hashes it: the default is the template's own.
