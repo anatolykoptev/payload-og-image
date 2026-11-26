@@ -1,12 +1,29 @@
 ---
-
 name: payload-og-image
-description: Install and configure the payload-og-image plugin on a Payload CMS + Next.js site so every page gets a generated, content-versioned Open Graph share card. Use when the user says "add share images to Payload", "og image", "open graph card", "social share card", "link preview image", "payload-og-image", or asks why a LinkedIn, Facebook, X or Telegram preview shows no image, the wrong image or a stale one on a Payload site.
+description: Install and configure the payload-og-image plugin on a Payload CMS + Next.js site so every page gets a generated, content-versioned Open Graph share card. Use when the user says "add share images to Payload", "og image", "og:image meta", "open graph card", "Open Graph", "twitter:card", "social share card", "link preview image", "Discord or Slack unfurl", "payload-og-image", or asks why a LinkedIn, Facebook, X, Discord, Slack or Telegram preview shows no image, the wrong image or a stale one on a Payload site.
 ---
 
 # payload-og-image
 
-A Payload 3/4 plugin plus a Next 16 route that draws Open Graph cards (1200x630 by default) from your documents. The card URL carries a version derived from everything the card shows, so a changed title gives a new URL and an unchanged card is cached for a year. Source of truth: the package's `docs/` folder (`reference.md`, `templates.md`, `crawlers.md`, `operations.md`) and the working app in `dev/` of the repository. When this file and the docs disagree, the docs and the code win.
+A Payload 3/4 plugin plus a Next 16 route that draws Open Graph cards (1200x630 by default) from your documents. The card URL carries a version derived from everything the card shows, so a changed title gives a new URL and an unchanged card is cached for a year. Source of truth: the package's `docs/` folder (`reference.md`, `templates.md`, `crawlers.md`, `operations.md`) and the working app in `dev/` of the repository (https://github.com/anatolykoptev/payload-og-image/blob/tree/main/dev; `dev/` and `scripts/` are not in the npm package). When this file and the docs disagree, the docs and the code win.
+
+## Install and compatibility
+
+```sh
+pnpm add payload-og-image
+```
+
+Floor (README): Payload `^3.93.0` or `^4.0.0-beta.12`, Next.js `^16.4.5`, React `^19.3.1`, sharp `^0.35.4`, Node `^22.23.5 || ^24.22.3 || >=26.13.1`. ESM only; Node runtime only (no edge). Pre-1.0: the API can change in a minor release, so read the installed version's `docs/`.
+
+## Steps
+
+1. Install, then walk the decision checklist below with the user.
+2. Add `serverExternalPackages: ['fontkit']` to `next.config`.
+3. Write the templates (`references/templates.md`) and register the plugin with fonts, stacks, templates, targets and the store.
+4. Add the card route file for every target path (and variant path).
+5. Call `ogMetadata` in each page's `generateMetadata`.
+6. If `fields` is on: `payload migrate:create`, commit the migration; run `payload generate:importmap`.
+7. Verify (section below) and fix until every check passes.
 
 ## Mental model
 
@@ -25,11 +42,11 @@ A Payload 3/4 plugin plus a Next 16 route that draws Open Graph cards (1200x630 
 
 1. **Which collections** get a card? One target per collection; the page must have a public URL and a slug (or be keyed by id). List them back to the user.
 2. **Which fields reach the card?** Only what the public may read. The plugin reads with `overrideAccess: false`, at depth 0, published documents only; drafts reach editors in draft mode and are never cached. A collection with drafts needs a public read rule for published documents (see `references/pitfalls.md`). Anything else a card draws comes through `related(collection, id)`. Never read private fields in `props` or `site()`.
-3. **Photo card or text card?** A photo-first card (full-bleed image, scrim, title): `format: 'jpeg'` and a `.jpg` path. A flat text card: PNG (default; a palette PNG is smallest for flat art). WebP is opt-in and not read by every crawler. A path whose extension contradicts the format is refused at start-up.
-4. **Fonts**: self-host the files in the repo or an assets folder, read them with a path built from `process.cwd()`, and cover every script the site writes (a Russian site needs a face with Cyrillic, and `requiredSample` extended with `«»„№₽`). Every character a stack cannot draw is stripped and reported as `glyph_missing`.
+3. **Photo card or text card?** A photo-first card (full-bleed image, scrim, title): `format: 'jpeg'`, a `.jpg` path, and `palette: { hero: false }` while issue #71 is open (otherwise a JPEG card still cuts its hero to a 256-colour palette). A flat text card: PNG (default; a palette PNG is smallest for flat art). WebP is opt-in and not read by every crawler. A path whose extension contradicts the format is refused at start-up.
+4. **Fonts**: self-host an OFL-licensed face that covers the site's scripts, as files in the repo or an assets folder, read them with a path built from `process.cwd()`, and cover every script the site writes (a Russian site needs a face with Cyrillic, and `requiredSample` extended with `«»„№₽`). Every character a stack cannot draw is stripped and reported as `glyph_missing`.
 5. **Store dir on a persistent volume**: an absolute path only the app writes, mounted as a volume in Docker. A missing mount gives no warning and cards vanish on recreate.
 6. **`serverExternalPackages: ['fontkit']`** in `next.config`. Required.
-7. **`serverURL`**: the Payload config (or the plugin's `serverURL` option) needs an absolute origin; card URLs are absolute https.
+7. **`serverURL`**: the Payload config (or the plugin's `serverURL` option) needs an absolute origin; card URLs are absolute (`http` or `https`; crawlers need https, and the kit requires it unless `allowHttpImages: true`).
 8. **Payload 3 versus 4**: on Payload 4 the Local API default is `overrideAccess: false`, so state it inside `site()` and `props`/`related` reads: `overrideAccess: true` for trusted site globals. Run `payload generate:importmap` after install. Details in `references/pitfalls.md`.
 9. **Per-document overrides wanted?** If editors should set the card headline or switch the card off per page, enable `fields` (section below) and plan the migration.
 10. **Crawler pre-flight**: `robots.txt` must not `Disallow` the card path; pages that Next caches must be revalidated on save or be `force-dynamic`.
@@ -42,7 +59,7 @@ Plugin (`payload.config.ts`):
 import { readFile } from 'node:fs/promises'
 import path from 'node:path'
 import { defineTarget, ogImagePlugin } from 'payload-og-image'
-import { postCard } from './og/postCard'
+import { postCard } from './og/postCard' // see references/templates.md for a complete template
 
 const font = (f: string) => () => readFile(path.join(process.cwd(), 'assets/fonts', f))
 
@@ -106,16 +123,17 @@ export async function generateMetadata({ params }: Props) {
 
 1. **Kit**: write a vitest spec with `installTestRuntime` and `ogKit` against the real route and page modules; it must pass (`references/testing.md`).
 2. **Card URL**: start the app, read the page's `og:image`, and `curl -sI` it. Expect `200`, `content-type: image/png` or `image/jpeg` (matching the target), `cache-control: public, max-age=31536000, immutable, no-transform` for the advertised `v`, and an `etag` of `"<v>"` (the same version). `curl -s -o /dev/null -w '%{http_code}'` a HEAD (`-I`) and a GET and compare.
-3. **Head**: `curl -s <page> | grep -o '<meta[^>]*og:image[^>]*>'` shows exactly one `og:image` (plus its `:width`, `:height`, `:type`, `:alt`, `:secure_url`), inside `<head>`, with an absolute https URL. Repeat with a crawler user agent (`-A 'facebookexternalhit/1.1'`, `-A 'TelegramBot'`).
-4. **Stale and unknown**: an old `?v=` returns the current bytes with a one-hour header; an unknown slug returns 404 `no-store`.
+3. **Head**: `curl -s <page> | grep -o '<meta[^>]*property="og:image"[^>]*>' | wc -l` prints `1` (`grep -c` counts lines, and a page is often one line). The `:width`, `:height`, `:type`, `:alt` and `:secure_url` properties are separate tags and do not match. The tag must sit inside `<head>` with an absolute URL.
+4. **Crawler head**: `curl -s -A 'TelegramBot' <page>` and check that `og:image` is inside `<head>`, not after `<body>`. If it is not, set `htmlLimitedBots` in `next.config` (`/.*/`, or a regex that adds `TelegramBot`; a custom value replaces Next's default list). See `references/pitfalls.md`.
+5. **Stale and unknown**: an old `?v=` returns the current bytes with a one-hour header; an unknown slug returns 404 `no-store`.
 
-If the site can run `node scripts/probe-dev-server.mjs` (in the plugin repository only), it does the same against the dev app.
+In the plugin repository, [`scripts/probe-dev-server.mjs`](https://github.com/anatolykoptev/payload-og-image/blob/main/scripts/probe-dev-server.mjs) runs these probes against the dev app.
 
 ## Pitfalls (short list; `references/pitfalls.md` has the cause and fix)
 
 - No route file, or a route folder that does not match `path`: pages advertise a URL that 404s. `kit.routesMatchPaths` catches it.
 - Payload REST answers 404 to HEAD: add `export const HEAD = withHead(GET)` in `app/(payload)/api/[...slug]/route.ts`. Not on the card route.
-- Next 16 streams `generateMetadata` output into `<body>` for crawlers not on its HTML-limited list (Telegram is not): set `htmlLimitedBots: /.*/` in `next.config` (see `references/pitfalls.md`).
+- Next 16 streams `generateMetadata` output into `<body>` for crawlers not on its HTML-limited list (Telegram is not); streaming applies to pages rendered at request time. Check with `curl -A 'TelegramBot'`; if `og:image` is not in `<head>`, set `htmlLimitedBots` (see `references/pitfalls.md`).
 - `og:image` must remain a single image. Do not add a second image in a layout or page; a page's `openGraph` replaces the layout's whole `openGraph` (shallow merge).
 - Cached pages keep an old `?v`: `force-dynamic` or revalidate with `ogTag` on save.
 - JPEG for photo cards; WebP is not safe on every platform.

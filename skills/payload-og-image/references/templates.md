@@ -1,6 +1,6 @@
 # Writing a template
 
-Source: `docs/templates.md`, `src/template.ts`, and the working template `dev/src/og/exampleTemplate.tsx` (copy its shape).
+Source: `docs/templates.md`, `src/template.ts`, and the working template [`dev/src/og/exampleTemplate.tsx`](https://github.com/anatolykoptev/payload-og-image/blob/main/dev/src/og/exampleTemplate.tsx) in the repository (`dev/` is not in the npm package; the example below is self-contained).
 
 ```tsx
 import { defineTemplate } from 'payload-og-image'
@@ -12,7 +12,7 @@ export const postCard = defineTemplate<PostCardProps>({
   revision: '1', // bump with the design: every cached card is drawn again
   required: (p) => p.title.trim() !== '', // false = the page advertises no image
   textFields: ['title'], // string props set as text: unsupported glyphs are stripped before layout
-  stacks: { title: 'title' }, // field -> stack name; a text field without an entry uses `default`
+  stacks: { title: 'title' }, // field -> stack name. Lookup per text field: this mapping, else the stack named like the field, else `default`
   heroBox: { width: 460, height: 630 },
   render: ({ label, title, site }, ctx) => {
     const fit = ctx.fit(title, { width: ctx.hero ? 596 : 1000, height: 380, maxSize: 96, minSize: 44, leading: 1.05, maxLines: 4 }, 'title')
@@ -30,7 +30,7 @@ export const postCard = defineTemplate<PostCardProps>({
 })
 ```
 
-This is the shape of `dev/src/og/exampleTemplate.tsx`; read that file for the full working version.
+This is the shape of [`dev/src/og/exampleTemplate.tsx`](https://github.com/anatolykoptev/payload-og-image/blob/main/dev/src/og/exampleTemplate.tsx), the working version.
 
 ## Rules
 

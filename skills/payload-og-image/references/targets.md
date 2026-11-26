@@ -44,11 +44,11 @@ ogImagePlugin({
   format: 'jpeg', // 'png' (default) | 'jpeg' | 'webp'; the target's own format wins
   jpeg: { quality: 82 }, // 1 to 100, mozjpeg (default 82)
   webp: { quality: 80 },
-  palette: { card: false, hero: false }, // PNG only: false = truecolour, or a colour count 2 to 256
+  palette: { card: false, hero: false }, // card: PNG only; hero: every format. false = truecolour, or a colour count 2 to 256
 })
 ```
 
-- Photo-first card: `jpeg` and a `.jpg` path. With the default palette a photo posterises; truecolour PNG of a photo is over a megabyte. On 0.6.0 a JPEG card still cuts its hero to a 256-colour palette unless `palette: { hero: false }` (open issue #71); set it for photographic heroes.
+- Photo-first card: `jpeg` and a `.jpg` path. With the default palette a photo posterises; truecolour PNG of a photo is over a megabyte. While issue #71 is open, a JPEG card still cuts its hero to a 256-colour palette (`palette.hero` applies to every format, `palette.card` only to PNG); set `palette: { hero: false }` for photographic heroes.
 - Flat text card: keep PNG; it is the smallest and the default.
 - JPEG and WebP have no alpha: transparency is flattened onto `heroBackground` (white by default). Paint the template's own background.
 - Changing format, quality or palette gives new URLs for the affected cards by design.
@@ -58,11 +58,11 @@ ogImagePlugin({
 
 ```ts
 static: {
-  home: { path: '/og/:kind/:slug/card.png', kind: 'pages', slug: 'home', template: 'post', props: ({ site }) => ({ label: '', title: site.name, site: site.name }) },
+  home: { path: '/og/:kind/:slug/card.png', kind: 'static', slug: 'home', template: 'post', props: ({ site }) => ({ label: '', title: site.name, site: site.name }) },
 }
 ```
 
-Page side: `ogMetadata({ config, static: 'home' })`: the argument is the key in the plugin's `static` map. The card route serves it at the path with `:kind` = `pages` and `:slug` = `home`.
+Page side: `ogMetadata({ config, static: 'home' })`: the argument is the key in the plugin's `static` map. The card route serves it at the path with `:kind` = `static` and `:slug` = `home`. A static card's `kind` must not equal any target's kind (a target's kind defaults to its key in `targets`, so a `pages` kind collides with a `pages` target): start-up refuses it with a "collides with a target kind" error.
 
 ## Size variants (0.7.0 and later)
 
@@ -81,7 +81,7 @@ posts: defineTarget({
 ```
 
 - A variant has its own `path` and `template` (the template sets the size). It shares the target's collection, `props()`, hero, format and slug field, and is served as a hidden target `posts~square` of kind `posts-square`, with its own URL, version and etag. Names are `[a-z0-9-]+`; a taken kind or target name, a bad path or an unknown template is refused at start-up.
-- **Add a route file for each variant path**, like the target's own. Or pin a route to the hidden target: `createOgRoute({ config, target: 'posts~square' })` takes no `:kind` in its params. `kit.routesMatchPaths` wants a route file for each variant path.
+- **Add a route file for each variant path**, like the target's own. Or pin a route to the hidden target: `createOgRoute({ config, target: 'posts~square' })` takes no `:kind` in its params, so give that variant a `path` without `:kind` (for example `/og/posts/:slug/square.png`, route folder `app/og/posts/[slug]/square.png/route.ts`), or `kit.routesMatchPaths` flags the route. `kit.routesMatchPaths` wants a route file for each variant path.
 - A variant always draws its template: an editor's own share image (`seoImage`, `share`, mode `custom`) is never used for it. `og.mode: off` hides every size.
 - `ogImages({ config, target, doc, variants? })` from `payload-og-image/next` returns `{ url, width, height, variant }[]`: the wide image first (`variant: null`), then the variants in declaration order (or in the order of `variants: ['square']`). A blank size is left out; an undeclared name throws (production: an event and `[]`).
 

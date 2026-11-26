@@ -1,6 +1,6 @@
 # Verifying a setup: the test kit
 
-Source: `docs/reference.md` ("Testing your site", "Specs that boot Payload"), `src/testing/kit.ts`, `src/testing/runtime.ts`, and the working spec `dev/tests/og.spec.ts`. Copy that spec's shape.
+Source: `docs/reference.md` ("Testing your site", "Specs that boot Payload"), `src/testing/kit.ts`, `src/testing/runtime.ts`, and the working spec [`dev/tests/og.spec.ts`](https://github.com/anatolykoptev/payload-og-image/blob/main/dev/tests/og.spec.ts) in the repository (`dev/` is not in the npm package; the example below is self-contained).
 
 ```ts
 import { installTestRuntime, ogKit } from 'payload-og-image/testing'
@@ -28,7 +28,25 @@ describe('og kit', { timeout: 60_000 }, () => {
 })
 ```
 
-Design the options file so the spec and `payload.config.ts` import the same object (the dev app does: `dev/src/og/options.ts`).
+Put the plugin options in one file (`src/og/options.ts`, exporting `ogOptions: OgImagePluginOptions`) that both `payload.config.ts` (`ogImagePlugin(ogOptions)`) and the spec import, as the dev app does ([`dev/src/og/options.ts`](https://github.com/anatolykoptev/payload-og-image/blob/main/dev/src/og/options.ts)). The spec must test the options the site runs.
+
+The fixture. `draftNeverCached` needs `draftOnly`: a slug that exists in `drafts` and not in `published`, or it fails with "no draft fixture":
+
+```ts
+// test/fixtures.ts
+import type { KitDocs } from 'payload-og-image/testing'
+
+export const docs: KitDocs = {
+  published: { posts: [{ id: 1, slug: 'a', title: 'Alpha' }] },
+  drafts: {
+    posts: [
+      { id: 1, slug: 'a', title: 'Alpha, a draft' },
+      { id: 500, slug: 'unpublished', title: 'Not published yet' },
+    ],
+  }, // `unpublished` is draft-only
+  globals: { 'site-settings': { siteName: 'Example' } }, // every global `site()` reads
+}
+```
 
 ## The checks (all on `ogKit(rt)`)
 
@@ -50,10 +68,10 @@ Design the options file so the spec and `payload.config.ts` import the same obje
 
 ## Specs that boot Payload
 
-- **Node environment.** The start-up self-test draws with `next/og` and `sharp`, which refuse a `Uint8Array` from another realm. Under `jsdom` it fails with `Unsupported input ... of type object`, and jsdom's `URL` breaks `new URL('...', import.meta.url)` font loaders. Put such specs in a Node environment: `// @vitest-environment node` at the file top, or a vitest project with `environment: 'node'`. (Known issue #70 on 0.6.0.)
+- **Node environment.** The start-up self-test draws with `next/og` and `sharp`, which refuse a `Uint8Array` from another realm. Under `jsdom` it fails with `Unsupported input ... of type object`, and jsdom's `URL` breaks `new URL('...', import.meta.url)` font loaders. Put such specs in a Node environment: `// @vitest-environment node` at the file top, or a vitest project with `environment: 'node'`. (Known issue #70, open.)
 - **Inline the plugin when mocking `next/headers.js`**: `test: { server: { deps: { inline: ['payload-og-image'] } } }`.
 - **Fonts**: `path.join(process.cwd(), ...)`, never `new URL(..., import.meta.url)`.
 
 ## Live probes beyond the kit
 
-The kit proves the code path; a running server proves delivery. Use the "Verify" section of `SKILL.md` (curl card, curl `<head>`). In the plugin repository only: `node scripts/probe-dev-server.mjs` builds the dev app, runs `next start`, and checks GET and HEAD headers, a stale `?v`, an unknown slug, HEAD on a REST upload and a cached page's `og:image` after an edit. `og-parity --old <dir> --new <dir>` compares two directories of rendered cards pixel for pixel when a migration must not change a card.
+The kit proves the code path; a running server proves delivery. Use the "Verify" section of `SKILL.md` (curl card, curl `<head>`). In the plugin repository only ([`scripts/probe-dev-server.mjs`](https://github.com/anatolykoptev/payload-og-image/blob/main/scripts/probe-dev-server.mjs); `scripts/` is not in the npm package): `node scripts/probe-dev-server.mjs` builds the dev app, runs `next start`, and checks GET and HEAD headers, a stale `?v`, an unknown slug, HEAD on a REST upload and a cached page's `og:image` after an edit. `og-parity --old <dir> --new <dir>` compares two directories of rendered cards pixel for pixel when a migration must not change a card.

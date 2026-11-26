@@ -5,7 +5,7 @@ Sources are the package docs (`docs/reference.md`, `docs/crawlers.md`, `docs/ope
 ## Nothing is advertised, or the URL 404s
 
 - **Missing or misplaced route file.** The page advertises a card URL that the app does not serve. The route folder must follow the target `path` (`/og/:kind/:slug/card.png` becomes `app/(frontend)/og/[kind]/[slug]/card.png/route.ts`; a `.jpg` path becomes `card.jpg/`). It must export `GET` from `createOgRoute()` and `HEAD = GET`. Fix by adding the file; prove with `kit.routesMatchPaths`.
-- **Plugin not registered**: the route answers 503 (`render_error`). Outside production `ogMetadata` throws; in production it emits `render_error` and returns `{}`. With `disabled: true` every card route answers 404 and no metadata is produced.
+- **Plugin not registered**: the route answers 503 with a `console.warn` line. Outside production `ogMetadata` throws; in production it returns `{}` **silently**: there is no event, because the runtime lookup throws before an emitter exists. The only sign is a page with no `og:image`; `kit.everyRouteHasOwnCard` catches it. With `disabled: true` every card route answers 404 and no metadata is produced.
 - **No `serverURL`**: start-up error; card URLs are absolute.
 - **A collection with drafts and no public read of published documents.** Reads use `overrideAccess: false`, so the card 404s. Use `read: ({ req: { user } }) => (user ? true : { _status: { equals: 'published' } })`.
 - **Page passes `doc: null`**: `ogMetadata` returns `{}`; fine for a not-found page.
@@ -19,9 +19,9 @@ Sources are the package docs (`docs/reference.md`, `docs/crawlers.md`, `docs/ope
 
 Cause (Next docs, `generateMetadata` "Streaming metadata" and `htmlLimitedBots`): Next sends the page without waiting for `generateMetadata` and appends the metadata tags to `<body>`. Crawlers that do not run JavaScript need them in `<head>`, so Next detects HTML-limited bots by user agent and blocks until metadata resolves. The plugin docs do not mention this; the rule is Next's.
 
-In Next 16.4.6 the default list (`dist/shared/lib/router/utils/html-bots.js`) names, among others, facebookexternalhit, Twitterbot, LinkedInBot, Slackbot, Discordbot, WhatsApp, applebot, Bingbot and Google crawlers, and it does not name Telegram. A preview bot that is not on the list gets the metadata in `<body>` and shows no card. A custom `htmlLimitedBots` value **replaces** the default list.
+In Next 16.4.6 the default list (`dist/shared/lib/router/utils/html-bots.js`) names, among others, facebookexternalhit, Twitterbot, LinkedInBot, Slackbot, Discordbot, WhatsApp, applebot, Bingbot and Google crawlers, and it does not name Telegram. A preview bot that is not on the list may get the metadata in `<body>` and show no card. Streaming applies to pages whose metadata resolves at request time (dynamic rendering, such as the `force-dynamic` pages this plugin recommends); decide by probing, not by assumption.
 
-Fix, the simple safe choice: in `next.config`, `htmlLimitedBots: /.*/`. The Next docs (`generateMetadata` "Streaming metadata" and `htmlLimitedBots` "Disabling") give this as the way to fully disable streaming metadata, so every request gets metadata in `<head>`; the cost is that the response starts after `generateMetadata` resolves (Next warns of longer response times and says streaming metadata only helps TTFB and LCP). Verify: `curl -s -A 'TelegramBot' <page>` has the `og:image` inside `<head>`. Read the installed Next version's own docs: the list changes between releases.
+Probe first: `curl -s -A 'TelegramBot' <page>` (and any other preview bot the site cares about). If `og:image` is inside `<head>`, change nothing. If it is not, set `htmlLimitedBots` in `next.config`: `/.*/` disables streaming metadata for every request, or a regex that names the missing bot. A custom value **replaces** Next's default list, so a regex must repeat every default bot you still need (`/.*/` covers all). Do not set `/.*/` unconditionally: the response then starts only after `generateMetadata` resolves, which costs TTFB (Next docs, `generateMetadata` "Streaming metadata" and `htmlLimitedBots` "Disabling"; also `loading.js`, SEO section). Read the installed Next version's own docs: the list changes between releases.
 
 ## `og:image` must stay a single tag
 
@@ -35,7 +35,7 @@ Fix, the simple safe choice: in `next.config`, `htmlLimitedBots: /.*/`. The Next
 
 - JPEG is read by every crawler checked; WebP is documented for X and Discord only, LinkedIn and Facebook publish no list, Telegram is reported to drop WebP (`docs/crawlers.md`). Photo card: JPEG. Do not pick WebP for byte savings (16 to 20 percent).
 - A `.png` path with a JPEG or WebP format (or `.jpg` with PNG) is refused at start-up. No alpha in JPEG/WebP: paint the template ground.
-- A JPEG card still palette-cuts its hero on 0.6.0 unless `palette: { hero: false }` (issue #71).
+- A JPEG card still palette-cuts its hero unless `palette: { hero: false }`, while issue #71 is open.
 
 ## Stale previews
 
