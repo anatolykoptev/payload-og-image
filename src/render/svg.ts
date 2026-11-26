@@ -24,22 +24,34 @@ import { MAX_SVG_BYTES } from './sniff.js'
 const MAX_PARSED = 20_000
 const MAX_KEPT = 5_000
 const MAX_DEPTH = 32
-/** Nested isolating groups along any path of the drawing, references included. */
+/** Nested isolating groups along any path of the drawing, references included (a secondary bound: see `WASM_MAX_PAGES`). */
 const MAX_ISOLATING = 8
 /** Stops of one gradient, and `<use>`/reference expansion: the elements one drawing would instantiate. */
 const MAX_STOPS = 256
 const MAX_EXPANDED = 50_000
 /**
- * The most pixels one rasterisation produces (1000 x 1000). WebAssembly memory is not capped by a worker's `resourceLimits`, so memory is bounded by
- * arithmetic: every isolating group (opacity below 1, a mask, a clip path) is a full-size layer, so render pixels x MAX_ISOLATING x 4 bytes (about 32 MB
- * of layers at the caps) is what a drawing can ask for, one render at a time.
+ * The most pixels one rasterisation produces (1000 x 1000), in both dimensions together. The HARD memory bound is `WASM_MAX_PAGES` below: a worker's
+ * `resourceLimits` does not cap WebAssembly memory, and the layers resvg allocates for isolating groups (opacity below 1, mask, clip path, a nested
+ * `svg`, a `use` of a `symbol`) are sized to the drawn content, not the canvas, so no count of groups bounds them. This cap and `MAX_ISOLATING` only
+ * keep a legitimate drawing well inside that budget (the deepest allowed one at the cap needs under 768 pages of the 2048).
  */
 const MAX_RENDER_PIXELS = 1_000_000
+/**
+ * The pages (64 KiB each) the renderer's WebAssembly memory may grow to: 2048 = 128 MiB. The module's memory section is rewritten with this maximum before
+ * it is compiled, so a drawing that needs more fails fast with a RuntimeError (about 55 ms, measured) instead of reaching gigabytes. Chosen by
+ * measurement: the deepest drawing `sanitiseSvg` allows at `MAX_RENDER_PIXELS` renders in under 768 pages, the nested-`svg` and `use`/`symbol` bombs
+ * that reach 1.1 to 2.1 GiB uncapped do not fit in 2048.
+ */
+const WASM_MAX_PAGES = 2048
+/** The longest side of a logo over its shortest: a wordmark is 10:1 at most, and a thinner strip renders as one pixel row. */
+const MAX_ASPECT = 32
 /** No coordinate, size or width of a logo is beyond this. */
 const MAX_COORD = 1_000_000
 const MAX_STROKE = 10_000
 const MAX_PATH_CHARS = 600_000
-const RENDER_TIMEOUT_MS = 4000
+const RENDER_TIMEOUT_MS = 3000
+/** The longest a render waits behind another before it is given up (no logo this time): a hostile logo cannot hold the others for its whole timeout. */
+const QUEUE_WAIT_MS = 2000
 const WORKER_LIMITS = { maxOldGenerationSizeMb: 128, maxYoungGenerationSizeMb: 32, stackSizeMb: 4 }
 const CONCURRENT_RENDERS = 1
 
@@ -470,6 +482,7 @@ function serialise(root: Node, maxPixels: number): Sanitised | null {
   const width = w0 ? Number(w0[1]) : vb?.[2]
   const height = h0 ? Number(h0[1]) : vb?.[3]
   if (!width || !height || width <= 0 || height <= 0 || width * height > maxPixels) return null
+  if (Math.max(width / height, height / width) > MAX_ASPECT) return null
   root.attrs.width = String(width)
   root.attrs.height = String(height)
   const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;')
@@ -504,9 +517,61 @@ const locate = (id: string): string => {
 // Named through a variable: a bundler (Turbopack, webpack) would otherwise follow the literal into the package and try to bundle its WebAssembly,
 // which this module only reads from disk and hands to a worker.
 const RESVG = ['@resvg', 'resvg-wasm'].join('/')
+
+const leb = (n: number): number[] => {
+  const out: number[] = []
+  let v = n
+  do {
+    let byte = v & 0x7f
+    v >>>= 7
+    if (v) byte |= 0x80
+    out.push(byte)
+  } while (v)
+  return out
+}
+const readLeb = (b: Uint8Array, at: number): [value: number, next: number] => {
+  let value = 0
+  let shift = 0
+  let i = at
+  let byte: number
+  do {
+    byte = b[i++] as number
+    value |= (byte & 0x7f) << shift
+    shift += 7
+  } while (byte & 0x80)
+  return [value >>> 0, i]
+}
+
+/**
+ * The module with its linear memory limited to `maxPages` (the memory section, id 5, rewritten to declare a maximum): growing past it fails inside
+ * the module, which a worker's `resourceLimits` cannot do. resvg's module defines and exports its own memory; anything else is left as it is.
+ */
+export function capMemory(wasmBytes: Uint8Array, maxPages: number): Buffer {
+  const chunks: Uint8Array[] = [wasmBytes.subarray(0, 8)]
+  let i = 8
+  while (i < wasmBytes.length) {
+    const id = wasmBytes[i++] as number
+    let size: number
+    ;[size, i] = readLeb(wasmBytes, i)
+    const body = wasmBytes.subarray(i, i + size)
+    i += size
+    if (id !== 5) {
+      chunks.push(Uint8Array.of(id, ...leb(size)), body)
+      continue
+    }
+    const [count, at] = readLeb(body, 0)
+    const flag = body[at] as number
+    let [min, j] = readLeb(body, at + 1)
+    if (flag & 1) j = readLeb(body, j)[1] // an existing maximum is replaced
+    const next = [...leb(count), flag | 1, ...leb(min), ...leb(Math.max(min, maxPages)), ...body.subarray(j)]
+    chunks.push(Uint8Array.of(5, ...leb(next.length)), Uint8Array.from(next))
+  }
+  return Buffer.concat(chunks)
+}
+
 let wasm: Promise<WebAssembly.Module> | undefined
 const compiled = () => {
-  wasm ??= readFile(locate(`${RESVG}/index_bg.wasm`)).then((b) => WebAssembly.compile(b))
+  wasm ??= readFile(locate(`${RESVG}/index_bg.wasm`)).then((b) => WebAssembly.compile(capMemory(b, WASM_MAX_PAGES) as Buffer<ArrayBuffer>))
   wasm.catch(() => {
     wasm = undefined
   })
@@ -524,14 +589,33 @@ const { initWasm, Resvg } = require(d.resvg)
   const png = image.asPng()
   image.free()
   r.free()
-  parentPort.postMessage(png)
-})().catch(() => parentPort.postMessage(null))
+  parentPort.postMessage({ png })
+})().catch((e) => parentPort.postMessage({ error: String((e && e.message) || e) }))
 `
+
+/** Why no PNG came back. Only `refused` is a property of the file; the others may pass on another try. */
+export type SvgReason = 'refused' | 'busy' | 'timeout' | 'memory' | 'worker-error'
+export type SvgOutcome = { png: Buffer } | { reason: SvgReason }
 
 let running = 0
 const waiting: (() => void)[] = []
-async function slot<T>(run: () => Promise<T>): Promise<T> {
-  if (running >= CONCURRENT_RENDERS) await new Promise<void>((r) => waiting.push(r))
+/** One render at a time; a caller that would wait longer than `QUEUE_WAIT_MS` gets `undefined` (busy) and renders nothing. */
+async function slot<T>(run: () => Promise<T>, waitMs: number): Promise<T | undefined> {
+  if (running >= CONCURRENT_RENDERS) {
+    const got = await new Promise<boolean>((resolve) => {
+      const go = () => {
+        clearTimeout(timer)
+        resolve(true)
+      }
+      const timer = setTimeout(() => {
+        const at = waiting.indexOf(go)
+        if (at >= 0) waiting.splice(at, 1)
+        resolve(false)
+      }, waitMs)
+      waiting.push(go)
+    })
+    if (!got) return undefined
+  }
   running += 1
   try {
     return await run()
@@ -541,47 +625,82 @@ async function slot<T>(run: () => Promise<T>): Promise<T> {
   }
 }
 
-/** Renders in a worker with a heap limit and a hard timeout; null on a timeout, a limit, a crash or an error. */
-const renderInWorker = (svg: string, width: number, timeoutMs: number): Promise<Buffer | null> =>
-  slot(async () => {
+/** Renders in a worker with a heap limit, a memory-capped module and a hard timeout. */
+const renderInWorker = async (svg: string, width: number, o: { timeoutMs: number; queueMs: number }): Promise<SvgOutcome> => {
+  const out = await slot(async () => {
     const module = await compiled()
-    return new Promise<Buffer | null>((resolve) => {
+    return new Promise<SvgOutcome>((resolve) => {
       const worker = new Worker(WORKER, {
         eval: true,
         resourceLimits: WORKER_LIMITS,
         workerData: { svg, width, module, resvg: locate(RESVG) },
       })
-      const done = (png: Buffer | null) => {
+      const done = (r: SvgOutcome) => {
         clearTimeout(timer)
         void worker.terminate()
-        resolve(png)
+        resolve(r)
       }
-      const timer = setTimeout(() => done(null), timeoutMs)
-      worker.once('message', (m: Uint8Array | null) => done(m ? Buffer.from(m) : null))
-      worker.once('error', () => done(null))
-      worker.once('exit', () => done(null))
+      const timer = setTimeout(() => done({ reason: 'timeout' }), o.timeoutMs)
+      worker.once('message', (m: { png?: Uint8Array; error?: string }) => {
+        if (m.png) return done({ png: Buffer.from(m.png) })
+        // A grow past WASM_MAX_PAGES surfaces as a RuntimeError ("unreachable") or an allocation message from inside the module.
+        done({ reason: /memory|unreachable|RuntimeError|alloc/i.test(m.error ?? '') ? 'memory' : 'worker-error' })
+      })
+      worker.once('error', (e: Error & { code?: string }) =>
+        done({ reason: e.code === 'ERR_WORKER_OUT_OF_MEMORY' ? 'memory' : 'worker-error' }),
+      )
+      worker.once('exit', () => done({ reason: 'worker-error' }))
     })
-  })
+  }, o.queueMs)
+  return out ?? { reason: 'busy' }
+}
 
 /**
- * The SVG as a PNG (alpha kept), drawn at least `cover.width` x `cover.height` where the size cap allows (a vector scales up without
- * loss, so the later crop and scale start from enough pixels), or null. A declared size above `maxPixels` is refused, as a raster of that
- * size would be.
+ * The size an SVG of `w` x `h` is drawn at: at least `cover` where the pixel cap allows (a vector scales up without loss, so the later crop and scale
+ * start from enough pixels), both dimensions whole and at least 1, their product within `MAX_RENDER_PIXELS`; null when no such size exists.
  */
+export function renderSize(w: number, h: number, cover: { width: number; height: number }): { width: number; height: number } | null {
+  const wanted = Math.max(cover.width / w, cover.height / h)
+  const scale = Math.min(wanted, Math.sqrt(MAX_RENDER_PIXELS / (w * h)))
+  let width = Math.floor(w * scale)
+  let height = Math.ceil((h * width) / w) // what a fit to this width makes of the height
+  // Rounding the height up can push the product over the cap: narrow until it fits.
+  for (let n = 0; n < 8 && width >= 1 && width * height > MAX_RENDER_PIXELS; n++) {
+    width = Math.floor(width * Math.sqrt(MAX_RENDER_PIXELS / (width * height)))
+    height = Math.ceil((h * width) / w)
+  }
+  if (!(width >= 1) || !(height >= 1) || width * height > MAX_RENDER_PIXELS) return null
+  return { width, height }
+}
+
+/**
+ * The SVG as a PNG (alpha kept) or the reason there is none. A declared size above `maxPixels` is refused, as a raster of that size would be.
+ * Only `refused` says the file is bad; a timeout, a memory limit or a busy queue are the render's, and are not worth remembering.
+ */
+export async function renderSvg(
+  bytes: Uint8Array,
+  cover: { width: number; height: number },
+  maxPixels: number,
+  o: { timeoutMs?: number; queueMs?: number } = {},
+): Promise<SvgOutcome> {
+  const clean = await sanitiseSvg(bytes, maxPixels)
+  if (!clean) return { reason: 'refused' }
+  const size = renderSize(clean.width, clean.height, cover)
+  if (!size) return { reason: 'refused' }
+  try {
+    return await renderInWorker(clean.svg, size.width, { timeoutMs: o.timeoutMs ?? RENDER_TIMEOUT_MS, queueMs: o.queueMs ?? QUEUE_WAIT_MS })
+  } catch {
+    return { reason: 'worker-error' }
+  }
+}
+
+/** `renderSvg`, as a buffer or null. */
 export async function rasteriseSvg(
   bytes: Uint8Array,
   cover: { width: number; height: number },
   maxPixels: number,
-  o: { timeoutMs?: number } = {},
+  o: { timeoutMs?: number; queueMs?: number } = {},
 ): Promise<Buffer | null> {
-  const clean = await sanitiseSvg(bytes, maxPixels)
-  if (!clean) return null
-  const wanted = Math.max(cover.width / clean.width, cover.height / clean.height)
-  const scale = Math.min(wanted, Math.sqrt(MAX_RENDER_PIXELS / (clean.width * clean.height)))
-  const width = Math.max(1, Math.floor(clean.width * scale))
-  try {
-    return await renderInWorker(clean.svg, width, o.timeoutMs ?? RENDER_TIMEOUT_MS)
-  } catch {
-    return null
-  }
+  const out = await renderSvg(bytes, cover, maxPixels, o)
+  return 'png' in out ? out.png : null
 }

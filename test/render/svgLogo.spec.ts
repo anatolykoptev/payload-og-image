@@ -1,16 +1,20 @@
 /** Mutation table (production line -> the test that goes RED). Silent-failure surface: a hostile SVG that is rendered instead of refused (a read or fetch outside the file, an unbounded render), with no error.
- * - hero.ts `decode`: raster bytes as they are, an SVG through `rasteriseSvg`, anything else null -> `bytes` -> "a normal SVG logo is rasterised", "hostile SVGs are refused" RED
- * - svg.ts `opentag`: the HOSTILE element check removed -> "hostile SVGs are refused" RED (external <image>, namespace-prefixed <image>, <feImage>)
- * - svg.ts `serialise`: the cycle check (`visiting.has(n)`) -> returns instead of refusing -> "hostile SVGs are refused: a use of its own ancestor / a mask inside itself" RED
- * - svg.ts `serialise`: the `MAX_EXPANDED` check removed -> "... a use expansion bomb (10^11 instances)" RED
- * - svg.ts `parse`: the `MAX_DEPTH` check removed -> "... nesting deeper than any logo" RED
- * - svg.ts `serialise`: the `MAX_STOPS` check removed -> "... a gradient with 300 stops" RED
- * - svg.ts `renderInWorker`: the `setTimeout` that terminates the worker removed -> "a render that outlives the worker timeout is cut off" RED
- * - svg.ts `MAX_RENDER_PIXELS` 1_000_000 -> 8_000_000 -> "memory is bounded by arithmetic ...", "a pixel cap bounds the render" RED
+ * - svg.ts `WASM_MAX_PAGES` 2048 -> 65536, or `capMemory` not applied before `WebAssembly.compile` -> "the renderer memory is capped at the source ..." and "a failure of this attempt is not remembered ..." RED (the nested-svg / symbol bombs reach ~1.1 GiB)
+ * - svg.ts `capMemory` rewriting the wrong section or keeping an old maximum -> "capMemory declares a maximum on the memory section ..." RED
+ * - svg.ts `serialise`: the `MAX_ASPECT` check removed -> "both rendered dimensions are bounded ..." RED (a 0.004 x 1,000,000 strip)
+ * - svg.ts `renderSize`: the height not rounded up (`Math.ceil` -> `Math.floor`) or the product check dropped -> the same test RED
  * - svg.ts `serialise`: the `nested > MAX_ISOLATING` check removed, or `mask` / `clip-path` / a `use` target not counted as isolating -> "isolating groups nest at most 8 deep ..." RED
+ * - svg.ts `slot`: the queue wait unbounded -> "a render that waits too long behind another gives up" RED
  * - svg.ts `CONCURRENT_RENDERS` 1 -> 50 -> "renders one at a time: four worst-case logos at once grow RSS like one" RED
+ * - svg.ts `MAX_RENDER_PIXELS` 1_000_000 -> 8_000_000 -> "a pixel cap bounds the render", "the deepest allowed drawing at the pixel cap ..." RED
+ * - hero.ts `rasterReady`: the `inflight` lookup removed -> "many cards asking for one SVG at once read and draw it once" RED
  * - hero.ts `rasterReady`: the `svgs` lookup removed -> "an upload version is rasterised once per process ..." RED
- * - hero.ts hasAlpha: `decode` dropped -> "a transparent SVG logo is reported as transparent" RED
+ * - hero.ts `decode`: `remember: out.reason === 'refused'` -> `true` -> "a failure of this attempt is not remembered ..." RED
+ * - hero.ts `decode`: the `onReason` call (the `svg_rejected` event) removed -> the same test RED
+ * - hero.ts `decode`: `looksRaster` tested before `looksLikeSvg`, or sniff.ts `HEIF_BRANDS` check removed -> "an SVG that carries the bytes of a raster signature ..." RED
+ * - svg.ts HOSTILE element check / reference cycle check / `MAX_EXPANDED` / `MAX_DEPTH` / `MAX_STOPS` removed -> "hostile SVGs are refused: no logo, no crash, and nothing is fetched" RED
+ * - svg.ts worker `setTimeout` removed -> "a render that outlives the worker timeout is cut off" RED
+ * - hero.ts `decode` bypassed -> "a normal SVG logo is rasterised", "a shaped logo ...", "a transparent SVG logo is reported as transparent" RED
  * (The href / `#id` existence checks and the namespace filter are layered: a mutation of one is caught by the other, so only the layer pair is pinned, by the "hostile SVGs are refused" cases that need both.) */
 
 import { mkdtemp, writeFile } from 'node:fs/promises'
@@ -22,8 +26,10 @@ import type { Payload } from 'payload'
 import sharp from 'sharp'
 import { describe, expect, it } from 'vitest'
 import { heroLoaderFor } from '../../src/internal/runtime.js'
-import { looksLikeSvg } from '../../src/render/sniff.js'
-import { rasteriseSvg, sanitiseSvg } from '../../src/render/svg.js'
+import type { OgEvent } from '../../src/internal/types.js'
+import { payloadHeroLoader } from '../../src/render/hero.js'
+import { looksLikeSvg, looksRaster } from '../../src/render/sniff.js'
+import { capMemory, rasteriseSvg, renderSize, renderSvg, sanitiseSvg } from '../../src/render/svg.js'
 
 const NS = 'xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"'
 const svg = (body: string, attrs = 'width="120" height="40" viewBox="0 0 120 40"') => `<svg ${NS} ${attrs}>${body}</svg>`
@@ -270,7 +276,7 @@ describe('hostile SVGs', () => {
     ).not.toBeNull() // opacity 1 isolates nothing
   })
 
-  it('memory is bounded by arithmetic: the deepest allowed drawing at the pixel cap grows RSS by under 200 MiB', async () => {
+  it('the deepest allowed drawing at the pixel cap still renders inside the memory budget (RSS growth under 200 MiB)', async () => {
     const worst = Buffer.from(opacity(8))
     const cover = { width: 4000, height: 4000 }
     await rasteriseSvg(Buffer.from(LOGO), cover, 40_000_000) // warm: the wasm module compiled, a worker started once
@@ -317,6 +323,175 @@ describe('hostile SVGs', () => {
     // A new updatedAt is a new version: read and drawn again.
     const next = await load({ ...hero, updatedAt: 'v2' }, { width: 120, height: 40 }, { collection: 'media' })
     expect(next).not.toBe(first)
+  })
+
+  // The drawings that reached 1.1 to 2.1 GiB of WebAssembly memory from a few kilobytes before the memory section was capped: layers are sized to
+  // the drawn content (a rectangle a million units wide), not the canvas, and a nested `svg` or a `use` of a `symbol` isolates without any counted group.
+  const HUGE = '<rect x="-500000" y="-500000" width="1000000" height="1000000" fill="red"/>'
+  const frame = (inner: string) => `<svg ${NS} width="100" height="100" viewBox="0 0 100 100">${inner}</svg>`
+  const bombs: Record<string, string> = {
+    'sixteen nested <svg> around a huge rect': frame(`${'<svg width="100" height="100">'.repeat(16)}${HUGE}${'</svg>'.repeat(16)}`),
+    'twenty-two nested <svg> and eight opacity groups': frame(
+      `${'<svg width="100" height="100">'.repeat(22)}${'<g opacity=".9">'.repeat(8)}${HUGE}${'</g>'.repeat(8)}${'</svg>'.repeat(22)}`,
+    ),
+    'a chain of thirty <symbol> instances': frame(
+      `<symbol id="s0" viewBox="0 0 100 100">${HUGE}</symbol>${Array.from({ length: 29 }, (_, i) => `<symbol id="s${i + 1}" width="100" height="100" viewBox="0 0 100 100"><use href="#s${i}" width="100" height="100"/></symbol>`).join('')}<use href="#s29" width="100" height="100"/>`,
+    ),
+    'eight opacity groups around off-canvas content': frame(
+      `${'<g opacity=".9">'.repeat(8)}${HUGE}<rect x="0" y="0" width="1000000" height="1000000" fill="blue"/>${'</g>'.repeat(8)}`,
+    ),
+  }
+
+  it('the renderer memory is capped at the source: each bomb fails fast (or draws) and the RSS growth stays under the budget', async () => {
+    const cover = { width: 1000, height: 1000 }
+    await rasteriseSvg(Buffer.from(LOGO), cover, 40_000_000) // warm: compiled once
+    for (const [name, doc] of Object.entries(bombs)) {
+      const before = process.memoryUsage().rss
+      let peak = before
+      const sampler = setInterval(() => {
+        peak = Math.max(peak, process.memoryUsage().rss)
+      }, 2)
+      const t0 = Date.now()
+      const out = await renderSvg(Buffer.from(doc), cover, 40_000_000)
+      clearInterval(sampler)
+      peak = Math.max(peak, process.memoryUsage().rss)
+      expect(Date.now() - t0, name).toBeLessThan(3000)
+      expect((peak - before) / 1048576, name).toBeLessThan(200) // uncapped these reached 1.1 to 2.1 GiB
+      if (!('png' in out)) expect(out.reason, name).toBe('memory')
+    }
+    // The nested-svg and symbol bombs are exactly what the cap refuses.
+    for (const name of ['sixteen nested <svg> around a huge rect', 'a chain of thirty <symbol> instances']) {
+      expect(await renderSvg(Buffer.from(bombs[name] as string), cover, 40_000_000), name).toEqual({ reason: 'memory' })
+    }
+  })
+
+  it('capMemory declares a maximum on the memory section and leaves every other section as it was', () => {
+    const header = [0, 0x61, 0x73, 0x6d, 1, 0, 0, 0]
+    const types = [1, 4, 1, 0x60, 0, 0] // a type section
+    const memory = [5, 3, 1, 0, 1] // one memory, no maximum, 1 page minimum
+    const out = [...capMemory(Uint8Array.from([...header, ...types, ...memory]), 2048)]
+    expect(out).toEqual([...header, ...types, 5, 5, 1, 1, 1, 0x80, 0x10]) // flags 1 (has a maximum), min 1, max 2048 (LEB 0x80 0x10)
+    const withMax = [5, 4, 1, 1, 1, 9] // an existing maximum of 9 is replaced
+    expect([...capMemory(Uint8Array.from([...header, ...withMax]), 2048)]).toEqual([...header, 5, 5, 1, 1, 1, 0x80, 0x10])
+  })
+
+  it('both rendered dimensions are bounded, not just the width: a 0.004 x 1,000,000 strip is refused, never drawn as 1 x 250,000,000', async () => {
+    const strip = (w: string, h: string) =>
+      `<svg ${NS} width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><rect width="${w}" height="${h}" fill="red"/></svg>`
+    const cover = { width: 1200, height: 630 }
+    for (const [w, h] of [
+      ['0.004', '1000000'],
+      ['1000000', '0.004'],
+      ['1', '1000000'],
+      ['0.0001', '40'],
+      ['33', '1'],
+    ]) {
+      expect(await sanitiseSvg(Buffer.from(strip(w as string, h as string))), `${w}x${h}`).toBeNull()
+      expect(await renderSvg(Buffer.from(strip(w as string, h as string)), cover, 40_000_000), `${w}x${h}`).toEqual({ reason: 'refused' })
+    }
+    expect(await sanitiseSvg(Buffer.from(strip('320', '10')))).not.toBeNull() // 32:1 is the longest strip
+    // renderSize: whole dimensions of at least 1, product within the cap, for the shapes that are allowed.
+    for (const [w, h] of [
+      [120, 40],
+      [320, 10],
+      [10, 320],
+      [1, 1],
+      [0.5, 0.5],
+      [3, 100],
+      [1000, 1000],
+      [4000, 4000],
+    ]) {
+      const size = renderSize(w as number, h as number, { width: 1000, height: 1000 })
+      expect(size, `${w}x${h}`).not.toBeNull()
+      expect(Number.isInteger(size?.width)).toBe(true)
+      expect(size?.width).toBeGreaterThanOrEqual(1)
+      expect(size?.height).toBeGreaterThanOrEqual(1)
+      expect((size?.width ?? 0) * (size?.height ?? 0)).toBeLessThanOrEqual(1_000_000)
+    }
+    expect(renderSize(0.004, 40_000_000, { width: 1000, height: 1000 })).toBeNull() // a width that rounds to 0
+    // The height is what a fit to the width makes of it, rounded up: an upper bound of what resvg draws (it rounds), never an under-count.
+    for (const [w, h] of [
+      [7, 100],
+      [4, 100],
+    ]) {
+      const size = renderSize(w as number, h as number, { width: 1000, height: 1000 }) as { width: number; height: number }
+      const doc = `<svg ${NS} width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><rect width="${w}" height="${h}" fill="red"/></svg>`
+      const out = await rasteriseSvg(Buffer.from(doc), { width: 1000, height: 1000 }, 40_000_000)
+      const meta = await sharp(out as Buffer).metadata()
+      expect(meta.width, `${w}x${h}`).toBe(size.width)
+      expect(meta.height, `${w}x${h}`).toBeLessThanOrEqual(size.height)
+      expect(meta.height, `${w}x${h}`).toBeGreaterThanOrEqual(size.height - 1)
+    }
+    expect(renderSize(7, 100, { width: 1000, height: 1000 })).toEqual({ width: 264, height: 3772 })
+  })
+
+  it('a render that waits too long behind another gives up: busy, no logo, nothing remembered', async () => {
+    const cover = { width: 1000, height: 1000 }
+    await rasteriseSvg(Buffer.from(LOGO), cover, 40_000_000) // warm
+    const first = renderSvg(Buffer.from(LOGO), cover, 40_000_000)
+    const second = await renderSvg(Buffer.from(LOGO), cover, 40_000_000, { queueMs: 1 })
+    expect(second).toEqual({ reason: 'busy' })
+    expect('png' in (await first)).toBe(true)
+  })
+
+  it('many cards asking for one SVG at once read and draw it once (single-flight), and the see-through probe reuses that raster', async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), 'og-svg-'))
+    await writeFile(path.join(dir, 'logo.svg'), LOGO)
+    let reads = 0
+    const load = payloadHeroLoader({
+      staticDirs: async () => {
+        reads += 1
+        return [dir]
+      },
+    })
+    const hero = { id: 'flight', filename: 'logo.svg', url: '/m/logo.svg', updatedAt: 'v1' }
+    const outs = await Promise.all([
+      ...Array.from({ length: 6 }, () => load(hero, { width: 120, height: 40 }, { collection: 'media' })),
+      load.hasAlpha?.(hero, { collection: 'media' }),
+    ])
+    expect(reads).toBe(1)
+    expect(outs.slice(0, 6).every((u) => typeof u === 'string' && u.startsWith('data:image/png'))).toBe(true)
+    expect(outs[6]).toBe(true)
+  })
+
+  it('a failure of this attempt is not remembered (only the sanitiser refusing the file is), and the probe says nothing then', async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), 'og-svg-'))
+    const events: OgEvent[] = []
+    const load = payloadHeroLoader({ staticDirs: async () => [dir], onEvent: (e) => events.push(e) })
+    const hero = { id: 'retry', filename: 'logo.svg', url: '/m/logo.svg', updatedAt: 'v1' }
+    const where = { collection: 'media' }
+    const box = { width: 120, height: 40 }
+    // A drawing that does not fit the memory budget: the render's failure, not the file's.
+    await writeFile(path.join(dir, 'logo.svg'), bombs['sixteen nested <svg> around a huge rect'] as string)
+    expect(await load(hero, box, where)).toBeNull()
+    expect(await load.hasAlpha?.(hero, where)).toBe(false)
+    await writeFile(path.join(dir, 'logo.svg'), LOGO) // same version, the file is fine now: not remembered, so it is drawn
+    expect(await load(hero, box, where)).toMatch(/^data:image\/png/)
+    // A file the sanitiser refuses IS remembered: fixing the file without a new version changes nothing.
+    const bad = { ...hero, id: 'refused' }
+    await writeFile(path.join(dir, 'logo.svg'), svg('<image href="http://x.test/a.png" width="1" height="1"/>'))
+    expect(await load(bad, box, where)).toBeNull()
+    await writeFile(path.join(dir, 'logo.svg'), LOGO)
+    expect(await load(bad, box, where)).toBeNull()
+    expect(events.map((e) => [e.name, e.detail?.reason])).toEqual([
+      ['svg_rejected', 'memory'],
+      ['svg_rejected', 'memory'], // the probe asked again: the failure was not remembered
+      ['svg_rejected', 'refused'],
+    ])
+    expect(events.every((e) => e.detail?.collection === 'media')).toBe(true)
+  })
+
+  it('an SVG that carries the bytes of a raster signature is an SVG, never raster: it never reaches sharp', async () => {
+    const doc = `<svg ${NS} width="120" height="40" viewBox="0 0 120 40"><rect width="60" height="40" fill="#c00"/></svg>`
+    const polyglot = (brand: string) => Buffer.from(`<!--ftyp${brand}-->${doc}`)
+    expect(polyglot('abcd').subarray(4, 8).toString()).toBe('ftyp') // the old test, "ftyp at byte 4", matches it
+    expect(looksRaster(polyglot('abcd'))).toBe(false) // no known brand at byte 8
+    expect(looksRaster(polyglot('avif'))).toBe(true) // a full AVIF signature: only the order of the tests keeps it from sharp
+    expect(looksLikeSvg(polyglot('avif'))).toBe(true)
+    expect(looksRaster(Buffer.from([0, 0, 0, 24, 0x66, 0x74, 0x79, 0x70, 0x61, 0x76, 0x69, 0x66]))).toBe(true) // a real AVIF header still is
+    const { load } = await loader({ 'abcd.svg': polyglot('abcd'), 'avif.svg': polyglot('avif') })
+    expect(await load('abcd.svg')).toMatch(/^data:image\/png/)
+    expect(await load('avif.svg')).toMatch(/^data:image\/png/) // drawn as the SVG it is (sharp would have refused or misread it)
   })
 
   it('a pixel cap bounds the render: a big but legal logo is drawn no larger than the cap', async () => {
