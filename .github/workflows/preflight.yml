@@ -32,7 +32,7 @@ jobs:
           # is skipped below it, so a lower pin would silently drop that check.
           node-version: 26.13.1
       - run: pnpm install --frozen-lockfile
-      - run: make -k preflight || true
+      - run: make preflight
       # The release gate, run on every pull request: pack the built package, install the tarball into a clean project and
       # import every entry. It used to run only after the release tag, so v0.7.0 and v0.7.1 were tagged and then failed to
       # publish on mistakes a pull request could have caught.

@@ -107,7 +107,7 @@ export const OgPreviewField: FC<UIFieldClientProps> = () => {
       if (retry) clearTimeout(retry)
       controller.abort()
     }
-  }, [id, collectionSlug, routes.api, serverURL])
+  }, [fields, id, collectionSlug, routes.api, serverURL])
 
   useEffect(
     () => () => {
