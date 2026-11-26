@@ -24,7 +24,7 @@ export const postCard = defineTemplate<PostCardProps>({
   `textFields`.
 - `textFields` are the string props set as text. Characters that no font in the field's stack can draw are
   removed before layout (and reported as a `glyph_missing` event), so a card never shows empty boxes.
-- `size` defaults to 1200x630 and may not exceed 4000 pixels on a side.
+- `size` defaults to 1200x630 and may not exceed 4000 pixels on a side. Keep text and logos inside the safe zone of the [share image specification](share-image-spec.md#2-safe-zones).
 
 ## Related documents in props
 

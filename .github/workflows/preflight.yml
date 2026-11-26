@@ -39,6 +39,8 @@ jobs:
       - run: node scripts/verify-pack.mjs
       # What lives in the Next layer (HEAD, route wiring, the page cache) is only seen over HTTP: build the dev app,
       # serve it with `next start` and probe a card, a stale ?v, an unknown slug and a REST upload. Needs the build above.
+      # It ends by opening the admin in Chromium and editing a post (scripts/admin-editor-smoke.mjs), on this Payload 3 build.
+      - uses: ./.github/actions/playwright-chromium
       - run: node scripts/probe-dev-server.mjs
 
   # The package declares engines ^22.23.5 || ^24.22.3 || >=26.13.1. `preflight` runs on 26.13.1; this runs the suite on the
@@ -108,6 +110,8 @@ jobs:
           for c in api-extractor api-extractor.next api-extractor.testing api-extractor.client api-extractor.mcp api-extractor.mcpv3; do node_modules/.bin/api-extractor run -c "$c.json"; done
       # The committed import map is Payload 3's output (`@payloadcms/next/rsc` is gone in 4): regenerate it before the app is built.
       - run: node_modules/.bin/payload generate:importmap
+      # The probe also drives the admin editor in Chromium (scripts/admin-editor-smoke.mjs), on this Payload 4 beta.
+      - uses: ./.github/actions/playwright-chromium
       - run: node scripts/probe-dev-server.mjs
 
   # The required status check is named `payload-beta`: this job keeps that one stable name over the matrix above, so adding or
