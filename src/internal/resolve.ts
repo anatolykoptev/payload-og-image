@@ -73,6 +73,8 @@ export type ResolveInput = {
   /** Effective card / hero palette tags when not the default (see `paletteTags`). */
   cardPalette?: string
   heroPalette?: string
+  /** `heroPalette` for a JPEG or WebP card (an unset `palette.hero` is truecolour there); unset: `heroPalette`. */
+  heroPaletteLossy?: string
   /** The plugin's card format and JPEG settings; a target's own win. */
   format?: CardFormat
   jpeg?: JpegOptions
@@ -359,6 +361,8 @@ export async function resolveCard(i: ResolveInput): Promise<ResolvedCard> {
     { ...i.target, format: i.target.format ?? template.format },
   )
   const encoding: CardEncoding = encodingOf(format, quality, groundOf(background, i.heroBackground))
+  const lossy = encoding.format !== 'png'
+  const lossyPalette = i.heroPaletteLossy ?? i.heroPalette
   const v = cardVersion({
     templateId,
     templateRevision: template.revision,
@@ -369,7 +373,11 @@ export async function resolveCard(i: ResolveInput): Promise<ResolvedCard> {
     heroBackground: background === undefined ? i.heroBackground : background === DEFAULT_HERO_BACKGROUND ? undefined : background,
     heroTransparent,
     cardPalette: i.cardPalette,
-    heroPalette: i.heroPalette,
+    // The lossy default (`palette.hero` unset: truecolour) reaches only the paths that read it: a hero the template gave no `heroColours`, and a named
+    // image without a shape. Anything else draws what it always drew, so its version does not move.
+    heroPalette: lossy && template.heroColours === undefined ? lossyPalette : i.heroPalette,
+    imagePalette:
+      lossy && images.some((e) => e.uploads.length > 0 && template.imageShapes?.[e.name] === undefined) ? lossyPalette : i.heroPalette,
     variant: variantOf(encoding),
     fontsDigest: fontsKey(i.fontsDigest, i.stacks),
     host: i.host,

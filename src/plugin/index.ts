@@ -110,7 +110,7 @@ export type OgImagePluginOptions = {
   heroBackground?: string
   /**
    * How a card and a hero are palette-encoded. `card`: the renderer keeps the smaller of the truecolour PNG and a palette re-encoding
-   * (default 128 colours); `hero`: the hero is cut to a palette PNG (default 256 colours). Each is `false` (truecolour, larger files,
+   * (default 128 colours); `hero`: the hero is cut to a palette PNG (default 256 colours; with a JPEG or WebP card, truecolour unless you set it). Each is `false` (truecolour, larger files,
    * no banding) or a colour count from 2 to 256. A value other than the default is part of the card version, so changing it gives new URLs.
    */
   palette?: { card?: false | number; hero?: false | number }

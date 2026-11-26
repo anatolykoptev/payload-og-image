@@ -149,6 +149,8 @@ export function buildRuntime(state: OgState, payload: Payload, over: RuntimeOver
       heroFlattened: o.heroBackground !== undefined,
       cardPalette: paletteTags(o.palette).card,
       heroPalette: paletteTags(o.palette).hero,
+      heroPaletteLossy: paletteTags(o.palette, true).hero,
+      heroColoursLossy: heroColoursOf(o.palette, true),
       format: o.format,
       jpeg: o.jpeg,
       webp: o.webp,

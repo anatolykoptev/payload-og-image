@@ -358,7 +358,9 @@ ogImagePlugin({
 })
 ```
 
-Unset keeps today's behaviour exactly: no existing card URL or bytes change. A value other than the default is part of
+Unset keeps today's behaviour exactly for PNG cards: no existing card URL or bytes change. A JPEG or WebP card is re-encoded lossy anyway, so
+there an unset `palette.hero` means truecolour (a 256-colour cut would only add banding); set `hero` to a number to cut it anyway. Cards
+of those formats moved to new URLs once when this default changed. A value other than the default is part of
 the card version (`card` for every card, `hero` for a card with a hero), so flipping it gives new URLs and never serves
 a stored card of the other encoding. A number is a ceiling: the encoder rounds it up to 2, 4, 16 or 256 colours, so
 17 to 256 all give the 256-colour palette (the default `card` of 128 and a `hero` of 256 are the same bytes at the sizes below).

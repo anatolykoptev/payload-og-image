@@ -164,7 +164,7 @@ function textLayoutFor(p: PresetProps, ctx: TemplateContext, art: TextLayout['ar
   const named = (k: string) => row.some((r) => r.key === k)
   for (const item of row) {
     const rect = { x: at, y: TEXT.head.y, w: item.width, h: TEXT.head.height }
-    const family = ctx.font(STACK, item.text)
+    const family = ctx.font(STACK, item.text, item.weight)
     if (item.key === 'name') {
       name = { text: item.text, size: item.size, rect: place('name', rect), family }
       at += item.width + TEXT.head.gap * 2
@@ -216,14 +216,14 @@ function textLayoutFor(p: PresetProps, ctx: TemplateContext, art: TextLayout['ar
     size: t.size,
     lines: t.lines,
     rect: place('title', { x, y: top, w: t.width ?? colW, h: titleH }),
-    family: ctx.font(STACK, t.text),
+    family: ctx.font(STACK, t.text, TEXT.title.weight),
   }
   const sub = subFit
     ? {
         text: subFit.text,
         lines: subFit.lines,
         rect: place('sub', { x, y: top + titleH + TEXT.sub.gap, w: colW, h: subH }),
-        family: ctx.font(STACK, subFit.text),
+        family: ctx.font(STACK, subFit.text, 400),
       }
     : undefined
 
@@ -253,7 +253,7 @@ function textLayoutFor(p: PresetProps, ctx: TemplateContext, art: TextLayout['ar
     foot.push({
       ...(item as RowFit),
       rect: place(item.key, rect),
-      family: ctx.font(STACK, item.text),
+      family: ctx.font(STACK, item.text, item.weight),
       kind: item.key === 'lead' || end ? 'text' : kindOf(item.key),
     })
     if (!end) fx += item.width + TEXT.foot.gap
@@ -339,7 +339,7 @@ export function photoLayout(p: PresetProps, ctx: TemplateContext): PhotoLayout {
   const textFor = (item: RowFit, rect: Rect): FootItem => ({
     ...item,
     rect: place(item.key, rect),
-    family: ctx.font(STACK, item.text),
+    family: ctx.font(STACK, item.text, item.weight),
     kind: kindOf(item.key),
   })
   // Left: the pills and captions from the start. Right, from the end: meta, then the lockup (logo, partner, name).
@@ -394,7 +394,7 @@ export function photoLayout(p: PresetProps, ctx: TemplateContext): PhotoLayout {
     size: t.size,
     lines: t.lines,
     rect: place('title', { x: PHOTO.x, y: bottom - h, w: t.width ?? PHOTO.width, h }),
-    family: ctx.font(STACK, t.text),
+    family: ctx.font(STACK, t.text, PHOTO.title.weight),
   }
   return { logo, partner, title, facts, scrimTop: Math.max(0, bottom - h - PHOTO.scrim.fade), boxes }
 }

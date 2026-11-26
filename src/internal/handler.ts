@@ -77,6 +77,9 @@ export type HandlerDeps = {
   /** Effective palette tags when not the default: part of the version (the card's of every card, the hero's of a card with a hero). */
   cardPalette?: string
   heroPalette?: string
+  /** The same for a JPEG or WebP card: an unset `palette.hero` is truecolour there (`heroColoursLossy`, drawn; `heroPaletteLossy`, its version tag). */
+  heroPaletteLossy?: string
+  heroColoursLossy?: false | number
   /** The plugin's card format and JPEG settings (a target's own win). Unset: PNG. */
   format?: CardFormat
   jpeg?: JpegOptions
@@ -211,6 +214,9 @@ export function createCardHandler(d: HandlerDeps): CardHandler {
   const ctxFor = (fonts: LoadedFont[], hero: string | null, images?: ImageLists): TemplateContext =>
     templateContext({ host, fonts, stacks: d.stacks, hero, images })
 
+  /** The plugin's hero colours for a JPEG or WebP card; `undefined` (the loader's own default) for a PNG one. */
+  const lossyColours = (card: GeneratedCard) => (card.encoding.format === 'png' ? undefined : d.heroColoursLossy)
+
   /**
    * The card's named images, prepared at the template's box for each name and never flattened (a logo stays transparent), each from its own
    * upload collection's folder. An upload whose file cannot be prepared is left out of its list and counted in `failed`.
@@ -220,7 +226,12 @@ export function createCardHandler(d: HandlerDeps): CardHandler {
       uploads.map((upload) => ({ name, collection, upload, box: (card.template.imageBoxes as Record<string, Size>)[name] as Size })),
     )
     const loaded = await pooled(jobs, 4, (j) =>
-      d.heroLoader(j.upload, j.box, { collection: j.collection, keepAlpha: true, shape: card.template.imageShapes?.[j.name] }),
+      d.heroLoader(j.upload, j.box, {
+        collection: j.collection,
+        keepAlpha: true,
+        shape: card.template.imageShapes?.[j.name],
+        colours: lossyColours(card),
+      }),
     )
     const images: Record<string, string[]> = Object.create(null)
     let failed = 0
@@ -260,7 +271,7 @@ export function createCardHandler(d: HandlerDeps): CardHandler {
       ? await d.heroLoader(card.hero, card.template.heroBox ?? card.size, {
           collection: card.heroCollection,
           background: card.heroBackground,
-          colours: card.template.heroColours,
+          colours: card.template.heroColours ?? lossyColours(card),
         })
       : null
     const { images, failed } = await loadImages(card)
@@ -334,6 +345,7 @@ export function createCardHandler(d: HandlerDeps): CardHandler {
       heroHasAlpha: d.heroLoader.hasAlpha,
       cardPalette: d.cardPalette,
       heroPalette: d.heroPalette,
+      heroPaletteLossy: d.heroPaletteLossy,
       format: d.format,
       jpeg: d.jpeg,
       webp: d.webp,

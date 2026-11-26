@@ -27,9 +27,9 @@ export function templateContext(a: {
     // A run no single family draws is measured and drawn glyph by glyph across the stack, never with its first family alone.
     fit: (text, box, stack) => {
       const s = stackOf(stack)
-      return fitText(a.fonts, coveringFamily(a.fonts, s, text) ?? s, text, box)
+      return fitText(a.fonts, coveringFamily(a.fonts, s, text, box.weight) ?? s, text, box)
     },
-    font: (stack, text) => fontFamilyFor(a.fonts, stackOf(stack), text),
+    font: (stack, text, weight) => fontFamilyFor(a.fonts, stackOf(stack), text, weight),
     fitRow: (items, width, gap = 16) => fitRow(a.fonts, stackOf, items, width, gap),
   }
 }
