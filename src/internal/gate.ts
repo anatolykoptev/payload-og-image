@@ -6,6 +6,13 @@ export class ShedError extends Error {
   }
 }
 
+/**
+ * True for a `ShedError` of THIS copy of the module, and for nothing else: not an object a site's callback threw, whatever properties it carries.
+ * If a bundle ever duplicates this module, a shed from the other copy is not recognised and is reported as an ordinary error (logged, a generic
+ * internal_error, no message): the safe side, never a trusted lookalike.
+ */
+export const isShedError = (e: unknown): e is ShedError => e instanceof ShedError
+
 export type Gate = {
   run<T>(job: () => Promise<T>): Promise<T>
   stats(): { active: number; waiting: number }

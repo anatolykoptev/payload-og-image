@@ -10,7 +10,7 @@
  * - hero.ts:141  no pixel limit -> "an image above maxPixels is not decoded" RED
  * - hero.ts:56  read a file above maxBytes -> "a file above maxBytes is not read" RED
  * - encode.ts:25  always the palette encoding -> "(b) encodePng keeps the smaller encoding" RED
- * - nextOg.ts:16  accept any card size -> "refuses a bad palette and an out-of-range card size" RED
+ * - nextOg.ts:16  accept any card size -> "refuses a bad palette and an out-of-range card size" RED; limits.ts MAX_SIDE 4000 -> 4001+ -> the same test RED
  * - template.ts:66  accept a size above the cap -> "a template size above the pixel cap is refused when it is defined" RED
  * - (none):0  nextOg.ts `isCompletePng(out)` guard: next/og never yields an invalid PNG here, so no test can reach it; it is the last line before a card may be cached immutable
  * - hero.ts:104  leave an error response body open -> "an error response has its body cancelled, not left open" RED
@@ -112,6 +112,9 @@ describe('nextOgRenderer + encodePng', () => {
     const { fonts } = await loadTestFonts()
     await expect(nextOgRenderer().render(el, { width: 5000, height: 630, fonts })).rejects.toThrow(/whole pixels/)
     await expect(nextOgRenderer().render(el, { width: 12.5, height: 630, fonts })).rejects.toThrow(/whole pixels/)
+    // The cap is exactly 4000 px a side (limits.ts MAX_SIDE), on either side: one pixel over is refused before anything is drawn.
+    await expect(nextOgRenderer().render(el, { width: 4001, height: 630, fonts })).rejects.toThrow(/whole pixels/)
+    await expect(nextOgRenderer().render(el, { width: 1200, height: 4001, fonts })).rejects.toThrow(/whole pixels/)
   })
   it('(g) the dev example template renders through the renderer', async () => {
     const { fonts } = await loadTestFonts()

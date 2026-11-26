@@ -1,5 +1,5 @@
 import type { Config, Endpoint, PayloadRequest } from 'payload'
-import { ShedError } from '../internal/gate.js'
+import { isShedError } from '../internal/gate.js'
 import type { OgState } from '../internal/state.js'
 import { OG_EVENT_NAMES } from '../internal/types.js'
 import type { Target } from '../template.js'
@@ -164,7 +164,7 @@ export function previewEndpoint(state: OgState): Endpoint {
           },
         })
       } catch (error) {
-        if (error instanceof ShedError) return text(503, 'Busy', { 'retry-after': '5' })
+        if (isShedError(error)) return text(503, 'Busy', { 'retry-after': '5' })
         state.events.emit({ name: 'render_error', detail: { message: `preview failed: ${String((error as Error)?.message ?? error)}` } })
         return text(500, 'Preview failed')
       }
