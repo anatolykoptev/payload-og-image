@@ -3,13 +3,13 @@ import type { Upload } from './types.js'
 /**
  * Uploads have one identity and one reader.
  *
- * Whatever site code hands over (a populated object, a bare id, `{ id }`) is reduced to an `ImageRef`: the upload's collection and id. The
+ * Whatever site code hands over (a populated object, a bare id, `{ id }`) is reduced to an `UploadKey`: the upload's collection and id. The
  * collection comes from the schema (the `relationTo` of the field the document held it in) or, where the schema cannot tell, from the target's
  * explicit `heroCollection` / `imageCollections`. Only the reader below turns a ref into a `VerifiedUpload`: a record read with the visitor's access
  * (published only; the editor's draft view in a preview) that carries the collection it was read from. Resolve, the version, the alpha probe, the
  * hero loader and the inspector accept nothing else, so no upload drawn on a card was ever just something a field held.
  */
-export type ImageRef = { readonly collection: string; readonly id: string }
+export type UploadKey = { readonly collection: string; readonly id: string }
 
 /** The collection a verified upload was read from. Not enumerable: it is no part of the record, never hashed, spread or serialised. */
 export const VERIFIED: unique symbol = Symbol('payload-og-image.verifiedUpload')
@@ -22,7 +22,7 @@ export const isVerified = (v: unknown): v is VerifiedUpload =>
 /** The collection a verified upload was read from. */
 export const collectionOf = (u: VerifiedUpload): string => u[VERIFIED]
 
-const keyOf = (r: ImageRef) => `${r.collection}\u0000${r.id}`
+const keyOf = (r: UploadKey) => `${r.collection}\u0000${r.id}`
 
 /** The id of an upload, whether the value is a populated object or the bare id. */
 export const idOf = (v: unknown): string | undefined => {
@@ -34,7 +34,7 @@ export const idOf = (v: unknown): string | undefined => {
  * The ref a value names: its id, in the collection a verified upload says it was read from, else `collection`. Undefined for a value with no id,
  * or with no collection to place it in.
  */
-export function refOf(value: unknown, collection: string | undefined): ImageRef | undefined {
+export function refOf(value: unknown, collection: string | undefined): UploadKey | undefined {
   const id = idOf(value)
   const from = (isVerified(value) ? collectionOf(value) : undefined) ?? collection
   return id === undefined || from === undefined ? undefined : { collection: from, id }
@@ -48,7 +48,7 @@ export type ReadUploads = (collection: string, ids: string[]) => Promise<Readonl
 
 /** The request's reader: `load` answers a verified upload (or null) for each ref, in order. */
 export type UploadReader = {
-  load(refs: readonly ImageRef[]): Promise<Array<VerifiedUpload | null>>
+  load(refs: readonly UploadKey[]): Promise<Array<VerifiedUpload | null>>
 }
 
 /**
@@ -60,7 +60,7 @@ export function createUploadReader(read: ReadUploads): UploadReader {
   const memo = new Map<string, Promise<VerifiedUpload | null>>()
   return {
     async load(refs) {
-      const fresh = new Map<string, Map<string, ImageRef>>()
+      const fresh = new Map<string, Map<string, UploadKey>>()
       for (const r of refs) {
         if (memo.has(keyOf(r))) continue
         let byId = fresh.get(r.collection)
@@ -154,7 +154,7 @@ export async function fillUploads(
   fields: readonly UploadField[],
   drawn?: readonly string[],
 ): Promise<Record<string, any>> {
-  const wanted: Array<{ field: UploadField; ref: ImageRef }> = []
+  const wanted: Array<{ field: UploadField; ref: UploadKey }> = []
   let out = doc
   for (const field of fields) {
     const raw = valueAt(doc, field.path)

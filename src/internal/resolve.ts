@@ -19,10 +19,10 @@ import type { CardEncoding, CardKey, CardMime, SiteInfo, Size } from './types.js
 import {
   collectionOf,
   fillUploads,
-  type ImageRef,
   idOf,
   refOf,
   type UploadField,
+  type UploadKey,
   type UploadReader,
   type VerifiedUpload,
 } from './uploads.js'
@@ -147,7 +147,7 @@ async function namedImages(i: ResolveInput, args: ResolverArgs<any>, template: T
   if (given === null || given === undefined) return []
   if (!isPlainObject(given))
     throw new Error(`payload-og-image: target "${i.targetName}" images() must return a plain object, got ${typeof given}`)
-  const wanted: Array<{ name: string; refs: ImageRef[] }> = []
+  const wanted: Array<{ name: string; refs: UploadKey[] }> = []
   let left = MAX_CARD_IMAGES
   for (const [name, value] of Object.entries(given)) {
     if (!IMAGE_NAME.test(name)) throw new Error(`payload-og-image: target "${i.targetName}" image name "${name}" must match ${IMAGE_NAME}`)
@@ -161,7 +161,7 @@ async function namedImages(i: ResolveInput, args: ResolverArgs<any>, template: T
       i.target.heroCollection ??
       i.uploadCollection
     // Ids are collected up to the remaining budget only: a huge hasMany list costs no more than the first few entries.
-    const refs: ImageRef[] = []
+    const refs: UploadKey[] = []
     let unplaced = false
     if (value !== null && value !== undefined) {
       for (const item of Array.isArray(value) ? value : [value]) {
