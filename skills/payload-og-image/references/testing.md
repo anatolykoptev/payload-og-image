@@ -64,11 +64,11 @@ export const docs: KitDocs = {
 | `templatesRender({ props })`                                                                  | a template that cannot be drawn or is not its size (a `div` with children and no `display: flex`); props per template id                                                                                                                                                             |
 | `sizeBudget({ module, params, maxBytes })`                                                    | cards over budget; measure photo cards here                                                                                                                                                                                                                                          |
 
-`installTestRuntime(options, docs, { renderer, heroDir, transparentHero })`: `heroDir` points at a folder of real hero files named by the docs' `filename`, so real icons draw as in production. Test runtime helpers: `rt.setDoc(target, doc)`, `rt.setGlobal(slug, data)`, `rt.draftMode(on, editor?)`.
+`installTestRuntime(options, docs, { renderer, heroDir, transparentHero, uploads })`: `heroDir` points at a folder of real hero files named by the docs' `filename`, so real icons draw as in production; `uploads` models the site's upload collections by slug and id (`docs/reference.md`, Testing your site). Test runtime helpers: `rt.setDoc(target, doc)`, `rt.setGlobal(slug, data)`, `rt.draftMode(on, editor?)`.
 
 ## Specs that boot Payload
 
-- **Node environment.** The start-up self-test draws with `next/og` and `sharp`, which refuse a `Uint8Array` from another realm. Under `jsdom` it fails with `Unsupported input ... of type object`, and jsdom's `URL` breaks `new URL('...', import.meta.url)` font loaders. Put such specs in a Node environment: `// @vitest-environment node` at the file top, or a vitest project with `environment: 'node'`. (Known issue #70, open.)
+- **Boot under jsdom, draw under Node.** The start-up check draws nothing, so a spec that only boots Payload may run under `jsdom`. `next/og` and `sharp` refuse a `Uint8Array` from another realm, so a spec that draws a card (a template, `templatesRender`, `sizeBudget`, the kit's real renderer) belongs in a Node environment: `// @vitest-environment node` at the file top, or a vitest project with `environment: 'node'`. jsdom's `URL` also breaks `new URL('...', import.meta.url)` font loaders.
 - **Inline the plugin when mocking `next/headers.js`**: `test: { server: { deps: { inline: ['payload-og-image'] } } }`.
 - **Fonts**: `path.join(process.cwd(), ...)`, never `new URL(..., import.meta.url)`.
 
