@@ -75,9 +75,8 @@ const imageOf = (card: ResolvedCard, variant: string | null): OgImage | undefine
 }
 
 /**
- * Every size of a page's share image, for a schema.org `image` array (Google asks for 16:9, 4:3 and 1:1): the wide image
- * `ogMetadata` advertises first (the editor's own image when there is one), then the target's variants. It is not for
- * `og:image`: put one image there (see docs/reference.md). A size that would be blank is left out. `[]` when the page has no image.
+ * Every size of a page's share CARD: the wide image `ogMetadata` advertises first (the editor's own image when there is one), then the target's variants. It is not for
+ * `og:image` (put one image there) and not for structured data, where Google asks for no logo or text: use `ogPhotoImages` (see docs/reference.md). A size that would be blank is left out. `[]` when the page has no image.
  * Failure handling is `ogMetadata`'s: in production an event and `[]`, in development and test it throws.
  */
 export async function ogImages(a: OgImagesArgs): Promise<OgImage[]> {
