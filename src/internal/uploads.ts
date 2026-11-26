@@ -90,10 +90,11 @@ export function createUploadReader(read: ReadUploads): UploadReader {
   }
 }
 
-/** The record as a verified upload: a copy (the source's own object is never marked), or null when the read found nothing with an id. */
+/** The record as a verified upload: a frozen copy (the source's own object is never marked), or null when the read found nothing with an id. */
 function verified(collection: string, doc: Record<string, any> | undefined): VerifiedUpload | null {
   if (!doc || typeof doc !== 'object' || idOf(doc) === undefined) return null
-  return Object.defineProperty({ ...doc }, VERIFIED, { value: collection, enumerable: false }) as VerifiedUpload
+  // Branded first, then frozen: a resolver that mutates the upload it was handed cannot change what is drawn or hashed.
+  return Object.freeze(Object.defineProperty({ ...doc }, VERIFIED, { value: collection, enumerable: false })) as VerifiedUpload
 }
 
 /** One upload field of a collection: where it sits in a document, and the upload collection its schema says it points to. */
