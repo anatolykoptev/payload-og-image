@@ -535,15 +535,17 @@ transparent, to see the URL a transparent hero gets.
 `ogKit(rt).templatesRender({ props })` draws every registered template once with the real renderer, from the props
 you give for its id (`{ [templateId]: props }`), and fails naming a template that cannot be drawn or does not give a PNG (whatever the target's `format`)
 of its size: a `div` with several children and no `display: flex` is caught in CI, not by the first crawler. The plugin
-also draws the brand fallback card once when Payload starts, so fonts and the renderer are proved at boot (an error
-outside production, a `render_error` event in production).
+checks at start-up that the fonts parse and draw the required sample and that the store opens (an error outside production, a
+`render_error` event in production). It draws no card then and loads neither `sharp` nor `next/og`: the renderer is first used by
+the first real render, and a renderer that cannot draw is reported there as a `render_error` and served as the degraded fallback.
 
 ### Specs that boot Payload
 
-- **A jsdom environment works for the start-up self-test.** The plugin hands `next/og` and `sharp` bytes they accept whatever realm the
-  test globals come from, so the self-test draws under `jsdom` too. jsdom also replaces the global `URL`, so `new URL('...', import.meta.url)`
-  resolves to `http://localhost/...` and a font loader built on it tries to fetch: read fonts from a path (below), or put the spec in a Node
-  environment (`// @vitest-environment node`, or `environment: 'node'` in a vitest project for them).
+- **The plugin boots under jsdom; drawing needs Node.** The start-up check draws nothing, so `onInit` runs in a `jsdom` environment.
+  `next/og` and `sharp` accept bytes only from the Node realm (jsdom replaces the global `Uint8Array`), so a spec that draws a card
+  belongs in a Node environment (`// @vitest-environment node`, or `environment: 'node'` in a vitest project for them). jsdom also replaces
+  the global `URL`, so `new URL('...', import.meta.url)` resolves to `http://localhost/...` and a font loader built on it tries to
+  fetch: read fonts from a path (below).
 - **Inline the plugin when you mock `next/headers.js`.** `vi.mock('next/headers.js', ...)` only reaches modules that vite
   processes, and vitest leaves a dependency in `node_modules` to Node. Inline the package so the mock applies to it:
   `test: { server: { deps: { inline: ['payload-og-image'] } } }`.

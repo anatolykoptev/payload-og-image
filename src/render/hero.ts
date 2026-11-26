@@ -2,7 +2,7 @@ import { constants } from 'node:fs'
 import { open } from 'node:fs/promises'
 import net from 'node:net'
 import path from 'node:path'
-import sharp from 'sharp'
+import { loadSharp } from '../internal/deps.js'
 import type { HeroLoader } from '../internal/handler.js'
 import { MAX_SIDE } from '../internal/limits.js'
 import { DEFAULT_HERO_COLOURS } from '../internal/palette.js'
@@ -143,6 +143,7 @@ async function prepare(
   o: { maxPixels: number; background: string | undefined; colours: false | number },
 ): Promise<string | null> {
   try {
+    const sharp = await loadSharp()
     const input = { limitInputPixels: o.maxPixels, failOn: 'error' as const }
     // The header alone: format, size and EXIF orientation, no pixel decode.
     const meta = await sharp(bytes, input).metadata()
@@ -181,6 +182,7 @@ async function prepare(
 /** Whether any pixel of the image is see-through: a header check first, then a pixel pass only for an image that has an alpha channel. */
 async function transparent(bytes: Buffer, maxPixels: number): Promise<boolean> {
   try {
+    const sharp = await loadSharp()
     const input = { limitInputPixels: maxPixels, failOn: 'error' as const }
     const meta = await sharp(bytes, input).metadata()
     if (!meta.format || !RASTER.has(meta.format) || !meta.hasAlpha) return false
