@@ -1,3 +1,4 @@
+import { uploadNeeds } from '../internal/needs.js'
 import type { SiteInfo } from '../internal/types.js'
 import type { ImageRef, ResolverArgs, Target } from '../template.js'
 import type { PresetProps } from './layout.js'
@@ -73,7 +74,7 @@ const ref = (v: unknown): ImageRef | undefined =>
 /** The ordinary target a preset collection expands into. */
 export function presetTarget(p: ResolvedPreset): Target {
   const choose = (doc: unknown) => choosePreset(p, doc)
-  return {
+  const target: Target = {
     path: p.path,
     collection: p.slug,
     slugField: p.hasSlug ? 'slug' : 'id',
@@ -119,4 +120,9 @@ export function presetTarget(p: ResolvedPreset): Target {
       ? { imageCollections: { logo: p.logoCollection, partner: p.logoCollection, mark: p.logoCollection, art: p.logoCollection } }
       : {}),
   }
+  // A preset knows which upload fields it draws: the editor's share image, and the hero unless the collection forces text (the hero decides
+  // the preset, so it is read for 'auto' and 'photo' only). The source reads nothing else from the document.
+  const needed = new Set([...(p.seo ? [p.seo.path] : []), ...(p.preset !== 'text' && p.hero ? [p.hero.path] : [])])
+  uploadNeeds.set(target, () => needed)
+  return target
 }
