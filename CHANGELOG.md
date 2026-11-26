@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.11.0](https://github.com/anatolykoptev/payload-og-image/compare/v0.10.1...v0.11.0) (2026-11-26)
+
+
+### ⚠ BREAKING CHANGES
+
+* sites with `fields.enabled` or `ogFields()` get two new columns in the `og` group (`og_label`, `og_accent`, and their `version_` copies when drafts are on). Run `payload migrate:create` and ship the migration with this upgrade; on Postgres without it every read of that collection fails with "column does not exist". Sites without the per-document fields are unaffected.
+
+### Features
+
+* per-document label and accent for the preset cards ([#109](https://github.com/anatolykoptev/payload-og-image/issues/109)) ([fa5d7f3](https://github.com/anatolykoptev/payload-og-image/commit/fa5d7f38e87e88464d5b39539bd5d4c75803c9cf))
+
 ## [0.10.1](https://github.com/anatolykoptev/payload-og-image/compare/v0.10.0...v0.10.1) (2026-11-26)
 
 
