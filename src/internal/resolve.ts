@@ -165,15 +165,6 @@ async function namedImages(i: ResolveInput, args: ResolverArgs<any>, template: T
         `payload-og-image: target "${i.targetName}" gives image "${name}" that template "${template.id}" does not declare in imageBoxes`,
       )
     }
-    const collection =
-      (i.target.imageCollections && Object.hasOwn(i.target.imageCollections, name) ? i.target.imageCollections[name] : undefined) ??
-      i.target.heroCollection ??
-      i.uploadCollection
-    if (collection === undefined) {
-      throw new Error(
-        `payload-og-image: target "${i.targetName}" image "${name}" needs an upload collection: set imageCollections.${name} (the site has more than one upload collection)`,
-      )
-    }
     // Ids are collected up to the remaining budget only: a huge hasMany list costs no more than the first few entries.
     const ids: string[] = []
     if (value !== null && value !== undefined) {
@@ -182,6 +173,17 @@ async function namedImages(i: ResolveInput, args: ResolverArgs<any>, template: T
         const id = uploadId(ref)
         if (id !== undefined) ids.push(id)
       }
+    }
+    // A name with no usable id needs no collection: only an image that is really wanted can fail for lack of one.
+    if (ids.length === 0) continue
+    const collection =
+      (i.target.imageCollections && Object.hasOwn(i.target.imageCollections, name) ? i.target.imageCollections[name] : undefined) ??
+      i.target.heroCollection ??
+      i.uploadCollection
+    if (collection === undefined) {
+      throw new Error(
+        `payload-og-image: target "${i.targetName}" image "${name}" needs an upload collection: set imageCollections.${name} (the site has more than one upload collection)`,
+      )
     }
     wanted.push({ name, collection, ids })
     left -= ids.length
@@ -287,9 +289,14 @@ export async function resolveCard(i: ResolveInput): Promise<ResolvedCard> {
     overrides: Object.fromEntries(Object.entries(overrides).filter(([, v]) => v !== undefined)) as OgOverrides,
   }
   const rawHero = i.target.hero?.(args)
-  const seo = i.seoImage ? getPath(i.doc, i.seoImage.path) : undefined
+  // The target's own `seoImage` wins over the plugin's: it is scoped to the target. `except` is an upload that is not a deliberate share image (the hero).
+  const seoOption = i.target.seoImage ?? i.seoImage
+  const seo = seoOption ? getPath(i.doc, seoOption.path) : undefined
+  const except = i.target.seoImage?.except ? i.target.seoImage.except(args) : undefined
   const editor =
-    mode !== 'generated' && seo != null && (i.seoImage?.isDeliberate?.(seo) ?? true) && !sameUpload(seo, rawHero) ? seo : undefined
+    mode !== 'generated' && seo != null && (seoOption?.isDeliberate?.(seo) ?? true) && !sameUpload(seo, rawHero) && !sameUpload(seo, except)
+      ? seo
+      : undefined
   const title = typeof i.doc.title === 'string' ? i.doc.title.trim() : ''
   // The editor's image wins without asking the target for alternatives (and without running its code).
   // Mode `custom` is the editor's image alone (target.share() is not asked); `generated` skips the image step.
@@ -326,6 +333,12 @@ export async function resolveCard(i: ResolveInput): Promise<ResolvedCard> {
     // Stripping leaves holes ("a 🚀 b" -> "a  b"): close them. Text that lost nothing is left exactly as given.
     props[field] = s.missing.length > 0 ? s.text.replace(/\s+/g, ' ').trim() : s.text
     missing.push(...s.missing)
+  }
+  if (template.normalize) {
+    // The template's own say on what it never draws, before the version is taken (a member left undefined is no part of it).
+    const next = normalizeProps(template.normalize(props as never), `${templateId}.normalize`) as Record<string, any>
+    for (const k of Object.keys(props)) delete props[k]
+    Object.assign(props, next)
   }
   if (template.required && !template.required(props as never)) return { kind: 'none' }
 

@@ -9,21 +9,28 @@
 import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
+import type { Config } from 'payload'
 import sharp from 'sharp'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { templateContext } from '../../src/internal/draw.js'
-import { loadFonts, missingGlyphs } from '../../src/internal/fonts.js'
+import { fontFamilyFor, loadFonts, measureText, missingGlyphs } from '../../src/internal/fonts.js'
+import { ogImagePlugin } from '../../src/plugin/index.js'
 import { expandPresets } from '../../src/presets/expand.js'
 import { FONT_DATA } from '../../src/presets/fontData.js'
 import { BUNDLED_FONTS, BUNDLED_STACKS } from '../../src/presets/fonts.js'
 import { type PresetProps, photoLayout, textLayout } from '../../src/presets/layout.js'
-import { HERO_MIN, SLOTS, ZONE } from '../../src/presets/spec.js'
+import { HERO_MIN, IMAGE_BOXES, SLOTS, TEXT_SHAPES, ZONE } from '../../src/presets/spec.js'
 import { choosePreset, eligibleHero } from '../../src/presets/target.js'
+import { textPreset } from '../../src/presets/templates.js'
+import { payloadHeroLoader } from '../../src/render/hero.js'
+import { nextOgRenderer } from '../../src/render/nextOg.js'
+import { defineTemplate, type TemplateContext } from '../../src/template.js'
 import { loadTestFonts } from '../helpers.js'
 import { configOf, presetHarness, upload } from './harness.js'
 
 const sha = (b: Uint8Array | string) => createHash('sha256').update(b).digest('hex')
 const bundled = loadFonts(BUNDLED_FONTS)
+const rowOf = (ctx: TemplateContext) => ctx.fitRow as NonNullable<TemplateContext['fitRow']>
 const ctxOf = async (images: Record<string, string[]> = {}) => {
   const { fonts } = await bundled
   return templateContext({ host: 'example.test', fonts, stacks: BUNDLED_STACKS, hero: 'data:x', images: images as never })
@@ -64,16 +71,622 @@ describe('expansion', () => {
     expect(o.targets.posts?.heroCollection).toBe('media')
   })
   it('refuses what cannot work, by name', () => {
-    expect(() => expandPresets({}, configOf())).toThrow(/nothing is configured: give `collections`/)
     expect(() => expandPresets({ collections: [] }, configOf())).toThrow(/at least one collection/)
     expect(() => expandPresets({ collections: ['nope'] }, configOf())).toThrow(/"nope", which is not a collection/)
     expect(() => expandPresets({ collections: ['users'] }, configOf())).toThrow(/auth collection/)
-    expect(() => expandPresets({ collections: ['media'] }, configOf())).toThrow(/collection "media" has no title field/)
-    expect(() => expandPresets({ collections: [{ slug: 'posts', path: '/og/:slug/card.png' }] }, configOf())).toThrow(/needs :ext/)
+    expect(() => expandPresets({ collections: ['media'] }, configOf())).toThrow(/upload collection/)
+    expect(() =>
+      expandPresets({ collections: ['people2'] }, configOf({ collections: [{ slug: 'people2', fields: [] }] } as never)),
+    ).toThrow(/has no title field/)
     expect(() => expandPresets({ collections: [{ slug: 'people', preset: 'photo' }] }, configOf())).toThrow(/needs a hero upload field/)
     expect(() => expandPresets({ collections: [{ slug: 'posts', title: 'nope' }] }, configOf())).toThrow(/is not a text or textarea field/)
+    expect(() => expandPresets({ exclude: ['nope'] }, configOf())).toThrow(/exclude names "nope"/)
+    expect(() => expandPresets({ collections: ['posts'], exclude: ['posts'] }, configOf())).toThrow(/both in collections and in exclude/)
+  })
+  it('a custom path must end in .:ext, and a fixed path cannot serve both encodings: refused at start-up for presets and hand-written targets alike', () => {
+    const plugin = (o: unknown) => () => ogImagePlugin(o as never)(configOf())
+    expect(plugin({ collections: [{ slug: 'posts', path: '/og/:kind/:slug/card.png' }] })).toThrow(/serves one file but its card can be/)
+    expect(plugin({ collections: [{ slug: 'posts', path: '/og/:ext/:slug/card' }] })).toThrow(
+      /must hold :ext only as the end of its file name/,
+    )
+    expect(plugin({ collections: [{ slug: 'posts', path: '/og/:kind/:slug/card.:ext' }] })).not.toThrow()
+    // a hand-written target: a template that is a JPEG under a literal .png path, with a PNG plugin default
+    const jpegTemplate = defineTemplate<{ title: string }>({
+      id: 'j',
+      revision: '1',
+      format: 'jpeg',
+      render: () => ({ type: 'div', props: {} }) as never,
+    })
+    const classic = (path: string) => ({
+      site: () => ({ name: 'S' }),
+      fonts: BUNDLED_FONTS,
+      stacks: BUNDLED_STACKS,
+      store: { memory: true },
+      templates: [jpegTemplate],
+      targets: { posts: { path, template: 'j', props: () => ({ title: 't' }) } },
+    })
+    expect(plugin(classic('/og/:kind/:slug/card.png'))).toThrow(/ends in \.png but the card is a JPEG/)
+    expect(plugin(classic('/og/:kind/:slug/card.jpg'))).not.toThrow()
   })
 })
+
+describe('the plugin serves every public page on its own', () => {
+  const read = (fn: unknown) => ({ access: { read: fn } })
+  const config = configOf({
+    collections: [
+      { slug: 'users', auth: true, fields: [{ name: 'name', type: 'text' }], ...read(() => true) },
+      { slug: 'media', upload: { staticDir: '/x' }, fields: [], ...read(() => true) },
+      {
+        slug: 'posts',
+        labels: { plural: 'Blog' },
+        fields: [
+          { name: 'title', type: 'text' },
+          { name: 'slug', type: 'text' },
+        ],
+        ...read(() => true),
+      },
+      { slug: 'pages', fields: [{ name: 'title', type: 'text' }], ...read(() => ({ _status: { equals: 'published' } })) }, // a Where: public
+      { slug: 'private', fields: [{ name: 'title', type: 'text' }], ...read(({ req }: { req: { user?: unknown } }) => Boolean(req.user)) },
+      { slug: 'nodefault', fields: [{ name: 'title', type: 'text' }] }, // no access.read: Payload's default needs a login
+      {
+        slug: 'throws',
+        fields: [{ name: 'title', type: 'text' }],
+        ...read(() => {
+          throw new Error('needs payload')
+        }),
+      },
+      { slug: 'later', fields: [{ name: 'title', type: 'text' }], ...read(async () => true) },
+      { slug: 'untitled', fields: [{ name: 'body', type: 'text' }], ...read(() => true) },
+      {
+        slug: 'hiddenTitle',
+        admin: { useAsTitle: 'internalName' },
+        fields: [{ name: 'internalName', type: 'text', admin: { hidden: true } }],
+        ...read(() => true),
+      },
+      { slug: 'secret', fields: [{ name: 'title', type: 'text' }], ...read(() => true) },
+    ],
+  } as never)
+  it('exactly the public, titled, non-upload, non-auth, non-excluded collections get a card, and the rest are named once, with the reason', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      const o = expandPresets({ exclude: ['secret'] }, config)
+      expect(Object.keys(o.targets)).toEqual(['posts', 'pages'])
+      expect(o.targets.posts?.path).toBe('/og/:kind/:slug/card.:ext')
+      expect(o.targets.pages?.path).toBe('/og/:kind/:id/card.:ext')
+      expect(warn).toHaveBeenCalledTimes(1)
+      const line = String(warn.mock.calls[0]?.[0])
+      for (const name of ['private', 'nodefault', 'throws', 'later', 'untitled', 'hiddenTitle']) expect(line, name).toContain(name)
+      for (const name of ['posts', 'pages', 'users', 'media', 'secret'])
+        expect(line, name).not.toMatch(new RegExp(`(^|; |for )${name} \\(`))
+    } finally {
+      warn.mockRestore()
+    }
+  })
+  it('collections as an object customises one and adds others; explicit targets win and are untouched; a list is exactly those', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      const mine = { path: '/og/:kind/:slug/card.png', template: 'x', props: () => ({}) }
+      const o = expandPresets(
+        { exclude: ['secret'], collections: { posts: { preset: 'text', label: 'News' }, private: {} }, targets: { pages: mine } } as never,
+        config,
+      )
+      expect(Object.keys(o.targets)).toEqual(['pages', 'posts', 'private'])
+      expect(o.targets.pages).toBe(mine)
+      expect(Object.keys(expandPresets({ collections: ['posts'] }, config).targets)).toEqual(['posts'])
+    } finally {
+      warn.mockRestore()
+    }
+  })
+  it('a fresh install with nothing configured boots: no collection qualifies is a line, not a crash', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      expect(expandPresets({}, configOf({ collections: [{ slug: 'users', auth: true, fields: [] }] } as never)).targets).toEqual({})
+    } finally {
+      warn.mockRestore()
+    }
+  })
+  it('a collection slug of __proto__ is an own target, not dropped by assignment', () => {
+    const c = configOf({ collections: [{ slug: '__proto__', fields: [{ name: 'title', type: 'text' }], ...read(() => true) }] } as never)
+    const o = expandPresets({}, c)
+    expect(Object.hasOwn(o.targets, '__proto__')).toBe(true)
+  })
+})
+
+describe('what is auto-detected is what the public may see', () => {
+  const posts = (fields: unknown[], extra: Record<string, unknown> = {}) =>
+    configOf({
+      collections: [
+        { slug: 'posts', access: { read: () => true }, fields, ...extra },
+        { slug: 'media', upload: { staticDir: '/x' }, fields: [] },
+      ],
+    } as never)
+  const title = { name: 'title', type: 'text' }
+  it('a hidden title (admin.hidden, hidden, an access.read that says no, a hidden group, hasMany, an internal name) is never drawn: the next candidate, or a named error', () => {
+    const t = (config: Config) => expandPresets({ collections: ['posts'] }, config)
+    expect(() => t(posts([{ name: 'title', type: 'text', admin: { hidden: true } }]))).toThrow(/no title field.*title is hidden/)
+    expect(() => t(posts([{ name: 'title', type: 'text', hidden: true }]))).toThrow(/no title field/)
+    expect(() => t(posts([{ name: 'title', type: 'text', access: { read: () => false } }]))).toThrow(/title is not publicly readable/)
+    expect(() =>
+      t(posts([{ type: 'group', name: 'g', admin: { hidden: true }, fields: [title] }], { admin: { useAsTitle: 'g.title' } })),
+    ).toThrow(/no title field/)
+    expect(() => t(posts([{ name: 'title', type: 'text', hasMany: true }]))).toThrow(/no title field/)
+    expect(() => t(posts([{ name: '_internal', type: 'text' }], { admin: { useAsTitle: '_internal' } }))).toThrow(/no title field/)
+    // useAsTitle names an admin-only field, but a public `name` exists: it is used instead
+    const ok = t(
+      posts(
+        [
+          { name: 'internalName', type: 'text', admin: { hidden: true } },
+          { name: 'name', type: 'text' },
+        ],
+        { admin: { useAsTitle: 'internalName' } },
+      ),
+    )
+    expect(ok.targets.posts).toBeDefined()
+    expect(() =>
+      expandPresets(
+        { collections: [{ slug: 'posts', title: 'internalName' }] },
+        posts([{ name: 'internalName', type: 'text', admin: { hidden: true } }]),
+      ),
+    ).toThrow(/cannot be drawn on a public card \(hidden\)/)
+  })
+  it('a hidden or private hero is not detected, and a hidden slug field keys the path by id', () => {
+    const heroless = expandPresets(
+      { collections: ['posts'] },
+      posts([title, { name: 'hero', type: 'upload', relationTo: 'media', admin: { hidden: true } }]),
+    )
+    expect(heroless.targets.posts?.heroCollection).toBeUndefined()
+    const seen = expandPresets(
+      { collections: ['posts'] },
+      posts([title, { name: 'hero', type: 'upload', relationTo: 'media' }, { name: 'slug', type: 'text', admin: { hidden: true } }]),
+    )
+    expect(seen.targets.posts?.heroCollection).toBe('media')
+    expect(seen.targets.posts?.path).toBe('/og/:kind/:id/card.:ext')
+  })
+})
+
+describe('scoped editor image, and no collection that cannot draw', () => {
+  const articles = configOf({
+    collections: [
+      { slug: 'users', auth: true, fields: [] },
+      {
+        slug: 'articles',
+        fields: [
+          { name: 'title', type: 'text' },
+          { name: 'slug', type: 'text' },
+          { type: 'group', name: 'meta', fields: [{ name: 'image', type: 'upload', relationTo: 'media' }] },
+        ],
+      },
+      {
+        slug: 'plain',
+        fields: [
+          { name: 'title', type: 'text' },
+          { name: 'slug', type: 'text' },
+        ],
+      },
+      { slug: 'media', upload: { staticDir: '/x' }, fields: [] },
+    ],
+  } as never)
+  const big = upload(1, 'hero.jpg', 1200, 800)
+  it('a collection with meta.image does not give the whole plugin a seoImage: the option stays unset and only that target honours it', () => {
+    const o = expandPresets(
+      { collections: ['articles'], targets: { classic: { path: '/og/:kind/:slug/card.png', template: 'x', props: () => ({}) } } } as never,
+      articles,
+    )
+    expect(o.seoImage).toBeUndefined()
+    expect(o.targets.articles?.seoImage?.path).toBe('meta.image')
+    expect(o.targets.classic?.seoImage).toBeUndefined()
+  })
+  it('a classic target next to a preset keeps drawing its generated card for a document with an eligible meta.image', async () => {
+    const classic = defineTemplate<{ title: string }>({
+      id: 'classic',
+      revision: '1',
+      render: () => ({ type: 'div', props: { style: { display: 'flex' }, children: 'x' } }) as never,
+    })
+    const h = await presetHarness({
+      config: articles,
+      input: {
+        collections: ['articles'],
+        templates: [classic],
+        targets: {
+          classicposts: {
+            collection: 'plain',
+            path: '/og/:kind/:slug/card.png',
+            template: 'classic',
+            props: ({ doc }: { doc: { title: string } }) => ({ title: doc.title }),
+          },
+        },
+      } as never,
+      docs: { a: { id: 1, slug: 'a', title: 'A', meta: { image: big } } },
+    })
+    const c = await h.handler.resolve(
+      { target: 'classicposts', doc: { id: 1, slug: 'a', title: 'A', meta: { image: big } } },
+      { previewing: false },
+    )
+    expect(c.kind).toBe('generated')
+  })
+  it('a hero that is also the editor image stays a generated card when the text preset is forced: the identity is compared, not whether the text card draws it', async () => {
+    const doc = { id: 1, slug: 'a', title: 'A forced text card', meta: { image: big } }
+    for (const preset of ['text', 'auto'] as const) {
+      const h = await presetHarness({ config: articles, input: { collections: { articles: { preset } } } as never, docs: { a: doc } })
+      const c = await h.resolve('articles', 'a')
+      expect(c.kind, preset).toBe('generated')
+      if (c.kind === 'generated') expect(c.template.id).toBe(preset === 'text' ? 'payload-og-image:text' : 'payload-og-image:photo')
+    }
+  })
+  it('a separate editor image that is the very upload of the hero is still no deliberate share image', async () => {
+    const withHero = configOf({
+      collections: [
+        {
+          slug: 'articles',
+          fields: [
+            { name: 'title', type: 'text' },
+            { name: 'slug', type: 'text' },
+            { name: 'heroImage', type: 'upload', relationTo: 'media' },
+            { type: 'group', name: 'meta', fields: [{ name: 'image', type: 'upload', relationTo: 'media' }] },
+          ],
+        },
+        { slug: 'media', upload: { staticDir: '/x' }, fields: [] },
+      ],
+    } as never)
+    const same = {
+      id: 1,
+      slug: 's',
+      title: 'Same',
+      heroImage: upload(1, 'hero.jpg', 640, 360),
+      meta: { image: upload(1, 'hero.jpg', 640, 360) },
+    }
+    const other = {
+      id: 2,
+      slug: 'o',
+      title: 'Other',
+      heroImage: upload(1, 'hero.jpg', 640, 360),
+      meta: { image: upload(2, 'logo.png', 400, 400, 'image/png') },
+    }
+    const h = await presetHarness({ config: withHero, input: { collections: ['articles'] }, docs: { s: same, o: other } })
+    expect((await h.resolve('articles', 's')).kind).toBe('generated') // the small hero draws text, and is still the hero
+    expect((await h.resolve('articles', 'o')).kind).toBe('own') // a different upload the editor chose: the classic rule
+  })
+  it('a text card on a site with no upload collection (or no logo) resolves and draws: no collection is needed for an image nobody gave', async () => {
+    const noUploads = configOf({
+      collections: [
+        {
+          slug: 'posts',
+          access: { read: () => true },
+          fields: [
+            { name: 'title', type: 'text' },
+            { name: 'slug', type: 'text' },
+          ],
+        },
+      ],
+    } as never)
+    const h = await presetHarness({
+      config: noUploads,
+      uploads: null,
+      input: { collections: ['posts'] },
+      docs: { a: { id: 1, slug: 'a', title: 'No uploads here' } },
+    })
+    const c = await h.resolve('posts', 'a')
+    expect(c.kind).toBe('generated')
+    const res = await h.get('https://www.example.test/og/posts/a/card.png', { kind: 'posts', slug: 'a', file: 'card.png' })
+    expect(res.status).toBe(200)
+  })
+})
+
+describe('an image nobody gave needs no upload collection', () => {
+  it('a target that names a logo and a mark with no upload behind them still resolves on a site with no upload collection', async () => {
+    const noUploads = configOf({
+      collections: [
+        {
+          slug: 'posts',
+          access: { read: () => true },
+          fields: [
+            { name: 'title', type: 'text' },
+            { name: 'slug', type: 'text' },
+          ],
+        },
+      ],
+    } as never)
+    const h = await presetHarness({
+      config: noUploads,
+      uploads: null,
+      input: {
+        collections: ['posts'],
+        targets: {
+          custom: {
+            collection: 'posts',
+            path: '/og/:kind/:slug/card.png',
+            template: 'payload-og-image:text',
+            props: ({ doc }: { doc: { title: string } }) => ({ title: doc.title, site: 'S' }),
+            images: () => ({ logo: undefined, mark: undefined, partner: null }),
+          },
+        },
+      } as never,
+      docs: { a: { id: 1, slug: 'a', title: 'No uploads' } },
+    })
+    const c = await h.handler.resolve({ target: 'custom', doc: { id: 1, slug: 'a', title: 'No uploads' } as never }, { previewing: false })
+    expect(c.kind).toBe('generated')
+  })
+})
+
+describe('a [file] catch-all serves every card under its own name only', () => {
+  it('a classic PNG card is 404 as card.jpg and 200 as card.png when the route has a file param; a fixed route (no file param) keeps answering as before', async () => {
+    const classic = defineTemplate<{ title: string }>({
+      id: 'classic',
+      revision: '1',
+      render: () => ({ type: 'div', props: { style: { display: 'flex', width: 1200, height: 630 }, children: 'x' } }) as never,
+    })
+    const h = await presetHarness({
+      input: {
+        collections: ['posts'],
+        templates: [classic],
+        targets: {
+          classic: {
+            collection: 'posts',
+            path: '/og/:kind/:slug/card.png',
+            template: 'classic',
+            props: ({ doc }: { doc: { title: string } }) => ({ title: doc.title }),
+          },
+        },
+      } as never,
+      docs: { hello: { id: 1, slug: 'hello', title: 'Hello' } },
+    })
+    const ask = (name: string, params: Record<string, string>) =>
+      h.get(`https://www.example.test/og/classic/hello/${name}`, { kind: 'classic', slug: 'hello', ...params })
+    expect((await ask('card.png', { file: 'card.png' })).status).toBe(200)
+    expect((await ask('card.jpg', { file: 'card.jpg' })).status).toBe(404)
+    expect((await ask('anything.png', { file: 'anything.png' })).status).toBe(404)
+    expect((await ask('card.jpg', {})).status).toBe(200) // a fixed route: no param, its pathname is its own
+  })
+})
+
+describe('what the template never draws cannot move the URL', () => {
+  it('a slot over its maxChars, or blank, gives the same version as none (normalised before hashing)', async () => {
+    const docs = (pill?: string) => ({ a: { id: 1, slug: 'a', title: 'Same card', pill } })
+    const v = async (pill?: string) => {
+      const h = await presetHarness({
+        input: {
+          collections: ['posts'],
+          targets: {
+            custom: {
+              collection: 'posts',
+              path: '/og/:kind/:slug/card.png',
+              template: 'payload-og-image:text',
+              props: ({ doc }: { doc: { title: string; pill?: string } }) => ({ title: doc.title, site: 'S', pill: doc.pill }),
+            },
+          },
+        } as never,
+        docs: docs(pill),
+      })
+      const c = await h.handler.resolve({ target: 'custom', doc: docs(pill).a as never }, { previewing: false })
+      return c.kind === 'generated' ? c.v : 'none'
+    }
+    const none = await v(undefined)
+    expect(await v('x'.repeat(SLOTS.pill.maxChars + 1))).toBe(none)
+    expect(await v('   ')).toBe(none)
+    expect(await v('Fits')).not.toBe(none)
+  })
+  it('a hand-built context without fitRow says what is missing', async () => {
+    const { fonts } = await bundled
+    const ctx = templateContext({ host: 'x.test', fonts, stacks: BUNDLED_STACKS, hero: null })
+    const { fitRow: _gone, ...bare } = ctx
+    expect(() => textLayout({ title: 'T', site: 'S' }, bare)).toThrow(/need ctx\.fitRow/)
+  })
+})
+
+describe('what is measured is what is drawn', () => {
+  // A narrow upright face that has no Cyrillic, and a wide one that has both: a mixed run is drawn entirely in the wide one (a single face draws it).
+  it('measureText follows the family the renderer picks for the run and the weight it draws, within kerning, through the real renderer', async () => {
+    const { fonts } = await loadTestFonts()
+    const stack = ['Archivo', 'Inter']
+    const text = 'П mmmm wwww Mmmm wwww'
+    const size = 56
+    const family = fontFamilyFor(fonts, stack, text)
+    expect(family).toBe('Inter')
+    const png = await nextOgRenderer().render(
+      {
+        type: 'div',
+        props: {
+          style: {
+            display: 'flex',
+            width: 1200,
+            height: 120,
+            background: '#000',
+            color: '#fff',
+            fontFamily: family,
+            fontSize: size,
+            whiteSpace: 'nowrap',
+            padding: 0,
+          },
+          children: text,
+        },
+      } as never,
+      { width: 1200, height: 120, fonts },
+    )
+    const { data, info } = await sharp(png).greyscale().raw().toBuffer({ resolveWithObject: true })
+    let right = 0
+    for (let x = 0; x < info.width; x++) for (let y = 0; y < info.height; y++) if ((data[y * info.width + x] as number) > 100) right = x
+    const measured = measureText(fonts, stack, text, size, { weight: 800 })
+    expect(measured).toBeGreaterThanOrEqual(right * 0.98)
+    expect(measured).toBeLessThanOrEqual(right * 1.06)
+  })
+  it('a title set in custom faces whose regular and bold widths differ stays in its box on the drawn card', async () => {
+    const { fonts } = await loadTestFonts()
+    const stacks = { default: ['Archivo', 'Inter'] }
+    const t = { ...(await loadTestFonts()) }
+    const ctx = templateContext({ host: 'example.test', fonts: t.fonts, stacks, hero: null })
+    const p: PresetProps = { title: 'Привет world: измеряем ширину заголовка и рисуем его по-настоящему', site: 'S' }
+    const l = textLayout(p, ctx)
+    const png = await nextOgRenderer().render(textPreset.render(p, ctx) as never, { width: 1200, height: 630, fonts })
+    const { data, info } = await sharp(png).greyscale().raw().toBuffer({ resolveWithObject: true })
+    const rect = l.title.rect
+    let right = 0
+    let bottom = 0
+    for (let y = rect.y; y < Math.min(630, rect.y + rect.h + 60); y++)
+      for (let x = rect.x; x < 1200; x++)
+        if ((data[y * info.width + x] as number) > 150) {
+          right = Math.max(right, x)
+          bottom = Math.max(bottom, y)
+        }
+    expect(right).toBeLessThanOrEqual(rect.x + rect.w + 4)
+    expect(bottom).toBeLessThanOrEqual(rect.y + rect.h + 8)
+  })
+})
+
+/** A PNG data URL of the given size (only its header and size matter to a layout). */
+const pngOf = async (w: number, h: number) =>
+  `data:image/png;base64,${(
+    await sharp({ create: { width: w, height: h, channels: 4, background: { r: 200, g: 200, b: 200, alpha: 1 } } })
+      .png()
+      .toBuffer()
+  ).toString('base64')}`
+const sizeOf = async (url: string) => {
+  const m = await sharp(Buffer.from(url.split(',')[1] as string, 'base64')).metadata()
+  return { w: m.width as number, h: m.height as number }
+}
+
+describe('logos are contained, trimmed and tinted, never cropped', () => {
+  const shaped = async (file: string, shape: 'logo' | 'mark', box: { width: number; height: number }) => {
+    const h = await presetHarness({ docs: {} })
+    const loader = payloadHeroLoader({ staticDirs: async () => [h.dir] })
+    return loader({ id: 1, filename: file, updatedAt: 'u' }, box, { keepAlpha: true, shape: TEXT_SHAPES[shape] })
+  }
+  it('a 12:1 black wordmark keeps its whole width at its aspect and is drawn in the ink: not a square cut, not black on dark', async () => {
+    const url = (await shaped('wordmark.png', 'logo', IMAGE_BOXES.logo)) as string
+    const { w, h } = await sizeOf(url)
+    expect(w).toBe(IMAGE_BOXES.logo.width)
+    expect(w / h).toBeGreaterThan(10)
+    const { data } = await sharp(Buffer.from(url.split(',')[1] as string, 'base64'))
+      .raw()
+      .toBuffer({ resolveWithObject: true })
+    expect([data[0], data[1], data[2], data[3]]).toEqual([0xee, 0xf0, 0xf2, 255]) // the opaque pixels were black: now COLOURS.ink
+  })
+  it('a square icon on an opaque white JPEG loses its white margin, stays square and keeps its colour', async () => {
+    const url = (await shaped('icon.jpg', 'logo', IMAGE_BOXES.logo)) as string
+    const { w, h } = await sizeOf(url)
+    expect(Math.abs(w - h)).toBeLessThanOrEqual(1)
+    expect(h).toBeLessThanOrEqual(IMAGE_BOXES.logo.height)
+    const { data, info } = await sharp(Buffer.from(url.split(',')[1] as string, 'base64'))
+      .raw()
+      .toBuffer({ resolveWithObject: true })
+    const mid = ((info.height >> 1) * info.width + (info.width >> 1)) * info.channels
+    expect(data[mid + 2]).toBeGreaterThan(data[mid] as number) // blue, not the ink
+  })
+  it('the logo on the right is declined (and the card is not downgraded for it) when its trimmed aspect is no mark', async () => {
+    expect(await shaped('wordmark.png', 'mark', IMAGE_BOXES.mark)).toBe('')
+    expect(((await shaped('icon.jpg', 'mark', IMAGE_BOXES.mark)) as string).startsWith('data:image/png')).toBe(true)
+    const h = await presetHarness({
+      input: { collections: [{ slug: 'posts' }], siteName: 'S' },
+      docs: { a: { id: 1, slug: 'a', title: 'A wide wordmark' } },
+      site: { logo: 3 },
+    })
+    const c = await h.resolve('posts', 'a')
+    if (c.kind !== 'generated') throw new Error('expected a generated card')
+    const res = await h.get(c.url, { kind: 'posts', slug: 'a', file: 'card.png' })
+    expect(res.status).toBe(200)
+    expect(res.headers.get('x-og-cache')).toBe('render') // declined by its shape is not a failure: never 'downgraded'
+  })
+})
+
+describe('the head, the right side and the title ladder', () => {
+  const square = () => pngOf(88, 88)
+  it('a wide logo stands alone: contained at 44 high, no site name beside it, the label stays', async () => {
+    const ctx = await ctxOf({ logo: [await pngOf(440, 88)] })
+    const l = textLayout({ title: 'T', site: 'OxFoundry', label: 'Blog' }, ctx)
+    expect(l.logo).toMatchObject({ w: 220, h: 44 })
+    expect(l.name).toBeUndefined()
+    expect(l.label?.text).toBe('Blog')
+  })
+  it('a square logo is followed by a partner logo after a 16 px gap, then the name; the partner is at most 44 x 160', async () => {
+    const ctx = await ctxOf({ logo: [await square()], partner: [await pngOf(640, 88)] })
+    const l = textLayout({ title: 'T', site: 'OxFoundry', label: 'Blog' }, ctx)
+    expect(l.logo).toMatchObject({ w: 44, h: 44 })
+    expect(l.partner?.x).toBe((l.logo?.x as number) + 44 + 16)
+    expect(l.partner?.w).toBeLessThanOrEqual(160)
+    expect(l.name?.text).toBe('OxFoundry')
+  })
+  it('the logo on the right is contained in its 480 box at (700, 75), centred, and never clipped', async () => {
+    const ctx = await ctxOf({ logo: [await square()], mark: [await pngOf(480, 320)] })
+    const l = textLayout({ title: 'A short title', site: 'S' }, ctx)
+    expect(l.art).toBe('mark')
+    expect(l.colW).toBe(580)
+    expect(l.mark).toEqual({ x: 700, y: 75 + 80, w: 480, h: 320 })
+    expect((l.mark as { x: number; w: number }).x + (l.mark as { w: number }).w).toBeLessThanOrEqual(1200)
+  })
+  it('a title that does not fit whole beside the art drops the art and is fitted on the plain ladder; the uploaded art too', async () => {
+    const long =
+      'A very long headline that keeps going well past what four lines of forty-four pixel type can hold beside a logo, and then some more words to be sure it overflows'
+    const short = 'OxPulse: encrypted calls for a bad network'
+    for (const img of [{ mark: [await pngOf(480, 480)] }, { art: [await pngOf(540, 630)] }] as Record<string, string[]>[]) {
+      const ctx = await ctxOf(img)
+      const withArt = textLayout({ title: short, site: 'S' }, ctx)
+      expect(withArt.art).not.toBeNull()
+      expect(withArt.title.text).toBe(short) // whole, no ellipsis next to art
+      const dropped = textLayout({ title: long, site: 'S' }, ctx)
+      expect(dropped.art).toBeNull()
+      expect(dropped.colW).toBe(900)
+      expect(dropped.mark).toBeUndefined()
+    }
+  })
+  it('a 160-character title is whole on the plain ladder (down to 44 px, six lines) before any ellipsis', async () => {
+    const title = 'Word '.repeat(31).trim() // 154 chars
+    const l = textLayout({ title, site: 'S' }, await ctxOf())
+    expect(l.title.text).toBe(title)
+  })
+  it('the foot shows the domain without a leading www.', async () => {
+    const { fonts } = await bundled
+    const ctx = templateContext({ host: 'www.example.test', fonts, stacks: BUNDLED_STACKS, hero: null })
+    expect(textLayout({ title: 'T', site: 'S' }, ctx).foot[0]?.text).toBe('example.test')
+  })
+  it('artOpacity: unset is the template default and no part of the props; set it is, and a value outside 0 to 1 is refused', async () => {
+    const v = async (input: Record<string, unknown>) => {
+      const h = await presetHarness({
+        input: { collections: ['posts'], ...input } as never,
+        docs: { a: { id: 1, slug: 'a', title: 'Opacity' } },
+      })
+      const c = await h.resolve('posts', 'a')
+      return c.kind === 'generated' ? { v: c.v, props: c.props } : undefined
+    }
+    const base = await v({})
+    expect(base?.props).not.toHaveProperty('artOpacity')
+    const set = await v({ artOpacity: 1 })
+    expect(set?.props.artOpacity).toBe(1)
+    expect(set?.v).not.toBe(base?.v)
+    expect(() => expandPresets({ artOpacity: 1.5 } as never, configOf())).toThrow(/artOpacity must be a number from 0 to 1/)
+  })
+})
+
+describe('the photo card ends in one brand lockup', () => {
+  it('the logo, the partner and the name sit at the end of the fact row, right-aligned, never dropped; a wide logo has no name; the label is translucent', async () => {
+    const ctx = await ctxOf({ logo: [await pngOf(72, 72)], partner: [await pngOf(240, 72)] })
+    const l = photoLayout({ title: 'A photo title', site: 'OxFoundry', label: 'Blog' }, ctx)
+    const name = l.facts.find((f) => f.key === 'lockup')
+    expect(name).toBeDefined()
+    expect((name as { rect: { x: number; w: number } }).rect.x + (name as { rect: { w: number } }).rect.w).toBe(1136)
+    expect((l.partner?.x as number) + (l.partner?.w as number)).toBeLessThan((name as { rect: { x: number } }).rect.x)
+    expect((l.logo?.x as number) + (l.logo?.w as number)).toBeLessThan(l.partner?.x as number)
+    expect(l.logo?.h).toBeLessThanOrEqual(36)
+    expect(l.facts.find((f) => f.key === 'label')?.kind).toBe('pill') // the label stands in for a missing pill
+    const wide = photoLayout({ title: 'T', site: 'OxFoundry' }, await ctxOf({ logo: [await pngOf(300, 60)] }))
+    expect(wide.logo?.w).toBe(150)
+    expect(wide.facts.some((f) => f.key === 'lockup')).toBe(false)
+    // a full row drops the name and keeps the logo
+    const full = photoLayout({ title: 'T', site: 'OxFoundry', pill: 'P'.repeat(28), pill2: 'Q'.repeat(24), caption: 'C'.repeat(48) }, ctx)
+    expect(full.facts.some((f) => f.key === 'lockup')).toBe(false)
+    expect(full.logo).toBeDefined()
+  })
+})
+
+describe('the sub line is whole or absent', () => {
+  it('a sub line that would need an ellipsis is dropped, never cut', async () => {
+    const ctx = await ctxOf()
+    expect(textLayout({ title: 'T', site: 'S', subtitle: 'Short enough.' }, ctx).sub?.text).toBe('Short enough.')
+    expect(textLayout({ title: 'T', site: 'S', subtitle: 'A sentence that goes on and on, '.repeat(12) }, ctx).sub).toBeUndefined()
+  })
+})
+
+// @ts-expect-error `{ targets }` alone is neither the classic options nor the presets: a type error, not a start-up failure
+const _incomplete: Parameters<typeof ogImagePlugin>[0] = { targets: {} }
+void _incomplete
 
 describe('the preset follows the hero', () => {
   const auto = { preset: 'auto' as const, hero: { path: 'heroImage', collection: 'media' } }
@@ -151,9 +764,9 @@ describe('goldens: the two presets keep their URL and what they draw', () => {
     },
   }
   const GOLDEN: Record<string, { v: string; drawn: string }> = {
-    'text/-': { v: 'c3ce841ad08e', drawn: '0b0217c3bb22d7508a962e5e5221c11f018d248c90600637fe8580b39a136f05' },
-    'text/logo': { v: '07bdfc08c619', drawn: '19edf4dfc8d13d68628eb6e015c3e60d3cd1f8c45c7555c2b822a00d05a7c791' },
-    'photo/-': { v: '46123276026e', drawn: 'd91a77d94c697058c9878d165af53eb3e1808119fe1df3df1b2f7a3787095647' },
+    'text/-': { v: 'c3ce841ad08e', drawn: '0aa2da980b982f0b391bdc3c476072f883597d6830a6da5ce7bd07414fc40332' },
+    'text/logo': { v: '07bdfc08c619', drawn: '3cedee1c73230795e681207e99499ed6b40a9c568bde3651649241b0a32171c2' },
+    'photo/-': { v: '46123276026e', drawn: '17f9955d454687cfd7c45801e96a7cb9e9f95c4df55da3396387e1f861c0ad66' },
   }
   it.each([
     ['text', undefined],
@@ -192,12 +805,18 @@ const inZone = (r: { x: number; y: number; w: number; h: number }) =>
 
 describe('safe zone', () => {
   it('every box of both layouts stays in the safe zone, over 1-200 character titles in RU/EN/latin-ext, every slot at maxChars, logo and art on and off', async () => {
+    const sq = await pngOf(88, 88)
+    const wideLogo = await pngOf(440, 88)
     const images: Record<string, string[]>[] = [
       {},
-      { logo: ['x'] },
+      { logo: [sq] },
+      { logo: [wideLogo] },
+      { logo: [sq], partner: [await pngOf(320, 88)] },
+      { logo: [wideLogo], partner: [await pngOf(320, 88)] },
+      { logo: [sq], mark: [await pngOf(480, 480)] },
+      { logo: [sq], art: [await pngOf(540, 630)] },
+      { art: [await pngOf(540, 630)] },
       { logo: ['x'], mark: ['x'] },
-      { logo: ['x'], art: ['x'] },
-      { art: ['x'] },
     ]
     let boxes = 0
     for (const img of images) {
@@ -227,11 +846,11 @@ describe('safe zone', () => {
     }
     expect(boxes).toBeGreaterThan(500)
   })
-  it('the text column narrows to 560 with art and widens to 900 without', async () => {
+  it('the text column narrows to 580 with art and widens to 900 without', async () => {
     const p: PresetProps = { title: 'A title long enough to take a few lines of the card, to see the column', site: 'S' }
     const art = textLayout(p, await ctxOf({ art: ['x'] }))
     const plain = textLayout(p, await ctxOf({}))
-    expect(art.colW).toBe(560)
+    expect(art.colW).toBe(580)
     expect(plain.colW).toBe(900)
     expect(art.title.rect.x + art.title.rect.w).toBeLessThanOrEqual(660)
   })
@@ -247,15 +866,15 @@ describe('fitRow drops whole items, never cuts one', () => {
       item('b', 'Second pill', 3),
       item('c', 'A caption that is long', 4),
     ]
-    const wide = ctx.fitRow(all, 2000)
+    const wide = rowOf(ctx)(all, 2000)
     expect(wide.map((i) => i.key)).toEqual(['lead', 'a', 'b', 'c'])
     const total = (r: { width: number }[]) => r.reduce((s, i) => s + i.width, 0) + 16 * (r.length - 1)
-    const narrow = ctx.fitRow(all, total(wide) - 1)
+    const narrow = rowOf(ctx)(all, total(wide) - 1)
     expect(narrow.map((i) => i.key)).toEqual(['lead', 'a', 'b'])
     expect(narrow.map((i) => i.text)).toEqual(['example.test', 'First pill text', 'Second pill'])
-    const tight = ctx.fitRow(all, 1)
+    const tight = rowOf(ctx)(all, 1)
     expect(tight.map((i) => i.key)).toEqual(['lead'])
-    expect(ctx.fitRow([item('e', '  ', 1)], 500)).toEqual([])
+    expect(rowOf(ctx)([item('e', '  ', 1)], 500)).toEqual([])
   })
   it('a slot over maxChars is dropped whole by the layout', async () => {
     const ctx = await ctxOf()

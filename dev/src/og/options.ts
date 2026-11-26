@@ -31,9 +31,8 @@ export const ogOptions: OgImagePluginOptions = {
   store: process.env.OG_STORE_DIR ? { dir: process.env.OG_STORE_DIR } : { memory: true },
 }
 
-/** `OG_DEV_MODE=preset`: zero config. Nothing but the collections: the bundled fonts, a memory store, the built-in presets. */
+/** `OG_DEV_MODE=preset`: zero config. No collections listed: every public collection is served with the bundled fonts, a memory store and the built-in presets. */
 export const presetOptions: OgImagePluginInput = {
-  collections: [{ slug: 'posts', label: 'Blog' }],
   siteName: 'Dev Site',
   fields: { enabled: true },
 }

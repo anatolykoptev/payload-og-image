@@ -20,6 +20,7 @@ export type Box = {
     tracking?: number;
     descent?: number;
     fewerLines?: boolean;
+    weight?: number;
     balance?: boolean;
 } & ({
     maxSize: number;
@@ -73,6 +74,19 @@ export interface ImageLists {
 // @public
 export type ImageRef = string | number | {
     id: string | number;
+};
+
+// @public
+export type ImageShape = {
+    fit?: 'cover' | 'contain';
+    trim?: boolean;
+    key?: boolean;
+    contrast?: {
+        ground: string;
+        fill: string;
+        min?: number;
+    };
+    aspect?: readonly [min: number, max: number];
 };
 
 // @public (undocumented)
@@ -135,12 +149,21 @@ export type OgFieldsOption = {
 // @public
 export function ogImagePlugin(options: OgImagePluginInput): (config: Config) => Config;
 
+// Warning: (ae-forgotten-export) The symbol "PresetOptions" needs to be exported by the entry point testing.d.ts
+//
 // @public
-export type OgImagePluginInput = Omit<OgImagePluginOptions, 'site' | 'fonts' | 'stacks' | 'templates' | 'targets' | 'store'> & Partial<Pick<OgImagePluginOptions, 'site' | 'fonts' | 'stacks' | 'templates' | 'targets' | 'store'>>;
+export type OgImagePluginInput = OgImagePluginOptions | (PresetOptions & {
+    collections: PresetCollections;
+}) | (PresetOptions & {
+    collections?: undefined;
+    targets?: undefined;
+});
 
 // @public (undocumented)
 export type OgImagePluginOptions = {
-    collections?: PresetCollection[];
+    collections?: PresetCollections;
+    exclude?: string[];
+    artOpacity?: number;
     siteName?: string;
     logoCollection?: string;
     site(a: {
@@ -285,16 +308,12 @@ export type OnEvent = (e: OgEvent) => void;
 // @public (undocumented)
 export type Params = Record<string, string>;
 
+// Warning: (ae-forgotten-export) The symbol "PresetCollectionOptions" needs to be exported by the entry point testing.d.ts
+//
 // @public
-export type PresetCollection = string | {
+export type PresetCollection = string | ({
     slug: string;
-    preset?: PresetName;
-    title?: string;
-    hero?: string | false;
-    label?: string;
-    subtitle?: string;
-    path?: string;
-};
+} & PresetCollectionOptions);
 
 // @public (undocumented)
 export type PresetName = 'auto' | 'photo' | 'text';
@@ -306,6 +325,7 @@ export type PresetProps = {
     label?: string;
     site: string;
     byline?: string;
+    artOpacity?: number;
     pill?: string;
     pill2?: string;
     badge?: string;
@@ -430,6 +450,11 @@ export type Target<D = any, P = any> = {
     heroCollection?: string;
     images?: (a: ResolverArgs<D>) => Record<string, ImageRef | readonly ImageRef[] | null | undefined>;
     imageCollections?: Record<string, string>;
+    seoImage?: {
+        path: string;
+        isDeliberate?: (image: unknown) => boolean;
+        except?: (a: ResolverArgs<D>) => unknown;
+    };
     heroBackground?: string;
     alt?: (a: ResolverArgs<D> & {
         props: Normalized<P>;
@@ -451,11 +476,14 @@ export type Template<P extends PropsModel> = {
     revision: string;
     size: Size;
     required?: (p: P) => boolean;
+    normalize?: (p: P) => P;
     textFields?: (keyof P & string)[];
     stacks?: Record<string, string>;
     heroBox?: Size;
     format?: CardFormat;
     imageBoxes?: Record<string, Size>;
+    imageShapes?: Record<string, ImageShape>;
+    heroColours?: false | number;
     heroBackground?: string;
     render(p: P, ctx: TemplateContext): ReactElement;
 };
@@ -472,7 +500,7 @@ export type TemplateContext = {
         width?: number;
     };
     font(stack: string, text: string): string;
-    fitRow(items: RowItem[], width: number, gap?: number): RowFit[];
+    fitRow?(items: RowItem[], width: number, gap?: number): RowFit[];
 };
 
 // @public (undocumented)
@@ -541,6 +569,10 @@ export type Upload = {
 export type WebpOptions = {
     quality?: number;
 };
+
+// Warnings were encountered during analysis:
+//
+// dist/plugin/index.d.ts:159:5 - (ae-forgotten-export) The symbol "PresetCollections" needs to be exported by the entry point testing.d.ts
 
 // (No @packageDocumentation comment for this package)
 

@@ -1,8 +1,29 @@
 // biome-ignore-all lint/performance/noImgElement: the card is drawn by satori, which has no next/image
 import type { CSSProperties, ReactElement, ReactNode } from 'react'
 import { defineTemplate, type Template, type TemplateContext } from '../template.js'
-import { type FootItem, type PhotoLayout, type PresetProps, photoLayout, type Rect, type TextLayout, textLayout } from './layout.js'
-import { CARD, COLOURS, IMAGE_BOXES, PHOTO, PHOTO_ID, REVISION, TEXT, TEXT_ID } from './spec.js'
+import {
+  type FootItem,
+  normalizeSlots,
+  type PhotoLayout,
+  type PresetProps,
+  photoLayout,
+  type Rect,
+  type TextLayout,
+  textLayout,
+} from './layout.js'
+import {
+  CARD,
+  COLOURS,
+  IMAGE_BOXES,
+  PHOTO,
+  PHOTO_ID,
+  PHOTO_IMAGE_BOXES,
+  PHOTO_SHAPES,
+  REVISION,
+  TEXT,
+  TEXT_ID,
+  TEXT_SHAPES,
+} from './spec.js'
 
 export type { PresetProps }
 
@@ -70,7 +91,7 @@ function Pill(c: { item: FootItem; photo: boolean }): ReactElement {
         {item.text}
       </div>
     )
-  if (item.key === 'pill2')
+  if (item.key === 'pill2' || item.key === 'label')
     return (
       <div
         style={{
@@ -101,7 +122,11 @@ function Pill(c: { item: FootItem; photo: boolean }): ReactElement {
 
 function TextRow(c: { item: FootItem; photo: boolean }): ReactElement {
   const { item, photo } = c
-  const color = photo ? 'rgba(255, 255, 255, 0.8)' : COLOURS.muted
+  const color = photo
+    ? item.key === 'lockup'
+      ? `rgba(255, 255, 255, ${PHOTO.lockup.nameOpacity})`
+      : 'rgba(255, 255, 255, 0.8)'
+    : COLOURS.muted
   return (
     <div
       style={line(item.rect, item.family, item.size, color, {
@@ -116,6 +141,9 @@ function TextRow(c: { item: FootItem; photo: boolean }): ReactElement {
 
 const footEl = (item: FootItem, photo: boolean) =>
   item.kind === 'text' ? <TextRow key={item.key} item={item} photo={photo} /> : <Pill key={item.key} item={item} photo={photo} />
+
+const img = (src: string | undefined, r: Rect | undefined) =>
+  src && r ? <img src={src} width={r.w} height={r.h} style={{ position: 'absolute', left: r.x, top: r.y }} alt="" /> : undefined
 
 /** The text layout drawn. Also what a photo card draws when its photograph could not be prepared. */
 function drawText(p: PresetProps, ctx: TemplateContext): ReactElement {
@@ -133,29 +161,14 @@ function drawText(p: PresetProps, ctx: TemplateContext): ReactElement {
           alt=""
         />
       )}
-      {mark && (
-        <img
-          src={mark}
-          width={IMAGE_BOXES.mark.width}
-          height={IMAGE_BOXES.mark.height}
-          style={{
-            position: 'absolute',
-            left: CARD.width - IMAGE_BOXES.mark.width + TEXT.markBleed,
-            top: (CARD.height - IMAGE_BOXES.mark.height) / 2,
-            opacity: 0.85,
-          }}
-          alt=""
-        />
+      {mark && l.mark && (
+        // satori ignores `opacity` on an <img>, so the faint logo is an image in a box that has it
+        <div style={{ ...abs(l.mark), opacity: p.artOpacity ?? TEXT.art.opacity }}>
+          <img src={mark} width={l.mark.w} height={l.mark.h} alt="" />
+        </div>
       )}
-      {l.logo && ctx.images.logo?.[0] && (
-        <img
-          src={single(ctx.images.logo)}
-          width={l.logo.w}
-          height={l.logo.h}
-          style={{ position: 'absolute', left: l.logo.x, top: l.logo.y }}
-          alt=""
-        />
-      )}
+      {img(single(ctx.images.logo), l.logo)}
+      {img(single(ctx.images.partner), l.partner)}
       {l.name && (
         <div style={line(l.name.rect, l.name.family, l.name.size, COLOURS.ink, { fontWeight: 700, letterSpacing: '-0.01em' })}>
           {l.name.text}
@@ -190,7 +203,16 @@ function drawText(p: PresetProps, ctx: TemplateContext): ReactElement {
         </div>
       )}
       {l.foot.map((i) => footEl(i, false))}
-      <div style={{ position: 'absolute', left: 0, bottom: 0, width: CARD.width, height: TEXT.strip, background: COLOURS.accent }} />
+      <div
+        style={{
+          position: 'absolute',
+          left: 0,
+          bottom: 0,
+          width: CARD.width,
+          height: TEXT.strip.height,
+          background: rgba(COLOURS.accent, TEXT.strip.opacity),
+        }}
+      />
     </Root>
   )
 }
@@ -199,6 +221,11 @@ function drawPhoto(p: PresetProps, ctx: TemplateContext): ReactElement {
   // The hero could not be prepared (the card is then served briefly and never stored): the text layout, in the same template.
   if (!ctx.hero) return drawText(p, ctx)
   const l: PhotoLayout = photoLayout(p, ctx)
+  const S = PHOTO.scrim
+  const height = CARD.height - l.scrimTop
+  const stops = [...S.stops.map(([px, a]) => `${rgba(COLOURS.ground, a)} ${px}px`), `${rgba(COLOURS.ground, S.peak)} ${height}px`].join(
+    ', ',
+  )
   return (
     <Root ground={COLOURS.ground}>
       <img src={ctx.hero} width={CARD.width} height={CARD.height} style={{ position: 'absolute', left: 0, top: 0 }} alt="" />
@@ -208,31 +235,10 @@ function drawPhoto(p: PresetProps, ctx: TemplateContext): ReactElement {
           left: 0,
           top: l.scrimTop,
           width: CARD.width,
-          height: CARD.height - l.scrimTop,
-          background: `linear-gradient(to bottom, ${rgba(COLOURS.ground, 0)}, ${rgba(COLOURS.ground, PHOTO.scrim.peak)})`,
+          height,
+          background: `linear-gradient(to bottom, ${stops})`,
         }}
       />
-      {l.logo && ctx.images.logo?.[0] && (
-        <div
-          style={{
-            position: 'absolute',
-            left: 0,
-            top: 0,
-            width: PHOTO.corner.size,
-            height: PHOTO.corner.size,
-            background: `radial-gradient(circle at 0px 0px, ${rgba(COLOURS.ground, PHOTO.corner.peak)}, ${rgba(COLOURS.ground, 0)} 70%)`,
-          }}
-        />
-      )}
-      {l.logo && ctx.images.logo?.[0] && (
-        <img
-          src={single(ctx.images.logo)}
-          width={l.logo.w}
-          height={l.logo.h}
-          style={{ position: 'absolute', left: l.logo.x, top: l.logo.y }}
-          alt=""
-        />
-      )}
       <div
         style={{
           ...abs(l.title.rect),
@@ -248,6 +254,8 @@ function drawPhoto(p: PresetProps, ctx: TemplateContext): ReactElement {
         {l.title.text}
       </div>
       {l.facts.map((i) => footEl(i, true))}
+      {img(single(ctx.images.logo), l.logo)}
+      {img(single(ctx.images.partner), l.partner)}
     </Root>
   )
 }
@@ -257,6 +265,7 @@ const common = {
   size: { width: CARD.width, height: CARD.height },
   textFields: TEXT_FIELDS,
   stacks: STACKS,
+  normalize: normalizeSlots,
   required: (p: PresetProps) => typeof p.title === 'string' && p.title.trim() !== '',
 }
 
@@ -265,7 +274,8 @@ export const textPreset: Template<PresetProps> = defineTemplate<PresetProps>({
   ...common,
   id: TEXT_ID,
   format: 'png',
-  imageBoxes: { logo: IMAGE_BOXES.logo, mark: IMAGE_BOXES.mark, art: IMAGE_BOXES.art },
+  imageBoxes: { logo: IMAGE_BOXES.logo, partner: IMAGE_BOXES.partner, mark: IMAGE_BOXES.mark, art: IMAGE_BOXES.art },
+  imageShapes: { ...TEXT_SHAPES },
   render: drawText,
 })
 
@@ -275,6 +285,8 @@ export const photoPreset: Template<PresetProps> = defineTemplate<PresetProps>({
   id: PHOTO_ID,
   format: 'jpeg',
   heroBackground: COLOURS.ground,
-  imageBoxes: { logo: IMAGE_BOXES.logo },
+  imageBoxes: { ...PHOTO_IMAGE_BOXES },
+  imageShapes: { ...PHOTO_SHAPES },
+  heroColours: false, // truecolour: a palette PNG shows as a cross-hatch on a smooth sky
   render: drawPhoto,
 })

@@ -11,12 +11,16 @@ export type ResolvedPreset = {
   preset: PresetName
   title: string
   subtitle?: string
+  byline?: string
   label: string
   hero?: { path: string; collection: string }
   hasSlug: boolean
   path: string
   /** The upload collection `site().logo` and `site().brandArt` are read from; default: the hero's, else the site's only one. */
   logoCollection?: string
+  artOpacity?: number
+  /** The editor's own share image for this collection (the plugin's `seoImage`, else plugin-seo's `meta.image`), when there is one. */
+  seo?: { path: string; isDeliberate?: (image: unknown) => boolean }
 }
 
 /** An own property, never the prototype's: `constructor.name` is not a field path. */
@@ -78,14 +82,28 @@ export function presetTarget(p: ResolvedPreset): Target {
       title: overrides?.headline ?? str(read(doc, p.title)) ?? '',
       subtitle: overrides?.subtitle ?? (p.subtitle ? str(read(doc, p.subtitle)) : undefined),
       label: p.label,
+      byline: p.byline ? str(read(doc, p.byline)) : undefined,
       site: site.name,
+      // Only a site that chose one hashes it: the default is the template's own.
+      ...(p.artOpacity === undefined ? {} : { artOpacity: p.artOpacity }),
     }),
+    // Only a ref that exists is named: a name with no upload needs no upload collection, so a site with none (or several) still draws a text card.
     images: ({ doc, site }: ResolverArgs<unknown>) => {
       const logo = ref((site as SiteInfo).logo)
+      const partner = logo === undefined ? undefined : ref((site as SiteInfo).partnerLogo)
       const art = ref((site as SiteInfo).brandArt)
-      if (choose(doc) === 'photo') return { logo }
-      return { logo, ...(art !== undefined ? { art } : { mark: logo }) }
+      const photo = choose(doc) === 'photo'
+      return {
+        ...(logo === undefined ? {} : { logo }),
+        ...(partner === undefined ? {} : { partner }),
+        // The right side of the text card: the uploaded art, else the halftone of the logo (which the logo's shape may decline).
+        ...(photo ? {} : art !== undefined ? { art } : logo !== undefined ? { mark: logo } : {}),
+      }
     },
-    ...(p.logoCollection ? { imageCollections: { logo: p.logoCollection, mark: p.logoCollection, art: p.logoCollection } } : {}),
+    // Scoped to this target. The hero is never the editor's deliberate share image, whether or not this card draws it (a text card does not).
+    ...(p.seo ? { seoImage: { ...p.seo, except: ({ doc }: ResolverArgs<unknown>) => (p.hero ? read(doc, p.hero.path) : undefined) } } : {}),
+    ...(p.logoCollection
+      ? { imageCollections: { logo: p.logoCollection, partner: p.logoCollection, mark: p.logoCollection, art: p.logoCollection } }
+      : {}),
   }
 }

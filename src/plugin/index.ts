@@ -5,11 +5,11 @@ import { type FontSpec, missingGlyphs, type Stacks } from '../internal/fonts.js'
 import {
   assertFormatOption,
   type CardFormat,
+  cardPathProblem,
   encodingOf,
   formatOf,
   groundOf,
   type JpegOptions,
-  pathProblem,
   type WebpOptions,
 } from '../internal/format.js'
 import { createGate } from '../internal/gate.js'
@@ -28,34 +28,47 @@ export { type OgDocFields, type OgFieldsOption, ogFields } from './fields.js'
 
 export type { PresetName }
 
-/** One collection of `collections`: a slug, or a slug with what to override. Everything not given is detected from the collection's config. */
-export type PresetCollection =
-  | string
-  | {
-      slug: string
-      /** `auto` (default): the photo preset for a document whose hero is at least 800 x 420, the text preset otherwise. `text` or `photo` forces one. */
-      preset?: PresetName
-      /** The title field path; default `admin.useAsTitle`, else `title`, else `name`; none of them is a start-up error. */
-      title?: string
-      /** The hero upload field path (a single upload field); default the first of `hero`, `heroImage`, `image`, `cover`, `coverImage`, `featuredImage`, else `meta.image`. `false`: never a photo. */
-      hero?: string | false
-      /** The card's label; default the collection's `labels.plural`. */
-      label?: string
-      /** A text or textarea field path drawn as the sub line; default none. */
-      subtitle?: string
-      /** The card path; must hold `:ext`. Default `/og/:kind/:slug/card.:ext` (`:id` for a collection with no `slug` field). */
-      path?: string
-    }
+/** What one collection's card can be told. Everything not given is detected from the collection's config. */
+export type PresetCollectionOptions = {
+  /** `auto` (default): the photo preset for a document whose hero is at least 800 x 420, the text preset otherwise. `text` or `photo` forces one. */
+  preset?: PresetName
+  /** The title field path; default `admin.useAsTitle`, else `title`, else `name`. It must be a scalar text field the public may read (not hidden). */
+  title?: string
+  /** The hero upload field path (a single upload field the public may read); default the first of `hero`, `heroImage`, `image`, `cover`, `coverImage`, `featuredImage`, else `meta.image`. `false`: never a photo. */
+  hero?: string | false
+  /** The card's label; default the collection's `labels.plural`. */
+  label?: string
+  /** A text or textarea field path drawn as the sub line; default none. */
+  subtitle?: string
+  /** A text or textarea field path drawn before the domain in the foot of the text card (`author · domain`); default none. */
+  byline?: string
+  /** The card path; must hold `:ext` as `card.:ext`. Default `/og/:kind/:slug/card.:ext` (`:id` for a collection with no `slug` field). */
+  path?: string
+}
+
+/** One collection of a `collections` list: a slug, or a slug with what to override. */
+export type PresetCollection = string | ({ slug: string } & PresetCollectionOptions)
+
+/** `collections`: a list (exactly those collections), or an object of options by slug (those, customised, on top of every public collection). */
+export type PresetCollections = PresetCollection[] | Record<string, PresetCollectionOptions>
 
 export type OgImagePluginOptions = {
   /**
-   * Opts collections in to the built-in presets, `payload-og-image:photo@1` (JPEG) and `payload-og-image:text@1` (PNG): each becomes an ordinary
-   * target, so `targets` still work beside them. With `collections`, `site`, `fonts`, `stacks`, `templates`, `targets` and `store` are all optional:
-   * no `site` names the site after `siteName` or the `serverURL` host; no `fonts` and `stacks` registers the bundled Inter (latin, latin-ext and
-   * cyrillic, 400 and 700; a site with fonts of its own gets none of them, so its card URLs do not move); no `store` keeps cards in memory.
-   * With neither `collections` nor `targets` the plugin refuses to start. The card route is `app/(frontend)/og/[kind]/[slug]/[file]/route.ts`.
+   * The built-in presets, `payload-og-image:photo@1` (JPEG) and `payload-og-image:text@1` (PNG). Installing the plugin with neither `collections` nor
+   * `targets` serves EVERY public page: each collection that is not an upload or auth collection, that an anonymous request may read (its `access.read`
+   * answers `true` or a `Where` when the config is built; a throw, a Promise or `false` skips it) and that has a title field the public may read gets a
+   * card. A collection that is unclear is skipped with one start-up line naming it and the reason, never a crash. `collections` customises:
+   * a list is exactly those collections; an object of options by slug adds or customises entries on top of the discovered ones; `exclude` opts out.
+   * Each becomes an ordinary target, so `targets` still work beside them and win on a name. With presets, `site`, `fonts`, `stacks`, `templates`,
+   * `targets` and `store` are all optional: no `site` names the site after `siteName` or the `serverURL` host; no `fonts` and `stacks` registers the
+   * bundled Inter (latin, latin-ext and cyrillic, 400 and 700; a site with fonts of its own gets none of them, so its card URLs do not move); no
+   * `store` keeps cards in memory. The card route is `app/(frontend)/og/[kind]/[slug]/[file]/route.ts`.
    */
-  collections?: PresetCollection[]
+  collections?: PresetCollections
+  /** Collections the presets never cover. A name that is not a collection of the config is a start-up error. */
+  exclude?: string[]
+  /** The opacity, 0 to 1, of the site's logo on the right of the text card (`site().logo`, whole and contained); default 0.35 so the title stays dominant, 1 draws it in full. A part of the card's props, so of its version. */
+  artOpacity?: number
   /** The site's name on preset cards when `site` is not given; default the `serverURL` host without `www.`. */
   siteName?: string
   /**
@@ -127,9 +140,19 @@ export type OgImagePluginOptions = {
   disabled?: boolean
 }
 
-/** What `ogImagePlugin` takes: the options, with the six a site may leave out when it gives `collections`. */
-export type OgImagePluginInput = Omit<OgImagePluginOptions, 'site' | 'fonts' | 'stacks' | 'templates' | 'targets' | 'store'> &
-  Partial<Pick<OgImagePluginOptions, 'site' | 'fonts' | 'stacks' | 'templates' | 'targets' | 'store'>>
+type SixOptional = 'site' | 'fonts' | 'stacks' | 'templates' | 'targets' | 'store'
+/** The options with the six a site may leave out when the presets serve it. */
+type PresetOptions = Omit<OgImagePluginOptions, SixOptional> & Partial<Pick<OgImagePluginOptions, SixOptional>>
+
+/**
+ * What `ogImagePlugin` takes: the classic options (your own `targets`, every field given); or the presets, with `collections` and the six fields
+ * optional; or nothing but the extras (`exclude`, `siteName`, ...), which serves every public collection. `{ targets }` without the classic
+ * fields is a type error, not a start-up failure.
+ */
+export type OgImagePluginInput =
+  | OgImagePluginOptions
+  | (PresetOptions & { collections: PresetCollections })
+  | (PresetOptions & { collections?: undefined; targets?: undefined })
 
 const DEFAULT_SAMPLE = 'Aa’‘“”–—…'
 const SEGMENT = /^[A-Za-z0-9_~-][A-Za-z0-9._~-]*$/
@@ -229,14 +252,20 @@ function validate(o: OgImagePluginOptions, config: Config): string {
   if (o.heroBackground !== undefined) normaliseHeroBackground(o.heroBackground) // throws a named error at start-up
   assertPaletteOption(o.palette)
   assertFormatOption('options', o)
+  // Every encoding a target's card can leave in: its own `format`; else its template's (a function may choose any registered one); else the plugin's.
+  const encodings = (own: CardFormat | undefined, template: string | ((a: never) => string)): CardFormat[] => {
+    if (own !== undefined) return [own]
+    const pick = (t: Template<any> | undefined) => t?.format ?? o.format ?? 'png'
+    return typeof template === 'string' ? [pick(templates.get(template))] : [...templates.values()].map(pick)
+  }
   for (const [name, t] of Object.entries(o.targets ?? {})) {
     assertFormatOption(`target "${name}"`, t)
-    const problem = pathProblem(t.path, t.format ?? o.format ?? 'png')
+    const problem = cardPathProblem(t.path, encodings(t.format, t.template as never))
     if (problem) fail(`target "${name}" ${problem}`)
   }
   for (const [key, card] of Object.entries(o.static ?? {})) {
     assertFormatOption(`static card "${key}"`, card)
-    const problem = pathProblem(card.path, card.format ?? o.format ?? 'png')
+    const problem = cardPathProblem(card.path, encodings(card.format, card.template))
     if (problem) fail(`static card "${key}" ${problem}`)
   }
   if (o.requiredSample !== undefined && typeof o.requiredSample !== 'string') fail('requiredSample must be a string')

@@ -3,7 +3,7 @@
 Source: `docs/reference.md` (Zero-config presets), `src/presets/`, `src/plugin/index.ts`.
 
 ```ts
-ogImagePlugin({ collections: ['posts', { slug: 'pages', preset: 'text', subtitle: 'excerpt' }], siteName: 'Example' })
+ogImagePlugin({ siteName: 'Example' }) // serves every public collection; add exclude, or collections: { posts: { preset: 'text' } }, to customise
 ```
 
 ```ts
@@ -18,6 +18,10 @@ export const HEAD = GET
 
 Pages call `ogMetadata({ config, target: 'posts', doc })` as for any target: the target's name is the collection slug.
 
+## What is covered
+
+With neither `collections` nor `targets`, every collection that is not an upload or auth collection, that an anonymous request may read (`access.read` called at config time answers `true` or a `Where`; none, a throw, a Promise or `false` skips it) and that has a title field the public may read. Skipped ones are named once, with the reason, in one start-up line: read it before concluding a card is missing. `exclude` opts out; `collections` as an object customises; as a list it is exactly those.
+
 ## What is detected, and how to override each
 
 | Item     | Detected                                                                                                                | Override                         |
@@ -26,15 +30,16 @@ Pages call `ogMetadata({ config, target: 'posts', doc })` as for any target: the
 | hero     | first single upload field named `hero`, `heroImage`, `image`, `cover`, `coverImage`, `featuredImage`; else `meta.image` | `hero: 'field.path'`, or `false` |
 | label    | `labels.plural`, else the capitalised slug                                                                              | `label`                          |
 | sub line | none                                                                                                                    | `subtitle: 'text.field.path'`    |
-| slug     | a text `slug` field; else the path uses `:id`                                                                           | `path` (must hold `:ext`)        |
+| slug     | a scalar text `slug` field the public may read; else the path uses `:id`                                                | `path` (must hold `:ext`)        |
 | preset   | `auto`: photo for a raster hero of at least 800 x 420, text otherwise                                                   | `preset: 'text'` or `'photo'`    |
 
-The site name is `siteName`, else `site()`'s `name`, else the `serverURL` host. `site()` may return `logo` and `brandArt` (upload ids or objects with an id); set `logoCollection` when the site has several upload collections.
+The site name is `siteName`, else `site()`'s `name`, else the `serverURL` host. `site()` may return `logo`, `partnerLogo` and `brandArt` (upload ids or objects with an id); set `logoCollection` when the site has several upload collections. `artOpacity` (0 to 1, default 0.35) is how faint the logo on the right of the text card is. A logo is trimmed and contained, never cropped; SVG is not read.
 
 ## Rules
 
 - A photo card is `card.jpg`, a text card `card.png`; the other name is a 404 (the name is read from the request path). A page's `ogMetadata` always advertises the right one.
 - `og.mode` behaves as for any target. A forced `photo` with no hero field is a start-up error; a forced `photo` on a document with no usable hero draws the text card.
+- Only a field the public may read is detected: never `admin.hidden`, `hidden`, an `access.read` that is not `true` for anonymous, or `hasMany`. Never point `title` at an admin-only field.
 - Own `fonts` and `stacks` (with a `default` stack) are used as they are and the bundled Inter is not added, so existing card URLs do not move. Give neither and Inter (latin, latin-ext, cyrillic) is used.
 - Never give a target `overrideAccess: true` reads in props: presets draw the title, label and sub line only, read from the published document.
 

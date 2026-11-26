@@ -148,6 +148,8 @@ export function payloadSource(payload: Payload, state: OgState, cachedSite: () =
     if (!Object.hasOwn(o.targets, name)) throw new Error(`payload-og-image: no target "${name}"`)
     return o.targets[name] as Target
   }
+  // The root of the editor's share-image field the read must always select: the target's own, else the plugin's.
+  const seoPathOf = (name: string) => targetOf(name).seoImage?.path ?? o.seoImage?.path
   const first = async (args: FindArgs) => ((await payload.find(args)).docs[0] ?? null) as Record<string, any> | null
   const known = payload.collections as unknown as Record<
     string,
@@ -169,20 +171,20 @@ export function payloadSource(payload: Payload, state: OgState, cachedSite: () =
   return {
     published: (name, slug) =>
       readIn(targetOf(name).collection ?? name, {
-        ...buildFind(payload, name, targetOf(name), { slug }, o.seoImage?.path),
+        ...buildFind(payload, name, targetOf(name), { slug }, seoPathOf(name)),
         draft: false,
         overrideAccess: false,
       } as FindArgs),
     publishedById: (name, id) =>
       readIn(targetOf(name).collection ?? name, {
-        ...buildFind(payload, name, targetOf(name), { id }, o.seoImage?.path),
+        ...buildFind(payload, name, targetOf(name), { id }, seoPathOf(name)),
         draft: false,
         overrideAccess: false,
       } as FindArgs),
     async listPublished(name, a) {
       const collection = targetOf(name).collection ?? name
       const found = await payload.find({
-        ...buildList(payload, name, targetOf(name), a, o.seoImage?.path),
+        ...buildList(payload, name, targetOf(name), a, seoPathOf(name)),
         draft: false,
         overrideAccess: false,
       } as FindArgs)
@@ -198,7 +200,7 @@ export function payloadSource(payload: Payload, state: OgState, cachedSite: () =
         name,
         targetOf(name),
         key.slug !== undefined ? { slug: key.slug } : { id: key.id as string | number },
-        o.seoImage?.path,
+        seoPathOf(name),
       )
       return readIn(
         targetOf(name).collection ?? name,

@@ -17,6 +17,7 @@ export { presets } from '../presets/index.js'
 export type {
   ImageLists,
   ImageRef,
+  ImageShape,
   Normalized,
   OgOverrides,
   PropsModel,

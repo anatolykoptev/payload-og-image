@@ -108,10 +108,10 @@ but opt-in, because not every link-preview crawler reads WebP. See [JPEG and Web
 
 ## Zero config: the built-in presets
 
-No templates, fonts or store to write: name the collections and add one route file.
+Install the plugin and it serves every public page. No templates, fonts, store or list of collections: one option and one route file.
 
 ```ts
-ogImagePlugin({ collections: ['posts', 'pages'] })
+ogImagePlugin({ siteName: 'Example' }) // or ogImagePlugin({}): the site name is then the serverURL host
 ```
 
 ```ts
@@ -124,17 +124,20 @@ export const GET = route.GET
 export const HEAD = GET
 ```
 
-Each collection becomes an ordinary target built from two named, versioned presets: `payload-og-image:photo@1` (a JPEG: the hero
-full-bleed with a scrim under the title) and `payload-og-image:text@1` (a PNG: a dark ground, the site name and label on the left, the title,
-and a large brand mark on the right). A document whose hero is at least 800 x 420 draws the photo preset, any other the text preset; the page's
-`ogMetadata` advertises `card.jpg` or `card.png` accordingly, and the route answers 404 for the other file name. With neither `collections` nor
-`targets` the plugin refuses to start.
+With neither `collections` nor `targets`, the plugin discovers every collection that is not an upload or auth collection, that an anonymous request may read
+(its `access.read` is called when the config is built and answers `true` or a `Where`; none, a throw, a Promise or `false` skips it), and that has a title field the
+public may read. A collection that is unclear is skipped with one start-up line naming it and the reason; a fresh install always boots. Each collection becomes an ordinary target
+built from two named, versioned presets: `payload-og-image:photo@1` (a JPEG: the hero full-bleed with a scrim under the title) and `payload-og-image:text@1`
+(a PNG: a dark ground, the site's logo, name and label on the left, the title, and the logo again, whole and faint, on the right). A document whose hero is at least 800 x 420 draws the photo preset, any other the
+text preset; the page's `ogMetadata` advertises `card.jpg` or `card.png` accordingly, and the route answers 404 for any other file name, for classic cards too.
 
-What is detected, and how to override each: the title (`admin.useAsTitle`, then `title`, then `name`; none is a start-up error naming the
-collection; `title`), the hero (a single upload field named `hero`, `heroImage`, `image`, `cover`, `coverImage` or `featuredImage`, else `meta.image`;
+Everything is optional customisation on top: `exclude: ['internal']` opts a collection out; `collections: { posts: { preset: 'text', label: 'News' } }` customises one
+(and adds a collection discovery skipped); a list, `collections: ['posts']`, is exactly those; explicit `targets` win and are untouched. Per collection, what is detected and how to override it:
+the title (`admin.useAsTitle`, then `title`, then `name`; `title`), the hero (a single upload field named `hero`, `heroImage`, `image`, `cover`, `coverImage` or `featuredImage`, else `meta.image`;
 `hero`, or `false` for never a photo), the label (`labels.plural`; `label`), the sub line (none; `subtitle`), the path (`:slug`, or `:id` when
-the collection has no `slug` field; `path`, which must hold `:ext`), and `preset: 'text' | 'photo'` to force one. The site name is `siteName`, else the `serverURL` host.
-`site()` may return `logo` and `brandArt` (an upload id): the logo's mark is drawn in the head and, large, on the right of the text card; `brandArt` takes the right side instead.
+the collection has no `slug` field; `path`, ending in `.:ext`), and `preset: 'text' | 'photo'` to force one. Only fields the public may read are ever detected: not `hidden`,
+`admin.hidden`, under such a group, named `_...`, with an `access.read` that does not say `true` to an anonymous request, or `hasMany`.
+The site name is `siteName`, else the `serverURL` host. `site()` may return `logo`, `partnerLogo` and `brandArt` (an upload id); `artOpacity` (0 to 1, default 0.35) sets how faint the logo on the right is.
 The bundled fonts (Inter 400 and 700, latin, latin-ext and cyrillic; SIL OFL 1.1) are registered only when you give no `fonts` and `stacks`, so a site with
 fonts of its own keeps every card URL it has. See [reference](docs/reference.md#zero-config-presets).
 

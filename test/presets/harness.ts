@@ -28,6 +28,7 @@ export const configOf = (extra: Partial<Config> = {}): Config =>
           { name: 'title', type: 'text' },
           { name: 'slug', type: 'text' },
           { name: 'excerpt', type: 'textarea' },
+          { name: 'author', type: 'text' },
           { name: 'heroImage', type: 'upload', relationTo: 'media' },
         ],
       },
@@ -65,6 +66,11 @@ export async function writeImages(dir: string) {
   )
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="400" height="400"><path d="M150 40 C60 120 60 280 150 360" stroke="#8FB4FF" stroke-width="38" fill="none" stroke-linecap="round"/><path d="M250 40 C340 120 340 280 250 360" stroke="#ffffff" stroke-width="38" fill="none" stroke-linecap="round"/></svg>`
   await writeFile(path.join(dir, 'logo.png'), await sharp(Buffer.from(svg)).png().toBuffer())
+  // A black wordmark on transparent (about 12:1 trimmed), and a square icon on an opaque white JPEG.
+  const word = `<svg xmlns="http://www.w3.org/2000/svg" width="500" height="100"><rect x="10" y="30" width="480" height="40" fill="#000"/></svg>`
+  await writeFile(path.join(dir, 'wordmark.png'), await sharp(Buffer.from(word)).png().toBuffer())
+  const icon = `<svg xmlns="http://www.w3.org/2000/svg" width="300" height="300"><rect width="300" height="300" fill="#fff"/><circle cx="150" cy="150" r="100" fill="#4f8cff"/></svg>`
+  await writeFile(path.join(dir, 'icon.jpg'), await sharp(Buffer.from(icon)).jpeg().toBuffer())
 }
 
 export type Harness = Awaited<ReturnType<typeof presetHarness>>
@@ -73,11 +79,16 @@ export async function presetHarness(o: {
   input?: OgImagePluginInput
   docs: Record<string, Record<string, unknown>>
   site?: Record<string, unknown>
+  config?: Config
+  /** More uploads by id, with their files written into `dir` by the caller. */
+  extraUploads?: Record<number, unknown>
+  /** The site's only upload collection; `null`: the site has none. */
+  uploads?: string | null
 }) {
   const dir = await mkdtemp(path.join(os.tmpdir(), 'og-preset-'))
   await writeImages(dir)
-  const input: OgImagePluginInput = { collections: ['posts'], ...o.input }
-  const config = configOf()
+  const input = { collections: ['posts'], ...o.input } as OgImagePluginInput
+  const config = o.config ?? configOf()
   const options = expandPresets(input, config)
   const drawn: string[] = []
   const real = nextOgRenderer()
@@ -95,9 +106,16 @@ export async function presetHarness(o: {
       site: async () => ({ name: 'Example', ...o.site }),
       related: async (collection: string, id: string | number) =>
         collection === 'media'
-          ? (({ 1: upload(1, 'hero.jpg', 1200, 800), 2: upload(2, 'logo.png', 400, 400, 'image/png') } as Record<string, unknown>)[
-              String(id)
-            ] ?? null)
+          ? (({ ...o.extraUploads } as Record<string, unknown>)[String(id)] ??
+            (
+              {
+                1: upload(1, 'hero.jpg', 1200, 800),
+                2: upload(2, 'logo.png', 400, 400, 'image/png'),
+                3: upload(3, 'wordmark.png', 500, 100, 'image/png'),
+                4: upload(4, 'icon.jpg', 300, 300),
+              } as Record<string, unknown>
+            )[String(id)] ??
+            null)
           : null,
     },
     store: memoryStore(),
@@ -108,7 +126,7 @@ export async function presetHarness(o: {
       },
     },
     heroLoader: payloadHeroLoader({ staticDirs: async () => [dir] }),
-    uploadCollection: 'media',
+    uploadCollection: o.uploads === null ? undefined : (o.uploads ?? 'media'),
     gate: createGate(),
     memo: createMemo(),
     events: { emit: () => {} },

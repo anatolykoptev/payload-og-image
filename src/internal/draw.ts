@@ -59,8 +59,9 @@ export function fitRow(fonts: LoadedFont[], stackOf: (name: string) => string[],
     .filter((i) => i.text.trim() !== '')
     .map((i) => ({
       ...i,
+      // A padded item (a pill) is drawn at exactly its width; a bare text gets 2 px of slack, so the box that holds it never wraps it.
       width: Math.ceil(
-        measureText(fonts, stackOf(i.stack), i.text, i.size, { weight: i.weight, tracking: i.tracking }) + 2 * (i.padX ?? 0),
+        measureText(fonts, stackOf(i.stack), i.text, i.size, { weight: i.weight, tracking: i.tracking }) + (i.padX ? 2 * i.padX : 2),
       ),
     }))
   const total = (r: RowFit[]) => r.reduce((sum, i) => sum + i.width, 0) + gap * Math.max(0, r.length - 1)

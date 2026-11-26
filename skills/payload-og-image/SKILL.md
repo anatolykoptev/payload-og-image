@@ -53,7 +53,7 @@ Floor (README): Payload `^3.93.0` or `^4.0.0-beta.12`, Next.js `^16.4.5`, React 
 
 ## Zero config (no templates to write)
 
-`ogImagePlugin({ collections: ['posts'] })` plus the route file `app/(frontend)/og/[kind]/[slug]/[file]/route.ts` (`createOgRoute({ config })`, `GET`, `HEAD = GET`) gives a finished card from two built-in presets: photo (JPEG, hero at least 800 x 420) and text (PNG). Details and every override in `references/zero-config.md`. Prefer it when the user wants a good card with no design work; write a template (below) only for a brand of their own.
+`ogImagePlugin({ siteName: 'Example' })` (nothing else: it serves every public collection; `exclude`, or `collections: { posts: { preset: 'text' } }`, customise) plus the route file `app/(frontend)/og/[kind]/[slug]/[file]/route.ts` (`createOgRoute({ config })`, `GET`, `HEAD = GET`) gives a finished card from two built-in presets: photo (JPEG, hero at least 800 x 420) and text (PNG). Details and every override in `references/zero-config.md`. Prefer it when the user wants a good card with no design work; write a template (below) only for a brand of their own.
 
 ## Minimal wiring
 
