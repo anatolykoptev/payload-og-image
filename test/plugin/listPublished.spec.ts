@@ -19,15 +19,16 @@ describe('payloadSource.listPublished', () => {
         notes: { config: { versions: { drafts: true }, fields: [{ type: 'upload', name: 'image', relationTo: 'media' }] } },
       },
       find: async (a: Record<string, unknown>) => {
+        if (a.collection === 'media') {
+          // An upload read by id (the same published-only read as `related()`): count how many run at once.
+          active += 1
+          peak = Math.max(peak, active)
+          await new Promise((r) => setTimeout(r, 2))
+          active -= 1
+          return { docs: [{ id: 1 }], totalDocs: 1 }
+        }
         finds.push(a)
         return { docs: Array.from({ length: 20 }, (_, i) => ({ id: i + 1, slug: `n${i}`, image: 100 + i })), totalDocs: 20 }
-      },
-      findByID: async () => {
-        active += 1
-        peak = Math.max(peak, active)
-        await new Promise((r) => setTimeout(r, 2))
-        active -= 1
-        return { id: 1 }
       },
     } as never
     const state = createState(

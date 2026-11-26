@@ -1,18 +1,19 @@
 // @vitest-environment jsdom
-/** The start-up self-test runs the real renderer under vitest's jsdom environment (the globals come from another realm).
- * Mutation table: nextOg.ts `inNodeRealm(...)` wrapper removed -> "draws the fallback card with the real renderer" RED ("Unsupported input").
- * realm.ts `underlyingOf` always undefined (a copy cannot see through another copy's wrapper) -> "two copies of the module drawing interleaved ..." RED
- * realm.ts release(): never restore the global -> "the global TextEncoder is put back ..." RED; restore when the FIRST draw ends (no ownership count) -> the same test RED (`seen`/the wrapped check). */
+/** The plugin boots under vitest's jsdom environment (the globals come from another realm). Nothing is drawn at start-up, so no
+ * renderer reaches `sharp` with another realm's `Uint8Array`: rendering itself needs Node (docs/reference.md, "Specs that boot Payload").
+ * Mutation table: plugin/index.ts `selfTest` draws a card again -> "the plugin boots under jsdom and draws nothing" RED (the renderer spy is called). */
 import { readFile } from 'node:fs/promises'
 import type { Config } from 'payload'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { ogImagePlugin } from '../../src/plugin/index.js'
-import { inNodeRealm } from '../../src/render/realm.js'
 import { defineTarget, defineTemplate } from '../../src/template.js'
 
+const draw = vi.hoisted(() => vi.fn())
+vi.mock('../../src/render/nextOg.js', () => ({ nextOgRenderer: () => ({ render: draw }) }))
+
 const post = defineTemplate<{ title: string }>({ id: 'post', revision: '1', textFields: ['title'], render: () => null as never })
-describe('start-up self-test under jsdom', () => {
-  it('draws the fallback card with the real renderer', async () => {
+describe('start-up under jsdom', () => {
+  it('the plugin boots under jsdom and draws nothing', async () => {
     const o = ogImagePlugin({
       site: () => ({ name: 'Site' }),
       fonts: [{ family: 'Inter', weight: 800, data: () => readFile(`${process.cwd()}/test/fixtures/fonts/inter-latin-cyrillic-800.woff`) }],
@@ -22,51 +23,6 @@ describe('start-up self-test under jsdom', () => {
       store: { memory: true },
     })({ serverURL: 'https://x.test', collections: [{ slug: 'posts', fields: [{ name: 'title', type: 'text' }] }] } as Config)
     await expect(o.onInit?.({} as never)).resolves.toBeUndefined()
-  })
-
-  it('the global TextEncoder is put back after overlapping draws and after a throwing one', async () => {
-    const original = globalThis.TextEncoder
-    let letGo!: () => void
-    const gate = new Promise<void>((r) => {
-      letGo = r
-    })
-    const seen: boolean[] = []
-    const a = inNodeRealm(async () => {
-      await gate
-      seen.push(globalThis.TextEncoder !== original) // still wrapped while another draw is in flight
-    })
-    const b = inNodeRealm(async () => {
-      seen.push(globalThis.TextEncoder !== original)
-      throw new Error('a draw that fails')
-    }).catch(() => undefined)
-    await b
-    expect(globalThis.TextEncoder).not.toBe(original) // `a` still needs the wrapper
-    letGo()
-    await a
-    expect(seen).toEqual([true, true])
-    expect(globalThis.TextEncoder).toBe(original)
-  })
-
-  it('two copies of the module drawing interleaved (A start, B start, A end, B end) leave the original encoder', async () => {
-    // @ts-expect-error a query suffix makes vite load a second instance of the module; it has no type declaration
-    const other = (await import('../../src/render/realm.js?copy')) as typeof import('../../src/render/realm.js')
-    const original = globalThis.TextEncoder
-    const latch = () => {
-      let go!: () => void
-      const wait = new Promise<void>((r) => {
-        go = r
-      })
-      return { go, wait }
-    }
-    const a = latch()
-    const b = latch()
-    const drawA = inNodeRealm(() => a.wait)
-    const drawB = other.inNodeRealm(() => b.wait)
-    expect(globalThis.TextEncoder).not.toBe(original)
-    a.go()
-    await drawA
-    b.go()
-    await drawB
-    expect(globalThis.TextEncoder).toBe(original)
+    expect(draw).not.toHaveBeenCalled()
   })
 })

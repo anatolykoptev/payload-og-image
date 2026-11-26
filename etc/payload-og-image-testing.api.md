@@ -560,6 +560,7 @@ export type TestRuntimeOptions = {
         updatedAt?: string | null;
     }) => boolean;
     heroDir?: string;
+    uploads?: Record<string, Record<string | number, Record<string, unknown>>>;
 };
 
 // @public (undocumented)
