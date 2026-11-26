@@ -149,7 +149,7 @@ fonts of its own keeps every card URL it has. See [reference](docs/reference.md#
 ## What you get
 
 - `payload-og-image`: `ogImagePlugin`, `defineTemplate`, `defineTarget`, `presets` (the two built-in templates), and `ogFields()` for the optional per-document
-  `og` group (mode, headline, subtitle; see [reference](docs/reference.md#per-document-share-card-fields)).
+  `og` group (mode, headline, subtitle, label, accent; see [reference](docs/reference.md#per-document-share-card-fields)).
 - `payload-og-image/client`: the admin's live card preview (`OgPreviewField`), referenced by the `og` group; run
   `payload generate:importmap` after adding the plugin.
 - `payload-og-image/next`: `createOgRoute`, `ogMetadata`, `withHead` for Payload's REST route (which does not

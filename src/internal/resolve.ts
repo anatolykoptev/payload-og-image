@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import type { OgOverrides, RelatedFn, ResolverArgs, Target, Template } from '../template.js'
-import { DEFAULT_HERO_BACKGROUND, normaliseHeroBackground } from './colour.js'
+import { DEFAULT_HERO_BACKGROUND, hexColour, normaliseHeroBackground } from './colour.js'
 import { firstShareImage, type ShareImage, shareImageOf } from './eligible.js'
 import { type LoadedFont, type Stacks, stripMissing } from './fonts.js'
 import {
@@ -269,7 +269,12 @@ export function buildKindIndex(targets: Record<string, Target>): Record<string, 
 export async function resolveCard(i: ResolveInput): Promise<ResolvedCard> {
   const og = isPlainObject(i.doc.og) ? i.doc.og : {}
   const mode = ogMode(i.doc)
-  const overrides = { headline: nonEmpty(og.headline, true), subtitle: nonEmpty(og.subtitle, true) }
+  const overrides = {
+    headline: nonEmpty(og.headline, true),
+    subtitle: nonEmpty(og.subtitle, true),
+    label: nonEmpty(og.label, true),
+    accent: hexColour(nonEmpty(og.accent, true)),
+  }
   if (mode === 'off') return { kind: 'none' }
   // The upload fields this card draws, verified (one batched read per upload collection) and put in place for the resolvers.
   const doc = await fillUploads(i.uploads, i.doc, i.uploadFields ?? [], i.target.uploadFields)

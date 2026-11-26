@@ -120,8 +120,8 @@ an editor, and `site()` is told which user it is serving (`site({ payload, draft
 
 ## Per-document share card fields
 
-Set `fields: { enabled: true }` on `ogImagePlugin` and each target's collection gets a group `og` with three
-fields: `mode`, `headline` and `subtitle`. It is off by default, and with it off the schema is exactly what it
+Set `fields: { enabled: true }` on `ogImagePlugin` and each target's collection gets a group `og` with five
+fields: `mode`, `headline`, `subtitle`, `label` and `accent`. It is off by default, and with it off the schema is exactly what it
 was without the option. The plugin only adds fields: it never adds a collection or a job. Its endpoints are listed under [Endpoints](#endpoints).
 
 ```ts
@@ -156,6 +156,16 @@ defineTarget({
 
 Because they go through `props`, they are part of the version like any other prop, and a document with a
 headline gets its own URL. A target that sets `select` keeps `og` selected without listing it.
+
+`label` (at most 40 characters) and `accent` (`#rgb` or `#rrggbb`) are the two per-document settings of the
+[presets](../README.md#zero-config-the-built-in-presets). The preset's card draws a document's `label` instead of the
+collection's (`label` in the collection's options, else `labels.plural`), and its `accent` instead of the preset's
+on the strip, the badge and the accent pill; a document without them draws what the collection says. They reach
+`overrides` as `overrides?.label` and `overrides?.accent` (`#rrggbb`, lowercase; a stored value that is not a hex
+colour is left out), so a target of your own wires them the way it wires the headline. The admin refuses an `accent`
+that is not a hex colour and saves a `#rgb` one as `#rrggbb`. An accent that contrasts less than 3:1 with the
+preset's ground is drawn in the preset's ink, the rule a logo that would vanish on the ground already follows. Both
+are part of the version, and a draft value is drawn only in an editor's preview, like every other `og` field.
 
 **Migration.** The new fields are columns. After enabling `fields` (or placing `ogFields()`), each site runs
 `payload migrate:create` and ships the migration with the plugin bump; the plugin does not migrate for you.

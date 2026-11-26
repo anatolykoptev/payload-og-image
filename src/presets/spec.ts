@@ -40,11 +40,17 @@ export const PHOTO_IMAGE_BOXES = {
   partner: { width: 240, height: 72 }, // drawn at most 120 x 36
 } as const
 
-/** A logo is contained and trimmed (an opaque JPEG on a uniform ground is cut out of it), and drawn in the ink when most of it would vanish on the ground (under 3:1). */
+/**
+ * The one contrast rule of the text preset: a logo, or a document's own accent, that contrasts less than this with the ground (the ground is
+ * also the colour drawn on a pill of the accent) is drawn in the ink instead.
+ */
+export const MIN_CONTRAST = 3
+
+/** A logo is contained and trimmed (an opaque JPEG on a uniform ground is cut out of it), and drawn in the ink when most of it would vanish on the ground (under `MIN_CONTRAST`:1). */
 const logoShape = (fill: string): ImageShape => ({
   trim: true,
   key: true,
-  contrast: { ground: COLOURS.ground, fill, min: 3 },
+  contrast: { ground: COLOURS.ground, fill, min: MIN_CONTRAST },
 })
 export const TEXT_SHAPES: Record<string, ImageShape> = {
   logo: logoShape(COLOURS.ink),

@@ -1,4 +1,5 @@
 import type { Config, Field } from 'payload'
+import { hexColour } from '../internal/colour.js'
 import type { Target } from '../template.js'
 
 /** What the `og` group stores on a document. Every member is optional: a document that never saw the group has none. */
@@ -6,9 +7,17 @@ export type OgDocFields = {
   mode?: 'inherit' | 'generated' | 'custom' | 'off' | null
   headline?: string | null
   subtitle?: string | null
+  label?: string | null
+  accent?: string | null
 }
 
 export type OgFieldsOption = { enabled: boolean; position?: 'sidebar' | 'tab' }
+
+const normaliseAccent = ({ value }: { value?: unknown }) => (typeof value === 'string' ? (hexColour(value.trim()) ?? value) : value)
+const validateAccent = (value: unknown) =>
+  value === undefined || value === null || (typeof value === 'string' && (value.trim() === '' || hexColour(value.trim()) !== undefined))
+    ? true
+    : 'Use a hex colour: #rgb or #rrggbb'
 
 const group = (position: 'sidebar' | undefined): Field =>
   ({
@@ -40,6 +49,22 @@ const group = (position: 'sidebar' | undefined): Field =>
         type: 'text',
         label: 'Card subtitle',
         admin: { description: 'A second line on the generated card, where the template draws one.' },
+      },
+      {
+        name: 'label',
+        type: 'text',
+        label: 'Card label',
+        maxLength: 40,
+        admin: { description: 'The short category line of the generated card. Leave empty to use the collection’s label.' },
+      },
+      {
+        name: 'accent',
+        type: 'text',
+        label: 'Card accent colour',
+        admin: { description: 'A hex colour such as #3366ff for the strip and pills of this card. Leave empty for the preset’s accent.' },
+        // Saved as lowercase `#rrggbb`; the same reader (`hexColour`) is what the card draws from, so a stored value cannot disagree.
+        hooks: { beforeValidate: [normaliseAccent] },
+        validate: validateAccent,
       },
       {
         // Bumped by the preview's "Force new image" button: part of the card's version, so a bump is a new URL.

@@ -1,6 +1,7 @@
 // Prepares a named image by its `ImageShape`: contained and trimmed, tinted when it would vanish on its ground, declined when its shape is no mark.
 // Everything is a pure function of the image's bytes and the template's shape, so the result is covered by the upload's identity (the version's
 // image tail) and the template's revision. Nothing here is random.
+import { contrast, luminance, rgbOf } from '../internal/colour.js'
 import { DepLoadError, loadSharp } from '../internal/deps.js'
 import type { ImageShape } from '../template.js'
 
@@ -9,20 +10,6 @@ const RASTER = new Set(['jpeg', 'png', 'webp', 'gif', 'avif', 'tiff', 'heif'])
 const WORK = 1000
 
 type Raw = { data: Buffer; width: number; height: number }
-
-const hexOf = (hex: string): [number, number, number] => {
-  const h = hex.replace('#', '')
-  const f = h.length === 3 ? [...h].map((c) => c + c).join('') : h
-  const n = Number.parseInt(f.slice(0, 6), 16)
-  return [(n >> 16) & 255, (n >> 8) & 255, n & 255]
-}
-const linear = (v: number) => {
-  const c = v / 255
-  return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4
-}
-/** WCAG relative luminance. */
-const luminance = ([r, g, b]: number[]) => 0.2126 * linear(r as number) + 0.7152 * linear(g as number) + 0.0722 * linear(b as number)
-const contrast = (a: number, b: number) => (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05)
 
 async function upright(bytes: Buffer, maxPixels: number): Promise<Raw | null> {
   const sharp = await loadSharp()
@@ -149,7 +136,7 @@ async function contained(
   }
   let out = await fit(src)
   if (shape.contrast) {
-    const ground = luminance(hexOf(shape.contrast.ground))
+    const ground = luminance(rgbOf(shape.contrast.ground))
     const min = shape.contrast.min ?? 3
     let seen = 0
     let low = 0
@@ -161,7 +148,7 @@ async function contained(
     }
     if (seen > 0 && low / seen >= 0.5) {
       out = keyed ? await fit(keyed) : out
-      const [fr, fg, fb] = hexOf(shape.contrast.fill)
+      const [fr, fg, fb] = rgbOf(shape.contrast.fill)
       for (let i = 0; i < out.width * out.height; i++) {
         out.data[i * 4] = fr
         out.data[i * 4 + 1] = fg

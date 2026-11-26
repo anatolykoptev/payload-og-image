@@ -6,7 +6,10 @@
  * - target.ts `choosePreset` ignores `preset: 'text'` -> "the preset follows the hero" RED
  * - fonts.ts one face registration removed (a subset missing) -> "the bundled faces draw ..." RED
  * - layout.ts the `weight` argument of `ctx.font` dropped at a call site (title, name or foot, either layout) -> "a family whose bold face lacks Cyrillic is not the family of a bold preset run" RED
- * - draw.ts `fitRow` drops the lowest priority number instead of the highest -> "fitRow drops whole items" RED */
+ * - draw.ts `fitRow` drops the lowest priority number instead of the highest -> "fitRow drops whole items" RED
+ * - target.ts `accent` left out of the props (the version no longer covers it) -> "the version changes with the label and with the accent ..." RED
+ * - target.ts the collection's label wins over `og.label` -> "the card draws the document's label ..." RED
+ * - layout.ts `accentOf` skips the contrast rule -> "... a low-contrast one is drawn in the ink" RED */
 import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
@@ -901,6 +904,99 @@ describe('the head, the right side and the title ladder', () => {
     expect(set?.props.artOpacity).toBe(1)
     expect(set?.v).not.toBe(base?.v)
     expect(() => expandPresets({ artOpacity: 1.5 } as never, configOf())).toThrow(/artOpacity must be a number from 0 to 1/)
+  })
+})
+
+describe('a document’s own label and accent', () => {
+  const card = async (og: Record<string, unknown> | undefined, input: Record<string, unknown> = {}) => {
+    const h = await presetHarness({
+      input: { collections: ['posts'], ...input } as never,
+      docs: { a: { id: 1, slug: 'a', title: 'Own label', ...(og ? { og } : {}) } },
+    })
+    const c = await h.resolve('posts', 'a')
+    if (c.kind !== 'generated') throw new Error(`expected a generated card, got ${c.kind}`)
+    const res = await h.get('https://www.example.test/og/posts/a/card.png', { kind: 'posts', slug: 'a', file: 'card.png' })
+    expect(res.status).toBe(200)
+    return { c, h, drawn: h.drawn.join('\n') }
+  }
+  const strip = (hex: string) => {
+    const n = Number.parseInt(hex.slice(1), 16)
+    return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, 0.55)`
+  }
+
+  it('the card draws the document’s label instead of the collection’s; a label of the collection’s own, or none, is the collection’s', async () => {
+    const none = await card(undefined)
+    expect(none.c.props.label).toBe('Blog') // the collection's plural label
+    expect(none.drawn).toContain('Blog')
+    const own = await card({ label: '  Case study  ' })
+    expect(own.c.props.label).toBe('Case study')
+    expect(own.drawn).toContain('Case study')
+    expect(own.drawn).not.toContain('Blog')
+    // A site's own configured label is the fallback, never an override.
+    const site = await card({ label: '' }, { collections: [{ slug: 'posts', label: 'Journal' }] })
+    expect(site.c.props.label).toBe('Journal')
+    const both = await card({ label: 'Case study' }, { collections: [{ slug: 'posts', label: 'Journal' }] })
+    expect(both.c.props.label).toBe('Case study')
+  })
+  it('the version changes with the label and with the accent, and a card draws the accent on its strip and pill', async () => {
+    const base = await card(undefined)
+    const label = await card({ label: 'Case study' })
+    const accent = await card({ accent: '#ff6600' })
+    expect(label.c.v).not.toBe(base.c.v)
+    expect(accent.c.v).not.toBe(base.c.v)
+    expect(accent.c.props.accent).toBe('#ff6600')
+    expect(accent.drawn).toContain(strip('#ff6600'))
+    expect(base.drawn).not.toContain(strip('#ff6600'))
+    expect((await card({ accent: '#ff6601' })).c.v).not.toBe(accent.c.v)
+    // `#rgb` and any case are the same colour, hence the same card.
+    const short = await card({ accent: '#F60' })
+    expect(short.c.v).toBe(accent.c.v)
+    // A pill and a badge (the slots a site's own target fills) take the accent too.
+    const slots = JSON.stringify(textPreset.render({ title: 'T', site: 'S', pill: 'New', badge: 'v2', accent: '#ff6600' }, await ctxOf()))
+    expect(slots.match(/"accent":"#ff6600"/g)).toHaveLength(2) // the pill and the badge
+    expect(JSON.stringify(textPreset.render({ title: 'T', site: 'S', pill: 'New' }, await ctxOf()))).toContain('"accent":"#8FB4FF"')
+  })
+  it('the preset’s own accent, an invalid value and a low-contrast one are never a new card; a low-contrast one is drawn in the ink', async () => {
+    const base = await card(undefined)
+    expect((await card({ accent: '#8FB4FF' })).c.v).toBe(base.c.v) // the preset's own accent
+    expect((await card({ accent: 'red' })).c.v).toBe(base.c.v) // not a hex colour: none
+    expect((await card({ accent: '#12345' })).c.v).toBe(base.c.v)
+    const dark = await card({ accent: '#1a1c1e' }) // 1.1:1 with the ground
+    const ink = await card({ accent: '#eef0f2' })
+    expect(dark.c.props.accent).toBe('#eef0f2') // the ink, the fallback a logo that would vanish already gets
+    expect(dark.c.v).toBe(ink.c.v)
+    expect(dark.drawn).toContain(strip('#eef0f2'))
+    expect(dark.drawn).not.toContain(strip('#1a1c1e'))
+  })
+  it('accent and label that the collection hides are never drawn', async () => {
+    const posts = configOf({
+      collections: [
+        {
+          slug: 'posts',
+          access: { read: () => true },
+          fields: [
+            { name: 'title', type: 'text' },
+            { name: 'slug', type: 'text' },
+            {
+              type: 'group',
+              name: 'og',
+              fields: [
+                { name: 'label', type: 'text', admin: { hidden: true } },
+                { name: 'accent', type: 'text', access: { read: () => false } },
+              ],
+            },
+          ],
+        },
+      ],
+    } as never)
+    const h = await presetHarness({
+      config: posts,
+      docs: { a: { id: 1, slug: 'a', title: 'T', og: { label: 'ADMIN ONLY', accent: '#ff6600' } } },
+    })
+    const c = await h.resolve('posts', 'a')
+    if (c.kind !== 'generated') throw new Error('expected a generated card')
+    expect(c.props.label).toBe('Posts')
+    expect(c.props).not.toHaveProperty('accent')
   })
 })
 

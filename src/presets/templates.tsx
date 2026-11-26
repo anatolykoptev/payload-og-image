@@ -2,6 +2,7 @@
 import type { CSSProperties, ReactElement, ReactNode } from 'react'
 import { defineTemplate, type Template, type TemplateContext } from '../template.js'
 import {
+  accentOf,
   type FootItem,
   normalizeSlots,
   type PhotoLayout,
@@ -66,8 +67,8 @@ const line = (r: Rect, family: string, size: number, color: string, extra: CSSPr
   ...extra,
 })
 
-function Pill(c: { item: FootItem; photo: boolean }): ReactElement {
-  const { item, photo } = c
+function Pill(c: { item: FootItem; photo: boolean; accent: string }): ReactElement {
+  const { item, photo, accent } = c
   const base = {
     ...abs(item.rect),
     alignItems: 'center',
@@ -82,9 +83,9 @@ function Pill(c: { item: FootItem; photo: boolean }): ReactElement {
       <div
         style={{
           ...base,
-          border: `2px solid ${photo ? '#ffffff' : COLOURS.accent}`,
+          border: `2px solid ${photo ? '#ffffff' : accent}`,
           borderRadius: 8,
-          color: photo ? '#ffffff' : COLOURS.accent,
+          color: photo ? '#ffffff' : accent,
           fontWeight: 700,
         }}
       >
@@ -110,7 +111,7 @@ function Pill(c: { item: FootItem; photo: boolean }): ReactElement {
       style={{
         ...base,
         borderRadius: item.rect.h / 2,
-        background: photo ? '#ffffff' : COLOURS.accent,
+        background: photo ? '#ffffff' : accent,
         color: COLOURS.ground,
         fontWeight: 700,
       }}
@@ -139,8 +140,12 @@ function TextRow(c: { item: FootItem; photo: boolean }): ReactElement {
   )
 }
 
-const footEl = (item: FootItem, photo: boolean) =>
-  item.kind === 'text' ? <TextRow key={item.key} item={item} photo={photo} /> : <Pill key={item.key} item={item} photo={photo} />
+const footEl = (item: FootItem, photo: boolean, accent: string) =>
+  item.kind === 'text' ? (
+    <TextRow key={item.key} item={item} photo={photo} />
+  ) : (
+    <Pill key={item.key} item={item} photo={photo} accent={accent} />
+  )
 
 const img = (src: string | undefined, r: Rect | undefined) =>
   src && r ? <img src={src} width={r.w} height={r.h} style={{ position: 'absolute', left: r.x, top: r.y }} alt="" /> : undefined
@@ -148,6 +153,7 @@ const img = (src: string | undefined, r: Rect | undefined) =>
 /** The text layout drawn. Also what a photo card draws when its photograph could not be prepared. */
 function drawText(p: PresetProps, ctx: TemplateContext): ReactElement {
   const l: TextLayout = textLayout(p, ctx)
+  const accent = accentOf(p)
   const art = l.art === 'art' ? single(ctx.images.art) : undefined
   const mark = l.art === 'mark' ? single(ctx.images.mark) : undefined
   return (
@@ -202,7 +208,7 @@ function drawText(p: PresetProps, ctx: TemplateContext): ReactElement {
           {l.sub.text}
         </div>
       )}
-      {l.foot.map((i) => footEl(i, false))}
+      {l.foot.map((i) => footEl(i, false, accent))}
       <div
         style={{
           position: 'absolute',
@@ -210,7 +216,7 @@ function drawText(p: PresetProps, ctx: TemplateContext): ReactElement {
           bottom: 0,
           width: CARD.width,
           height: TEXT.strip.height,
-          background: rgba(COLOURS.accent, TEXT.strip.opacity),
+          background: rgba(accent, TEXT.strip.opacity),
         }}
       />
     </Root>
@@ -253,7 +259,7 @@ function drawPhoto(p: PresetProps, ctx: TemplateContext): ReactElement {
       >
         {l.title.text}
       </div>
-      {l.facts.map((i) => footEl(i, true))}
+      {l.facts.map((i) => footEl(i, true, accentOf(p)))}
       {img(single(ctx.images.logo), l.logo)}
       {img(single(ctx.images.partner), l.partner)}
     </Root>

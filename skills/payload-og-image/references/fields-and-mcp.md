@@ -9,7 +9,7 @@ ogImagePlugin({ /* ... */ fields: { enabled: true } }) // group in the sidebar
 ogImagePlugin({ /* ... */ fields: { enabled: true, position: 'tab' } }) // a "Share card" tab
 ```
 
-Off by default; with it off the schema is exactly what it was. Each target's collection gets a top-level group `og`: `mode` (select), `headline`, `subtitle` (text), a hidden number `nonce` and a UI-only "Card preview".
+Off by default; with it off the schema is exactly what it was. Each target's collection gets a top-level group `og`: `mode` (select), `headline`, `subtitle`, `label`, `accent` (text), a hidden number `nonce` and a UI-only "Card preview".
 
 To place it yourself: `import { ogFields } from 'payload-og-image'`, put `ogFields()` in the collection's `fields`, and leave `fields` off. It must be named `og` and sit at the top level (directly, or inside a row, collapsible or unnamed tab). An `og` under a named group (`meta`), an array or a named tab is never read; the plugin warns at start-up. A collection that already has a top-level `og` is not given a second; one with its own `og.mode` is read as is, so its values must be `inherit`, `generated`, `custom`, `off`.
 
@@ -20,7 +20,7 @@ To place it yourself: `import { ogFields } from 'payload-og-image'`, put `ogFiel
 | `custom`            | the editor's image only; the generated card if it is not eligible                                                |
 | `off`               | no `og:image` of its own; a site-wide default in the layout still applies                                        |
 
-`headline` and `subtitle` appear in `props` as `overrides?.headline` and `overrides?.subtitle`. Wire them: `title: overrides?.headline ?? doc.title`. A document with a headline gets its own URL because they go through `props`.
+`headline` and `subtitle` appear in `props` as `overrides?.headline` and `overrides?.subtitle`. Wire them: `title: overrides?.headline ?? doc.title`. A document with a headline gets its own URL because they go through `props`. `label` and `accent` (a `#rgb`/`#rrggbb` colour, validated in the admin) are the same through `overrides?.label` and `overrides?.accent`; the presets draw both, and an accent too dark for the ground falls back to the ink (`docs/reference.md`, "Per-document share card fields").
 
 ## The migration (the site's job)
 

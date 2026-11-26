@@ -149,7 +149,11 @@ beforeAll(async () => {
           posts: defineTarget<any, any>({
             path: '/og/:kind/:slug/card.png',
             template: 'post',
-            props: ({ doc, overrides }: any) => ({ title: overrides?.headline ?? doc.title, label: 'Blog' }),
+            props: ({ doc, overrides }: any) => ({
+              title: overrides?.headline ?? doc.title,
+              label: overrides?.label ?? 'Blog',
+              accent: overrides?.accent,
+            }),
           }),
         },
         fields: { enabled: true },
@@ -327,6 +331,57 @@ describe('payloadSource against a real Payload', () => {
     await payload.update({ collection: 'posts', id, data: { og: { nonce: 2 }, _status: 'published' }, overrideAccess: true })
     const next = await publicUrl()
     expect([next === after, next === before]).toEqual([false, false])
+  })
+  it('og.label and og.accent: a draft value reaches only the editor; the public card changes when it is published; the accent is saved as lowercase #rrggbb', async () => {
+    const rt = buildRuntime(state, payload, { renderer: { render: tinyPng }, isDraftRequest: async () => false })
+    const { id } = (await payload.create({
+      collection: 'posts',
+      data: { title: 'Own look', slug: 'own-look', og: { label: 'Published label', accent: '#3366FF' }, _status: 'published' },
+      overrideAccess: true,
+    })) as { id: number }
+    const card = async () => {
+      const c = await rt.resolveForMetadata({ target: 'posts', id })
+      if (c.kind !== 'generated') throw new Error(`expected a generated card, got ${c.kind}`)
+      return c
+    }
+    const before = await card()
+    expect(before.props).toMatchObject({ label: 'Published label', accent: '#3366ff' })
+    await payload.update({
+      collection: 'posts',
+      id,
+      data: { og: { label: 'Draft label', accent: '#ff6600' } },
+      draft: true,
+      overrideAccess: true,
+    })
+    // The public sees the published document only; the editor's draft read has the new values.
+    const publicDoc = await src().published('posts', 'own-look')
+    expect(publicDoc?.og).toMatchObject({ label: 'Published label', accent: '#3366ff' })
+    expect((await card()).url).toBe(before.url)
+    expect((await src().draft('posts', { slug: 'own-look' }, editor()))?.og).toMatchObject({ label: 'Draft label', accent: '#ff6600' })
+    await payload.update({
+      collection: 'posts',
+      id,
+      data: { og: { label: 'Draft label', accent: '#ff6600' }, _status: 'published' },
+      overrideAccess: true,
+    })
+    const after = await card()
+    expect(after.props).toMatchObject({ label: 'Draft label', accent: '#ff6600' })
+    expect(after.url).not.toBe(before.url)
+  })
+  it('og.accent: a value that is not a hex colour is refused on save, a #rgb value is saved as #rrggbb', async () => {
+    await expect(
+      payload.create({
+        collection: 'posts',
+        data: { title: 'Bad accent', slug: 'bad-accent', og: { accent: 'red' }, _status: 'published' },
+        overrideAccess: true,
+      }),
+    ).rejects.toThrow(/invalid|hex colour/i)
+    const ok = (await payload.create({
+      collection: 'posts',
+      data: { title: 'Short accent', slug: 'short-accent', og: { accent: '#F60' }, _status: 'published' },
+      overrideAccess: true,
+    })) as { og?: { accent?: string } }
+    expect(ok.og?.accent).toBe('#ff6600')
   })
   it('publishedById(): the same document by id', async () => {
     const a = (await src().published('posts', 'a')) as { id: number }

@@ -238,6 +238,21 @@ describe('resolveCard', () => {
     await run(undefined)
     expect(seen).toEqual([{ headline: 'Hi', subtitle: 'there' }, {}, {}, {}])
   })
+  it('og: a label is trimmed text and an accent is a hex colour as lowercase #rrggbb; a value that is no colour is undefined', async () => {
+    const seen: unknown[] = []
+    const t = defineTarget<any, any>({
+      ...posts,
+      props: ({ doc, overrides }) => (seen.push(overrides), { title: doc.title, label: 'Blog', site: 'S' }),
+    })
+    const b = await base()
+    const run = (og: unknown) => resolveCard({ ...b, target: t, doc: { id: 1, slug: 'a', title: 'A', og } })
+    await run({ label: '  Case study ', accent: ' #F60 ' })
+    await run({ label: 7, accent: '#3366FF' })
+    await run({ accent: 'red' })
+    await run({ accent: '#12345' })
+    await run({ accent: 5 })
+    expect(seen).toEqual([{ label: 'Case study', accent: '#ff6600' }, { accent: '#3366ff' }, {}, {}, {}])
+  })
   it('og: overrides reach hero(), share() and template() as well', async () => {
     const seen: unknown[] = []
     const t = defineTarget<any, any>({
