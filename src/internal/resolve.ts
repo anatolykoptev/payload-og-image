@@ -15,6 +15,7 @@ import {
   type WebpOptions,
 } from './format.js'
 import { IMAGE_NAME, MAX_CARD_IMAGES } from './limits.js'
+import { uploadSource } from './needs.js'
 import { pooled } from './pool.js'
 import type { CardEncoding, CardKey, CardMime, SiteInfo, Size, Upload } from './types.js'
 import { canonicalJson, cardVersion, normalizeProps, pageId } from './version.js'
@@ -32,7 +33,7 @@ export type GeneratedCard = {
    * whose uploads resolved is not here. Each is read only from its own upload collection's folder.
    */
   images: Array<{ name: string; collection: string; uploads: Upload[] }>
-  /** The upload collection the hero is read from (the target's `heroCollection`). */
+  /** The upload collection the hero was read from: the target's `heroCollection`, else the field's it was populated from, else the site's only one. */
   heroCollection: string | undefined
   /** The ground this card's own target or template set for a transparent hero (normalised); the loader flattens onto it. Undefined: the plugin's. */
   heroBackground: string | undefined
@@ -73,6 +74,8 @@ export type ResolveInput = {
   /** Effective card / hero palette tags when not the default (see `paletteTags`). */
   cardPalette?: string
   heroPalette?: string
+  /** `heroPalette` for a JPEG or WebP card (an unset `palette.hero` is truecolour there); unset: `heroPalette`. */
+  heroPaletteLossy?: string
   /** The plugin's card format and JPEG settings; a target's own win. */
   format?: CardFormat
   jpeg?: JpegOptions
@@ -137,16 +140,23 @@ async function readUpload(related: RelatedFn, collection: string, id: string): P
 }
 
 /**
- * The card's hero. An upload the document already holds (read by id with the caller's access, for a single upload field) is used as it is. A bare id
- * (the value of a `hasMany` upload field at depth 0, which is never populated) or an object with no file is read here, from `heroCollection` or the
- * site's only upload collection: otherwise it would silently draw no hero. With neither collection to name, it stays no hero.
+ * The card's hero: the id the target's `hero` resolver names (a bare id, or an upload object, of which only the id is taken), read again by id
+ * with the caller's access (`related`: published only, the editor's draft view in a preview), from `heroCollection`, else the collection `populateUploads` read the object from, else the site's only upload
+ * collection, exactly as a named image is. The object the target handed over is never drawn as it is: whatever filled it (a populated field, a custom
+ * field, a hand-built value) is not proof that the public may read that upload. With no collection to name, or nothing readable, there is no hero.
  */
-async function heroOf(i: ResolveInput, args: ResolverArgs<any>, raw: unknown): Promise<Upload | null> {
-  const direct = usableHero(raw)
-  if (direct) return direct
+async function heroOf(
+  i: ResolveInput,
+  args: ResolverArgs<any>,
+  raw: unknown,
+): Promise<{ hero: Upload | null; collection: string | undefined }> {
   const id = uploadId(raw)
-  const collection = i.target.heroCollection ?? i.uploadCollection
-  return id === undefined || collection === undefined ? null : readUpload(args.related, collection, id)
+  // The collection `populateUploads` read this very object from is where it lives, whatever `heroCollection` says (a hero from a `logos` field is not the
+  // `media` upload of the same id); else the target's. What reads it is also what the hero loader and the alpha probe look in; with neither, the site's
+  // only upload collection reads it, and they fall back to that one themselves.
+  const collection = (raw !== null && typeof raw === 'object' ? uploadSource.get(raw) : undefined) ?? i.target.heroCollection
+  const from = collection ?? i.uploadCollection
+  return { hero: id === undefined || from === undefined ? null : await readUpload(args.related, from, id), collection }
 }
 
 /** The target's named images, each upload re-read by id (see `readUpload`) from its own collection. Throws for a target that is wrong, never for a missing upload. */
@@ -344,21 +354,22 @@ export async function resolveCard(i: ResolveInput): Promise<ResolvedCard> {
 
   const slug = routable(nonEmpty(getPath(i.doc, i.target.slugField ?? 'slug')))
   if (slug === undefined) return { kind: 'none' }
-  const hero = await heroOf(i, args, rawHero)
+  const { hero, collection: heroCollection } = await heroOf(i, args, rawHero)
   const images = await namedImages(i, args, template)
   const key = { kind: i.target.kind ?? i.targetName, slug }
   // A transparent hero nobody flattens is drawn with its alpha (0.5.0); its bytes differ from 0.4.0's, so its URL must too.
   const ownBackground = i.target.heroBackground ?? template.heroBackground
   const background = ownBackground === undefined ? undefined : normaliseHeroBackground(ownBackground)
   const flattened = background !== undefined || i.heroFlattened
-  const heroTransparent =
-    hero !== null && !flattened && i.heroHasAlpha ? await i.heroHasAlpha(hero, { collection: i.target.heroCollection }) : false
+  const heroTransparent = hero !== null && !flattened && i.heroHasAlpha ? await i.heroHasAlpha(hero, { collection: heroCollection }) : false
   // The target's own format wins, then the template's, then the plugin's.
   const { format, quality } = formatOf(
     { format: i.format, jpeg: i.jpeg, webp: i.webp },
     { ...i.target, format: i.target.format ?? template.format },
   )
   const encoding: CardEncoding = encodingOf(format, quality, groundOf(background, i.heroBackground))
+  const lossy = encoding.format !== 'png'
+  const lossyPalette = i.heroPaletteLossy ?? i.heroPalette
   const v = cardVersion({
     templateId,
     templateRevision: template.revision,
@@ -369,7 +380,11 @@ export async function resolveCard(i: ResolveInput): Promise<ResolvedCard> {
     heroBackground: background === undefined ? i.heroBackground : background === DEFAULT_HERO_BACKGROUND ? undefined : background,
     heroTransparent,
     cardPalette: i.cardPalette,
-    heroPalette: i.heroPalette,
+    // The lossy default (`palette.hero` unset: truecolour) reaches only the paths that read it: a hero the template gave no `heroColours`, and a named
+    // image without a shape. Anything else draws what it always drew, so its version does not move.
+    heroPalette: lossy && template.heroColours === undefined ? lossyPalette : i.heroPalette,
+    imagePalette:
+      lossy && images.some((e) => e.uploads.length > 0 && template.imageShapes?.[e.name] === undefined) ? lossyPalette : i.heroPalette,
     variant: variantOf(encoding),
     fontsDigest: fontsKey(i.fontsDigest, i.stacks),
     host: i.host,
@@ -385,7 +400,7 @@ export async function resolveCard(i: ResolveInput): Promise<ResolvedCard> {
     props,
     hero,
     images,
-    heroCollection: i.target.heroCollection,
+    heroCollection,
     heroBackground: background,
     heroTransparent,
     heroGround: background ?? (i.heroFlattened ? (i.heroBackground ?? DEFAULT_HERO_BACKGROUND) : undefined),

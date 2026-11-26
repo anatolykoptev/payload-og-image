@@ -148,13 +148,10 @@ export function createInspector(d: InspectorDeps): Inspector {
     return { scope: a.target, card: await d.handler.resolve({ target: a.target, doc }, { previewing: false }), doc }
   }
 
-  const collectionOf = (scope: string) =>
-    scope === STATIC ? undefined : ((d.targets[scope] as { heroCollection?: string }).heroCollection ?? undefined)
-
-  async function describe(scope: string, card: ResolvedCard, check: boolean): Promise<Omit<AuditRow, 'id' | 'slug' | 'hasDescription'>> {
+  async function describe(card: ResolvedCard, check: boolean): Promise<Omit<AuditRow, 'id' | 'slug' | 'hasDescription'>> {
     if (card.kind === 'generated') {
       const stat = await d.store.stat(card.pageId, card.v, card.encoding.format)
-      const hero = await heroReport(card, collectionOf(scope), check)
+      const hero = await heroReport(card, card.heroCollection, check) // the collection the route reads the hero from, as resolved
       return {
         kind: 'generated',
         url: card.url,
@@ -230,7 +227,7 @@ export function createInspector(d: InspectorDeps): Inspector {
       const r = await resolveRef(a)
       if ('reason' in r) return { found: false, reason: r.reason }
       const { scope, card } = r
-      const row = await describe(scope, card, true)
+      const row = await describe(card, true)
       if (card.kind === 'none')
         return {
           found: true,
@@ -297,7 +294,7 @@ export function createInspector(d: InspectorDeps): Inspector {
           typeof doc._static === 'string'
             ? await d.handler.resolve({ staticKey: doc._static }, { previewing: false })
             : await d.handler.resolve({ target: scope, doc }, { previewing: false })
-        const base = await describe(scope, card, checkHeroes)
+        const base = await describe(card, checkHeroes)
         const slug = scope === STATIC ? doc.slug : getPath(doc, (d.targets[scope] as { slugField?: string }).slugField ?? 'slug')
         const row: AuditRow = {
           id: doc.id ?? null,

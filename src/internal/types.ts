@@ -80,6 +80,8 @@ export type VersionInput = {
   cardPalette?: string
   /** Effective hero palette when not the default; hashed with each hero only. */
   heroPalette?: string
+  /** The palette tag hashed with the named images; when the key is absent it is `heroPalette` (the two differ only for a JPEG or WebP card, see `resolveCard`). */
+  imagePalette?: string
   /** The card's encoding variant when it is not PNG (see `variantOf`); fills the version's variant slot. Absent hashes exactly as before. */
   variant?: string
   templateId: string

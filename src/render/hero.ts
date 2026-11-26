@@ -2,7 +2,7 @@ import { constants } from 'node:fs'
 import { open } from 'node:fs/promises'
 import net from 'node:net'
 import path from 'node:path'
-import sharp from 'sharp'
+import { DepLoadError, loadSharp } from '../internal/deps.js'
 import type { HeroLoader } from '../internal/handler.js'
 import { MAX_SIDE } from '../internal/limits.js'
 import { DEFAULT_HERO_COLOURS } from '../internal/palette.js'
@@ -161,6 +161,8 @@ async function prepare(
   box: { width: number; height: number },
   o: { maxPixels: number; background: string | undefined; colours: false | number },
 ): Promise<string | null> {
+  // Outside the try: a sharp that cannot load (a missing native binary) is a render error that names it, not a silent hero-less card.
+  const sharp = await loadSharp()
   try {
     const input = { limitInputPixels: o.maxPixels, failOn: 'error' as const }
     // The header alone: format, size and EXIF orientation, no pixel decode.
@@ -199,6 +201,8 @@ async function prepare(
 
 /** Whether any pixel of the image is see-through: a header check first, then a pixel pass only for an image that has an alpha channel. */
 async function transparent(bytes: Buffer, maxPixels: number, fuzzy = false): Promise<boolean> {
+  // Outside the try: a sharp that cannot load (a missing native binary) is a render error that names it, not a silent hero-less card.
+  const sharp = await loadSharp()
   try {
     const input = { limitInputPixels: maxPixels, failOn: 'error' as const }
     const meta = await sharp(bytes, input).metadata()
@@ -302,7 +306,8 @@ export function payloadHeroLoader(o: HeroLoaderOptions): HeroLoader {
         background: where?.keepAlpha ? undefined : (where?.background ?? background),
         colours: where?.colours !== undefined ? where.colours : colours,
       })
-    } catch {
+    } catch (error) {
+      if (error instanceof DepLoadError) throw error // sharp itself is broken: a render error that names it, not a silent hero-less card
       return null
     }
   }
@@ -325,7 +330,8 @@ export function payloadHeroLoader(o: HeroLoaderOptions): HeroLoader {
         const { bytes, svg, unreadable } = await rasterReady(hero, where, { width: 512, height: 512 })
         if (unreadable) return { value: false, keep: false } // unreadable: the card is drawn without it and never stored, so nothing is remembered
         return { value: bytes !== null && (await transparent(bytes, maxPixels, svg)), keep: true }
-      } catch {
+      } catch (error) {
+        if (error instanceof DepLoadError) throw error
         return { value: false, keep: false }
       }
     },

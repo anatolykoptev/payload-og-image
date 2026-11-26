@@ -511,7 +511,7 @@ export type TemplateContext = {
         text: string;
         width?: number;
     };
-    font(stack: string, text: string): string;
+    font(stack: string, text: string, weight?: number): string;
     fitRow?(items: RowItem[], width: number, gap?: number): RowFit[];
 };
 
@@ -560,6 +560,7 @@ export type TestRuntimeOptions = {
         updatedAt?: string | null;
     }) => boolean;
     heroDir?: string;
+    uploads?: Record<string, Record<string | number, Record<string, unknown>>>;
 };
 
 // @public (undocumented)

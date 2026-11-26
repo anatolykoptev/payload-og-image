@@ -14,7 +14,7 @@ import { memoryStore } from '../../src/internal/store/memory.js'
 import { payloadHeroLoader } from '../../src/render/hero.js'
 import { nextOgRenderer } from '../../src/render/nextOg.js'
 import { defineTarget, defineTemplate } from '../../src/template.js'
-import { loadTestFonts } from '../helpers.js'
+import { loadTestFonts, relatedUploads } from '../helpers.js'
 
 const sha = (b: Uint8Array) => createHash('sha256').update(b).digest('hex')
 
@@ -99,7 +99,7 @@ const build = (over: { heroBackground?: string; heroFlattened?: boolean } = {}) 
       publishedById: async () => null,
       draft: async () => null,
       site: async () => ({ name: 'Site' }),
-      related: async () => null,
+      related: relatedUploads(docs),
     },
     store: memoryStore(),
     renderer: {

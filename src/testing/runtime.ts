@@ -74,9 +74,17 @@ export type TestRuntimeOptions = {
    * other hero stays the small stand-in image; a `missing...` filename is still unreadable.
    */
   heroDir?: string
+  /**
+   * The site's upload collections, by slug then id, for a kit whose documents hold bare ids or whose uploads must differ by collection. A
+   * `_status: 'draft'` entry is a draft-only upload: a public read never sees it. A collection not listed holds nothing; without this option the stand-in upload objects inside the documents are used.
+   * Naming a target's collection, or an entry whose `id` is not its key, throws; an entry with no `id` takes its key.
+   */
+  uploads?: Record<string, Record<string | number, Record<string, unknown>>>
 }
 
 const EDITOR_AUTH = 'JWT kit-editor'
+/** The stand-in upload collection of a kit with no modelled `uploads`: not a name a site would pick. */
+const KIT_UPLOADS = 'og-kit-uploads'
 
 /**
  * Installs a runtime built exactly like production's (same handler, resolver, gate, memo, and the same `payloadSource`:
@@ -129,18 +137,77 @@ export function installTestRuntime(given: OgImagePluginOptions, docs: KitDocs, o
     return String(doc[field]) === String(cond.equals)
   }
 
+  /**
+   * The uploads the fixtures hold, read the way Payload reads them. With `o.uploads` they are modelled by collection and id (a `_status: 'draft'` entry
+   * is a draft-only upload), and a collection it does not list holds nothing. Without it, the stand-in uploads inside the documents are used, found by
+   * id in whichever upload collection is asked, since a fixture document does not say which collection its upload is in. A public read (`draft` not set) sees published documents and uploads
+   * only; a draft read sees the drafts first, then the published ones.
+   */
+  const uploadOf = (collection: string, id: unknown, draftRead: boolean): Record<string, any> | null => {
+    if (o.uploads !== undefined) {
+      const modelled = Object.hasOwn(o.uploads, collection) ? o.uploads[collection] : undefined
+      const hit = modelled && Object.hasOwn(modelled, String(id)) ? (modelled[String(id)] as Record<string, any>) : undefined
+      // The key is the id: an entry that omits its own `id` is that upload under it.
+      return hit && (draftRead || hit._status !== 'draft') ? { ...hit, id: hit.id ?? id } : null
+    }
+    const seen = new Set<unknown>()
+    const find = (v: unknown): Record<string, any> | null => {
+      if (v === null || typeof v !== 'object' || seen.has(v)) return null
+      seen.add(v)
+      const u = v as Record<string, any>
+      if (u.id !== undefined && typeof u.url === 'string' && typeof u.filename === 'string' && String(u.id) === String(id)) return u
+      for (const c of Object.values(u)) {
+        const hit = find(c)
+        if (hit) return hit
+      }
+      return null
+    }
+    return (draftRead ? find(docs.drafts) : null) ?? find(docs.published)
+  }
+  const isTargetCollection = (collection: string) =>
+    Object.entries(options.targets).some(([name, t]) => (t.collection ?? name) === collection)
+  /** The collections an upload is read from: `uploads`' keys, the kit's stand-in, and any a target names for its hero or images. Any other collection is a plain document table. */
+  const uploadCollections = new Set([
+    KIT_UPLOADS,
+    ...Object.keys(o.uploads ?? {}),
+    ...Object.values(options.targets).flatMap((t) => [
+      ...(t.heroCollection ? [t.heroCollection] : []),
+      ...Object.values(t.imageCollections ?? {}),
+    ]),
+  ])
+  for (const [slug, byId] of Object.entries(o.uploads ?? {})) {
+    if (isTargetCollection(slug))
+      throw new Error(
+        `payload-og-image test runtime: uploads names "${slug}", which is a target's collection (its documents are fixtures in \`docs\`, not uploads)`,
+      )
+    for (const [key, upload] of Object.entries(byId))
+      if (upload.id !== undefined && String(upload.id) !== key)
+        throw new Error(`payload-og-image test runtime: uploads.${slug}["${key}"] has id ${JSON.stringify(upload.id)}: the key is the id`)
+  }
+
   // The parts of Payload the production source touches: auth, find (the table above), collections, findGlobal.
   const fakePayload = {
     // `globals` as Payload lists them: a site's `site()` often asks which of its globals have drafts.
     config: { admin: { user: options.editors?.[0] ?? 'users' }, globals: Object.keys(docs.globals ?? {}).map((slug) => ({ slug })) },
-    collections: Object.fromEntries(
-      Object.entries(options.targets).map(([name, t]) => [t.collection ?? name, { config: { versions: { drafts: true } } }]),
-    ),
+    collections: {
+      ...Object.fromEntries(
+        Object.entries(options.targets).map(([name, t]) => [t.collection ?? name, { config: { versions: { drafts: true } } }]),
+      ),
+      // The site's only upload collection, so a target that names no `heroCollection` still reads its hero (stand-ins have no folder to load from).
+      // Never over a target's own collection of that name, and not at all when `uploads` models the site's collections itself.
+      ...(o.uploads === undefined && !isTargetCollection(KIT_UPLOADS) ? { [KIT_UPLOADS]: { config: { upload: { staticDir: '' } } } } : {}),
+      ...Object.fromEntries(Object.keys(o.uploads ?? {}).map((slug) => [slug, { config: { upload: { staticDir: '' } } }])),
+    },
     findGlobal: async ({ slug }: { slug: string }) => structuredClone(docs.globals?.[slug] ?? {}),
     auth: async ({ headers }: { headers: Headers }) => ({
       user: headers.get('authorization') === EDITOR_AUTH ? { id: 1, collection: editorCollection } : null,
     }),
     find: async (args: { collection: string; where?: unknown; draft?: boolean; page?: number; limit?: number; sort?: string }) => {
+      if (!isTargetCollection(args.collection) && uploadCollections.has(args.collection)) {
+        const id = (args.where as { and?: unknown[] } | undefined)?.and?.[0] ?? args.where
+        const upload = uploadOf(args.collection, (id as { id?: { equals?: unknown } } | undefined)?.id?.equals, args.draft === true)
+        return { docs: upload ? [structuredClone(upload)] : [], totalDocs: upload ? 1 : 0 }
+      }
       const name = targetOfCollection(args.collection)
       const found = table(name, args.draft === true).filter((d) => args.where === undefined || matches(args.where, d))
       if (args.sort === 'id') found.sort((a: any, b: any) => String(a.id).localeCompare(String(b.id), undefined, { numeric: true }))

@@ -2,16 +2,7 @@ import path from 'node:path'
 import type { Config, Payload } from 'payload'
 import { normaliseHeroBackground } from '../internal/colour.js'
 import { type FontSpec, missingGlyphs, type Stacks } from '../internal/fonts.js'
-import {
-  assertFormatOption,
-  type CardFormat,
-  cardPathProblem,
-  encodingOf,
-  formatOf,
-  groundOf,
-  type JpegOptions,
-  type WebpOptions,
-} from '../internal/format.js'
+import { assertFormatOption, type CardFormat, cardPathProblem, type JpegOptions, type WebpOptions } from '../internal/format.js'
 import { createGate } from '../internal/gate.js'
 import { assertPaletteOption } from '../internal/palette.js'
 import { buildKindIndex } from '../internal/resolve.js'
@@ -110,7 +101,7 @@ export type OgImagePluginOptions = {
   heroBackground?: string
   /**
    * How a card and a hero are palette-encoded. `card`: the renderer keeps the smaller of the truecolour PNG and a palette re-encoding
-   * (default 128 colours); `hero`: the hero is cut to a palette PNG (default 256 colours). Each is `false` (truecolour, larger files,
+   * (default 128 colours); `hero`: the hero is cut to a palette PNG (default 256 colours; with a JPEG or WebP card, truecolour unless you set it). Each is `false` (truecolour, larger files,
    * no banding) or a colour count from 2 to 256. A value other than the default is part of the card version, so changing it gives new URLs.
    */
   palette?: { card?: false | number; hero?: false | number }
@@ -342,9 +333,10 @@ function assertUploadCollections(payload: Payload, o: OgImagePluginOptions): voi
 }
 
 /**
- * Faces load (WOFF2 fails here), every stack draws the required sample, the store opens, and the fallback card is drawn once:
- * a template needs a document to be drawn, the fallback does not, so a card that cannot be drawn at all (fonts, renderer) shows
- * here and not at the first crawler request. Throws except in production, where it logs.
+ * Faces load (WOFF2 fails here), every stack draws the required sample and the store opens: milliseconds, no card is drawn. The
+ * renderer (next/og, sharp) is not touched at start-up, which Payload runs for every command including the CLI; the first real
+ * render proves it, and a renderer that cannot draw is logged there as a `render_error` and served as the degraded fallback.
+ * Throws except in production, where it logs.
  */
 async function selfTest(state: ReturnType<typeof createState>): Promise<void> {
   const o = state.options
@@ -357,22 +349,6 @@ async function selfTest(state: ReturnType<typeof createState>): Promise<void> {
       if (missing.length > 0) problems.push(`stack "${name}" cannot draw ${JSON.stringify(missing.join(''))}`)
     }
     await state.store().get('0'.repeat(16), '0'.repeat(12)) // boots the store: its checks emit events
-    try {
-      const { drawFallbackCard } = await import('../render/selfTest.js') // lazy: it loads next/og and sharp
-      // The fallback is served in the format of the card that failed: draw it in every format a card can have.
-      const formats = new Set<CardFormat>([
-        o.format ?? 'png',
-        ...Object.values(o.targets).map((t) => t.format ?? o.format ?? 'png'),
-        ...o.templates.flatMap((t) => (t.format === undefined ? [] : [t.format])),
-        ...Object.values(o.static ?? {}).map((c) => c.format ?? o.format ?? 'png'),
-      ])
-      for (const format of formats) {
-        const encoding = encodingOf(format, formatOf(o, { format }).quality, groundOf(undefined, undefined))
-        await drawFallbackCard({ brand: o.brand, fonts, stacks: o.stacks, host: new URL(state.serverUrl).host, siteName: sample, encoding })
-      }
-    } catch (error) {
-      problems.push(`the fallback card cannot be drawn: ${String((error as Error)?.message ?? error)}`)
-    }
   } catch (error) {
     problems.push(String((error as Error)?.message ?? error))
   }

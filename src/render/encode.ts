@@ -1,4 +1,4 @@
-import sharp from 'sharp'
+import { loadSharp } from '../internal/deps.js'
 import { DEFAULT_PALETTE, type Palette } from '../internal/palette.js'
 
 export { DEFAULT_PALETTE, type Palette }
@@ -19,6 +19,7 @@ export function assertPalette(p: Palette): void {
 export async function encodePng(png: Uint8Array, palette: Palette | false): Promise<Uint8Array> {
   if (palette === false) return png
   assertPalette(palette)
+  const sharp = await loadSharp()
   const encoded = await sharp(png)
     .png({ colours: palette.colours, compressionLevel: 6, dither: palette.dither, effort: 1, palette: true })
     .toBuffer()
@@ -35,6 +36,7 @@ export async function encodeLossy(
   png: Uint8Array,
   { format, quality, ground }: { format: 'jpeg' | 'webp'; quality: number; ground: string },
 ): Promise<Uint8Array> {
+  const sharp = await loadSharp()
   const flat = sharp(png).flatten({ background: ground })
   const out = await (format === 'jpeg'
     ? flat.jpeg({ quality, mozjpeg: true })

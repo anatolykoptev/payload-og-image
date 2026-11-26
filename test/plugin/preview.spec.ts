@@ -7,6 +7,7 @@
  * - endpoints.ts:99  skip the `access.create` check for a body with no id -> "10: no id: the collection create access decides" RED
  * - handler.ts:315  never report sharesImage -> "6b: an eligible editor image is shared -> sharesImage: true" RED
  * - endpoints.ts:12  `cache-control` other than no-store -> "1", "4" and "a card that would be blank" RED
+ * - endpoints.ts `uploadNeeds.get(...)` dropped from the populateUploads call -> "the live preview reads only the upload fields the target draws" RED
  * - endpoints.ts:35  restore `return o.id` for an upload-shaped value (an object id survives) -> "an upload-shaped value in the body is never trusted ..." RED
  * - payloadSource.ts:95  keep an object that has no usable id in populateUploads -> "populateUploads: an object with no usable id ..." RED
  * - endpoints.ts  read the body with req.json() / no byte cap -> "a chunked body with no length is capped too -> 413" RED
@@ -31,6 +32,7 @@ import { buildConfig, getPayload, type Payload } from 'payload'
 import sharp from 'sharp'
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createGate } from '../../src/internal/gate.js'
+import { uploadNeeds } from '../../src/internal/needs.js'
 import { buildRuntime, setTestRuntime } from '../../src/internal/runtime.js'
 import { CUSTOM_KEY, type OgState } from '../../src/internal/state.js'
 import type { CardStore } from '../../src/internal/types.js'
@@ -379,6 +381,21 @@ describe('POST /api/payload-og-image/preview', () => {
     const doc: Record<string, any> = { meta: { image: { filename: 'secret.png', id: { filename: 'secret.png' }, url: '/x' } } }
     await populateUploads(payload, 'posts', doc, users['ed1@x.test'])
     expect(doc.meta.image).toBeNull()
+  })
+  it('the live preview reads only the upload fields the target draws, like the served card', async () => {
+    const target = state.options.targets.posts as never
+    uploadNeeds.set(target, () => new Set()) // as a preset that draws no upload would
+    try {
+      const before = seenDocs.length
+      expect((await call('ed1@x.test', { collection: 'posts', id: ids.shared, doc: {} })).status).toBe(200)
+      expect(typeof seenDocs[before]?.meta?.image).toBe('number') // a bare id: not read
+      uploadNeeds.delete(target)
+      const again = seenDocs.length
+      expect((await call('ed1@x.test', { collection: 'posts', id: ids.shared, doc: {} })).status).toBe(200)
+      expect(seenDocs[again]?.meta?.image).toMatchObject({ id: expect.anything() }) // read
+    } finally {
+      uploadNeeds.delete(target)
+    }
   })
   it('a new document with no slug yet still gets a preview (a placeholder slug, for drawing only)', async () => {
     const r = await call('ed1@x.test', { collection: 'posts', doc: { title: 'Brand new' } })

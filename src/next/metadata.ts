@@ -4,6 +4,15 @@ import type { ResolvedCard } from '../internal/resolve.js'
 import { getRuntime } from '../internal/runtime.js'
 import { variantTargetName } from '../internal/variants.js'
 
+const logged = new Set<string>()
+/** The runtime never came up (the plugin is not registered, Payload failed to start), so there is no event sink: say so once per process and message, the way the route does. */
+function logNoRuntime(what: string, error: unknown) {
+  const line = `[payload-og] event=render_error detail=${JSON.stringify({ message: `${what}: ${String((error as Error)?.message ?? error)}` }).replace(/[^\x20-\x7e]/g, '?')}`
+  if (logged.has(line)) return
+  logged.add(line)
+  console.error(line)
+}
+
 export type OgMetadataArgs =
   | { config: Promise<SanitizedConfig> | SanitizedConfig; target: string; doc: { id: string | number } | null | undefined }
   | { config: Promise<SanitizedConfig> | SanitizedConfig; static: string }
@@ -40,7 +49,8 @@ export async function ogMetadata(a: OgMetadataArgs): Promise<Pick<Metadata, 'ope
     return descriptorOf(await rt.resolveForMetadata({ target: a.target, id: a.doc.id }))
   } catch (error) {
     if (process.env.NODE_ENV !== 'production') throw error
-    rt?.emit({ name: 'render_error', detail: { message: `metadata: ${String((error as Error)?.message ?? error)}` } })
+    if (rt) rt.emit({ name: 'render_error', detail: { message: `metadata: ${String((error as Error)?.message ?? error)}` } })
+    else logNoRuntime('metadata', error)
     return {}
   }
 }
@@ -91,7 +101,8 @@ export async function ogImages(a: OgImagesArgs): Promise<OgImage[]> {
     })
   } catch (error) {
     if (process.env.NODE_ENV !== 'production') throw error
-    rt?.emit({ name: 'render_error', detail: { message: `images: ${String((error as Error)?.message ?? error)}` } })
+    if (rt) rt.emit({ name: 'render_error', detail: { message: `images: ${String((error as Error)?.message ?? error)}` } })
+    else logNoRuntime('images', error)
     return []
   }
 }

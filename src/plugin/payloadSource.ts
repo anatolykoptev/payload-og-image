@@ -1,5 +1,6 @@
 import type { Payload } from 'payload'
 import type { DocSource } from '../internal/handler.js'
+import { uploadNeeds, uploadSource } from '../internal/needs.js'
 import { pooled } from '../internal/pool.js'
 import type { OgState } from '../internal/state.js'
 import type { SiteInfo } from '../internal/types.js'
@@ -106,16 +107,46 @@ export function uploadFieldPaths(fields: Field[] | undefined, prefix: string[] =
 }
 
 /**
- * The doc was read at depth 0, so its upload fields are bare ids. The hero and the share image are uploads, which have no
- * drafts: read each by id, with the caller's access (`user` for an editor, none for the public), and put it in place. An
- * upload that is missing or that the caller may not read becomes null. A value that is already an object (a document
- * assembled from an editor's form) is reduced to its id first, so it is read afresh and never trusted.
+ * One document by id, the way every read behind a card is made: access-respecting (`overrideAccess: false`), and published only. A
+ * drafts-enabled collection gets the `_status` predicate, so a draft-only document is never returned to the public; an editor previewing
+ * (`user`) sees the draft. Null when it does not exist or the caller may not read it.
+ */
+export async function readRelated(
+  payload: Payload,
+  collection: string,
+  id: string | number,
+  user?: unknown,
+): Promise<Record<string, any> | null> {
+  const known = payload.collections as unknown as Record<string, { config?: { versions?: { drafts?: unknown } } } | undefined>
+  const base = { collection, depth: 0, limit: 1, pagination: false, overrideAccess: false }
+  try {
+    const match = { id: { equals: id } }
+    const args = user
+      ? { ...base, where: match, draft: true, user }
+      : {
+          ...base,
+          where: known[collection]?.config?.versions?.drafts ? { and: [match, { _status: { equals: 'published' } }] } : match,
+          draft: false,
+        }
+    return ((await payload.find(args as unknown as FindArgs)).docs[0] ?? null) as Record<string, any> | null
+  } catch {
+    return null // not readable by this caller
+  }
+}
+
+/**
+ * The doc was read at depth 0, so its upload fields are bare ids. The hero and the share image are uploads: read each by id with
+ * `readRelated` (published only and the caller's access: `user` for an editor, none for the public) and put it in place. An upload that is
+ * missing, draft-only or that the caller may not read becomes null. A value that is already an object (a document assembled from an
+ * editor's form) is reduced to its id first, so it is read afresh and never trusted. `only` (dotted paths) limits which fields are read:
+ * the others are left as bare ids (or null), never read.
  */
 export async function populateUploads<T extends Record<string, any> | null>(
   payload: Payload,
   collection: string,
   doc: T,
   user?: unknown,
+  only?: ReadonlySet<string>,
 ): Promise<T> {
   if (!doc) return doc
   const known = payload.collections as unknown as Record<string, { config?: { fields?: Field[] } } | undefined>
@@ -130,9 +161,13 @@ export async function populateUploads<T extends Record<string, any> | null>(
       if (raw && typeof raw === 'object') holder[field] = null // an object with no usable id is no upload of ours
       continue
     }
-    holder[field] = await payload
-      .findByID({ collection: relationTo as never, id, depth: 0, overrideAccess: false, ...(user ? { user } : {}) } as never)
-      .catch(() => null)
+    if (only && !only.has(path.join('.'))) {
+      holder[field] = id // not drawn by this target: never read, and never an object nobody verified
+      continue
+    }
+    const read = await readRelated(payload, relationTo, id, user)
+    if (read) uploadSource.set(read, relationTo)
+    holder[field] = read
   }
   return doc
 }
@@ -150,14 +185,23 @@ export function payloadSource(payload: Payload, state: OgState, cachedSite: () =
   }
   // The root of the editor's share-image field the read must always select: the target's own, else the plugin's.
   const seoPathOf = (name: string) => targetOf(name).seoImage?.path ?? o.seoImage?.path
-  const first = async (args: FindArgs) => ((await payload.find(args)).docs[0] ?? null) as Record<string, any> | null
-  const known = payload.collections as unknown as Record<
-    string,
-    { config?: { fields?: Field[]; versions?: { drafts?: unknown } } } | undefined
-  >
-  const withUploads = <T extends Record<string, any> | null>(collection: string, doc: T, user?: unknown) =>
-    populateUploads(payload, collection, doc, user)
-  const readIn = async (collection: string, args: FindArgs, user?: unknown) => withUploads(collection, await first(args), user)
+  // A collection the caller may not read at all makes Payload throw `Forbidden`: that is no document (404), not a server error.
+  const first = async (args: FindArgs) => {
+    try {
+      return ((await payload.find(args)).docs[0] ?? null) as Record<string, any> | null
+    } catch (error) {
+      if (
+        (error as { name?: string; status?: number } | null)?.name === 'Forbidden' ||
+        (error as { status?: number } | null)?.status === 403
+      )
+        return null
+      throw error
+    }
+  }
+  // Only the upload fields the target draws (a preset says which; a hand-written target, whose resolvers are opaque, reads them all).
+  const withUploads = <T extends Record<string, any> | null>(name: string, doc: T, user?: unknown) =>
+    populateUploads(payload, targetOf(name).collection ?? name, doc, user, doc ? uploadNeeds.get(targetOf(name))?.(doc) : undefined)
+  const readIn = async (name: string, args: FindArgs, user?: unknown) => withUploads(name, await first(args), user)
   // Editors: users of the admin user collection (or the configured auth collections), nobody else.
   const editorCollections = new Set(o.editors ?? [payload.config?.admin?.user ?? 'users'])
   const editor = async (request: Request) => {
@@ -170,26 +214,25 @@ export function payloadSource(payload: Payload, state: OgState, cachedSite: () =
   }
   return {
     published: (name, slug) =>
-      readIn(targetOf(name).collection ?? name, {
+      readIn(name, {
         ...buildFind(payload, name, targetOf(name), { slug }, seoPathOf(name)),
         draft: false,
         overrideAccess: false,
       } as FindArgs),
     publishedById: (name, id) =>
-      readIn(targetOf(name).collection ?? name, {
+      readIn(name, {
         ...buildFind(payload, name, targetOf(name), { id }, seoPathOf(name)),
         draft: false,
         overrideAccess: false,
       } as FindArgs),
     async listPublished(name, a) {
-      const collection = targetOf(name).collection ?? name
       const found = await payload.find({
         ...buildList(payload, name, targetOf(name), a, seoPathOf(name)),
         draft: false,
         overrideAccess: false,
       } as FindArgs)
       // Each document reads its uploads by id: a few at a time, not a hundred at once.
-      const docs = await pooled(found.docs as Record<string, any>[], 4, (d) => withUploads(collection, d))
+      const docs = await pooled(found.docs as Record<string, any>[], 4, (d) => withUploads(name, d))
       return { docs, totalDocs: found.totalDocs }
     },
     async draft(name, key, request) {
@@ -202,28 +245,11 @@ export function payloadSource(payload: Payload, state: OgState, cachedSite: () =
         key.slug !== undefined ? { slug: key.slug } : { id: key.id as string | number },
         seoPathOf(name),
       )
-      return readIn(
-        targetOf(name).collection ?? name,
-        { ...withoutStatus(found), draft: true, overrideAccess: false, user } as FindArgs,
-        user,
-      )
+      return readIn(name, { ...withoutStatus(found), draft: true, overrideAccess: false, user } as FindArgs, user)
     },
     async related(collection, id, { previewing, request }) {
-      const user = previewing && request ? await editor(request) : null
-      const base = { collection, depth: 0, limit: 1, pagination: false, overrideAccess: false }
-      try {
-        // An editor previewing sees the draft; everyone else the published document, and never a draft-only one.
-        if (user) return await first({ ...base, where: { id: { equals: id } }, draft: true, user } as unknown as FindArgs)
-        const hasDrafts = Boolean(known[collection]?.config?.versions?.drafts)
-        const match = { id: { equals: id } }
-        return await first({
-          ...base,
-          where: hasDrafts ? { and: [match, { _status: { equals: 'published' } }] } : match,
-          draft: false,
-        } as FindArgs)
-      } catch {
-        return null // not readable by this caller
-      }
+      // An editor previewing sees the draft; everyone else the published document, and never a draft-only one.
+      return readRelated(payload, collection, id, previewing && request ? await editor(request) : null)
     },
     async site(request) {
       // Draft site data only for an authenticated editor: a draft-mode cookie alone must not draw draft text.

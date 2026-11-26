@@ -34,6 +34,21 @@ by full URL, and the page now advertises the new one). A CDN in front of the rou
 cache key: the current-`v` answer is `immutable` for a year, any other `?v` is not, and a cache that drops the query
 would hand one answer to every `?v`.
 
+### When an upload is made private or deleted
+
+A card is a public copy of what the public could read when it was drawn. The origin keeps itself correct: the version is derived
+from the uploads the card draws, and every request reads them again with the visitor's access. When one becomes unreadable (made
+private, unpublished, deleted) or changes, the next request computes a new `v` and draws the card without it. A stored file is
+looked up under that current `v` only, so a stored card is never served for a version whose inputs no longer resolve the same; the
+old files are pruned by the store's own retention (the newest two versions of a page). The contract for an obsolete `v` is the one
+above: the origin answers it with the current card and the one-hour header, never with old pixels. The plugin adds no hook and
+keeps no index for this.
+
+What the origin cannot reach is a copy somebody else already holds: a browser or CDN that fetched the old `?v=` URL (one year,
+`immutable`), a messenger's or a crawler's preview cache. Treat a card as public once its page is: revoking access to an upload
+does not recall the card, and a CDN needs its own purge for the old URL. If the image must never appear on a card, keep it out
+of every upload the card can draw.
+
 Draft mode is never cached, never stored, and shows draft text only to an authenticated editor. An HTTP cache
 that already holds a card for the same URL may serve it during a preview without asking the app; preview with a
 fresh URL (`?preview=1`) if you need to be sure.
@@ -234,10 +249,20 @@ redirect.
 ### A hero that is a bare id
 
 A single upload field is read for you, so `hero: ({ doc }) => doc.heroImage` receives the upload. A `hasMany` upload field is
-not populated (the document is read at depth 0), so `doc.photos` is a list of bare ids. A hero that is a bare id, or an
-object with no file, is read by id with the visitor's access from `heroCollection`, or from the site's only upload
-collection; `hero: ({ doc }) => doc.photos?.[0]` therefore draws the first photo. With more than one upload collection and
-no `heroCollection`, a bare id cannot be placed, and the card has no hero: name the collection.
+not populated (the document is read at depth 0), so `doc.photos` is a list of bare ids. Whatever the resolver returns, only its
+id counts: the card's hero is always read again by that id with the visitor's access (published only; the editor's draft view in
+a preview) from `heroCollection`, or from the site's only upload collection, exactly as a named image is. An upload object
+from a custom field, or one a resolver built by hand, is therefore never drawn as it is, and an upload the public may not read
+(draft-only, private, deleted) is no hero. `hero: ({ doc }) => doc.photos?.[0]` draws the first photo. With more than one upload
+collection and no `heroCollection`, the id cannot be placed, and the card has no hero: name the collection. The one exception is the
+upload object the plugin itself filled in from a single upload field: it is read again from the collection of that field. A remote
+hero (a resolver returning an absolute URL on an `allowedImageHosts` host) is drawn only when its id names an upload record the public may
+read: a hero with no readable record is not drawn. Before this change such an object was drawn as given; give it a backing upload record (the
+cloud-storage plugins do) or return the id.
+
+The upload fields of a document are filled in with the same published-only, access-respecting read (`related()`'s), so a draft-only
+upload never reaches `hero`, `share` or the editor's share-image selection. A preset collection reads only the upload fields its
+card draws: a collection set to `preset: 'text'` reads no hero record at all.
 
 Upgrade effect: a resolver that returned a bare id from a `hasMany` field used to draw no hero, and now draws it when the
 id resolves, so those cards get a new `v` once (the hero is part of the version). `Target.hero` may return an `ImageRef`
@@ -286,7 +311,7 @@ that moves only preset cards. Prepared images (the contained logo, its tint) are
 **Fonts.** Inter 400 and 700, each in latin, latin-ext and cyrillic (families `Inter`, `Inter Ext`, `Inter Cyrillic`, stack `default`), are registered only when
 the site gives neither `fonts` nor `stacks`. The licence is `fonts/OFL.txt`. The faces are read from an embedded copy of `fonts/*.woff`
 (`scripts/fetch-fonts.mjs` writes both from a pinned `@fontsource/inter`), never from a file path, because a bundled `import.meta.url` is not a file URL inside Next.
-A site with fonts of its own draws the presets with its own `default` stack. Text is measured with the weight and the family selection it is drawn with.
+A site with fonts of its own draws the presets with its own `default` stack. Text is measured with the weight and the family selection it is drawn with: given a weight, the face is the one satori picks (CSS Fonts 4 weight matching: the weight itself; 400 and 500 each other next; below 400 lighter first, above 500 heavier first), and a family must draw the whole run in that face to be chosen. A site whose faces of one family differ in the characters they draw, or whose weights match differently from "nearest", has the rule's version (`FONT_MATCH_RULE`) in its fonts digest, so its card URLs moved once with this rule; other sites' URLs did not.
 
 **Safe zone.** Text, a logo and a pill stay inside x 64 to 1136 and y 96 to 534: about 15% of a wide card is cropped top and bottom by some feeds.
 Only the photo, the scrims, the logo on the right, the brand art and the accent strip bleed. `textLayout` and `photoLayout` are pure functions of the props and `ctx`, so the zone is tested without pixels.
@@ -367,7 +392,9 @@ ogImagePlugin({
 })
 ```
 
-Unset keeps today's behaviour exactly: no existing card URL or bytes change. A value other than the default is part of
+Unset keeps today's behaviour exactly for PNG cards: no existing card URL or bytes change. A JPEG or WebP card is re-encoded lossy anyway, so
+there an unset `palette.hero` means truecolour (a 256-colour cut would only add banding); set `hero` to a number to cut it anyway. Cards
+of those formats moved to new URLs once when this default changed. A value other than the default is part of
 the card version (`card` for every card, `hero` for a card with a hero), so flipping it gives new URLs and never serves
 a stored card of the other encoding. A number is a ceiling: the encoder rounds it up to 2, 4, 16 or 256 colours, so
 17 to 256 all give the 256-colour palette (the default `card` of 128 and a `hero` of 256 are the same bytes at the sizes below).
@@ -544,15 +571,17 @@ transparent, to see the URL a transparent hero gets.
 `ogKit(rt).templatesRender({ props })` draws every registered template once with the real renderer, from the props
 you give for its id (`{ [templateId]: props }`), and fails naming a template that cannot be drawn or does not give a PNG (whatever the target's `format`)
 of its size: a `div` with several children and no `display: flex` is caught in CI, not by the first crawler. The plugin
-also draws the brand fallback card once when Payload starts, so fonts and the renderer are proved at boot (an error
-outside production, a `render_error` event in production).
+checks at start-up that the fonts parse and draw the required sample and that the store opens (an error outside production, a
+`render_error` event in production). It draws no card then and loads neither `sharp` nor `next/og`: the renderer is first used by
+the first real render, and a renderer that cannot draw is reported there as a `render_error` and served as the degraded fallback.
 
 ### Specs that boot Payload
 
-- **A jsdom environment works for the start-up self-test.** The plugin hands `next/og` and `sharp` bytes they accept whatever realm the
-  test globals come from, so the self-test draws under `jsdom` too. jsdom also replaces the global `URL`, so `new URL('...', import.meta.url)`
-  resolves to `http://localhost/...` and a font loader built on it tries to fetch: read fonts from a path (below), or put the spec in a Node
-  environment (`// @vitest-environment node`, or `environment: 'node'` in a vitest project for them).
+- **The plugin boots under jsdom; drawing needs Node.** The start-up check draws nothing, so `onInit` runs in a `jsdom` environment.
+  `next/og` and `sharp` accept bytes only from the Node realm (jsdom replaces the global `Uint8Array`), so a spec that draws a card
+  belongs in a Node environment (`// @vitest-environment node`, or `environment: 'node'` in a vitest project for them). jsdom also replaces
+  the global `URL`, so `new URL('...', import.meta.url)` resolves to `http://localhost/...` and a font loader built on it tries to
+  fetch: read fonts from a path (below).
 - **Inline the plugin when you mock `next/headers.js`.** `vi.mock('next/headers.js', ...)` only reaches modules that vite
   processes, and vitest leaves a dependency in `node_modules` to Node. Inline the package so the mock applies to it:
   `test: { server: { deps: { inline: ['payload-og-image'] } } }`.

@@ -4,6 +4,10 @@
  * - fonts.ts:65  allow the same family/weight/style twice -> "rejects a face registered twice" RED
  * - fonts.ts:40  `data` as `bytes.slice().buffer` (a Buffer view shares its pool) -> "keeps exactly the face bytes when the source is a view into a larger buffer" RED
  * - fonts.ts:91  a family covers a run its faces only cover between them (`some` per char) -> "a family whose faces only cover a run between them does not cover it" RED
+ * - fonts.ts `coveringFamily` ignores `weight` (any face covers) -> "a family whose bold face lacks the glyphs is not chosen for a bold run" RED
+ * - fonts.ts `measureText` calls `coveringFamily` without its weight -> "a family whose bold face lacks the glyphs is not measured for a bold run" RED
+ * - fonts.ts weightless `measureText` measuring a face that does not draw the run (`drawsAll` dropped) -> "A covers the run at 700 and B at the other weight ..." RED
+ * - draw.ts `fit` calls `coveringFamily` without `box.weight` / `font` drops `weight` -> "the template context selects by the weight it is given" RED
  * - fonts.ts:98  missingGlyphs looks only at the first family -> "reports and strips chars no face draws" RED
  * - fonts.ts:29  allow a comma or a quote in a family name -> "rejects a family name that cannot sit in a font-family list" RED
  * - fonts.ts:51  advance() ignores unitsPerEm -> "advances match the fontTools oracle" RED
@@ -11,9 +15,11 @@
  * - fonts.ts:122  fit ignores a word wider than the line -> "shrinks for a word wider than a line instead of breaking it" RED
  * - fonts.ts:167  fitText returns the uncut text at minSize -> "cuts with an ellipsis at minSize" RED
  * - fonts.ts:138  accept a maxSize above 2048 (Number.MAX_VALUE: size - 2 === size, so only the cap and the `next >= size` guard stop the loop) -> "rejects a box with maxSize beyond any card" / "just above the 2048 cap" RED */
+import { createHash } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import { describe, expect, it } from 'vitest'
-import { coveringFamily, fitText, loadFonts, missingGlyphs, stripMissing } from '../../src/internal/fonts.js'
+import { templateContext } from '../../src/internal/draw.js'
+import { coveringFamily, FONT_MATCH_RULE, fitText, loadFonts, measureText, missingGlyphs, stripMissing } from '../../src/internal/fonts.js'
 
 const file = (n: string) => () => readFile(new URL(`../fixtures/fonts/${n}`, import.meta.url))
 const specs = [
@@ -61,6 +67,76 @@ describe('fonts', () => {
       { ...archivo, family: 'F' },
     ]
     expect(fitText(family, 'F', text, box)).toEqual(fitText(base, 'Archivo', text, box))
+  })
+  // One family, two weights: its regular face (Inter) draws Cyrillic, its bold face (Archivo) does not.
+  const weighted = async () => {
+    const { fonts: base } = await loaded
+    const archivo = base.find((f) => f.family === 'Archivo') as (typeof base)[number]
+    const inter = base.find((f) => f.family === 'Inter') as (typeof base)[number]
+    return { base, fonts: [...base, { ...inter, family: 'Fam', weight: 400 }, { ...archivo, family: 'Fam', weight: 700 }] }
+  }
+  it('a family whose bold face lacks the glyphs is not chosen for a bold run', async () => {
+    const { fonts } = await weighted()
+    const run = 'Привет'
+    expect(coveringFamily(fonts, ['Fam', 'Inter'], run, 400)).toBe('Fam')
+    expect(coveringFamily(fonts, ['Fam', 'Inter'], run, 700)).toBe('Inter')
+    expect(coveringFamily(fonts, ['Fam'], run, 700)).toBeNull()
+    expect(coveringFamily(fonts, ['Fam', 'Inter'], 'Hello', 700)).toBe('Fam')
+    expect(coveringFamily(fonts, ['Fam', 'Inter'], run)).toBe('Fam') // no weight asked: any face, as before
+  })
+  it('a family whose bold face lacks the glyphs is not measured for a bold run', async () => {
+    const { base, fonts } = await weighted()
+    const run = 'Привет мир'
+    // Chosen wrongly, the bold face has no Cyrillic advances and the run measures as nothing; measured as drawn, it is Inter's width.
+    expect(measureText(fonts, ['Fam', 'Inter'], run, 40, { weight: 700 })).toBe(measureText(base, ['Inter'], run, 40, { weight: 700 }))
+    expect(measureText(fonts, ['Fam', 'Inter'], run, 40, { weight: 400 })).toBe(measureText(base, ['Inter'], run, 40, { weight: 400 }))
+  })
+  // A covers the run only at one weight, B only at the other: Inter draws Cyrillic, Archivo does not.
+  const twoFamilies = async (aCoversAt: 400 | 700) => {
+    const { base } = await weighted()
+    const archivo = base.find((f) => f.family === 'Archivo') as (typeof base)[number]
+    const inter = base.find((f) => f.family === 'Inter') as (typeof base)[number]
+    const other = aCoversAt === 700 ? 400 : 700
+    return {
+      base,
+      fonts: [
+        { ...inter, family: 'A', weight: aCoversAt },
+        { ...archivo, family: 'A', weight: other },
+        // B's face is Inter with every advance half as wide again, so a width tells which family measured the run.
+        { ...inter, family: 'B', weight: other, advance: (ch: string) => inter.advance(ch) * 1.5 },
+      ],
+    }
+  }
+  it.each([700, 400] as const)(
+    'A covers the run at %i and B at the other weight: selection and measurement agree both ways',
+    async (aAt) => {
+      const { base, fonts } = await twoFamilies(aAt)
+      const run = 'Привет мир'
+      const other = aAt === 700 ? 400 : 700
+      const interWidth = (weight?: number) => measureText(base, ['Inter'], run, 40, { weight })
+      // No weight: the old rule (any face of the first family draws it), measured with the face that draws it.
+      expect(coveringFamily(fonts, ['A', 'B'], run)).toBe('A')
+      expect(templateContext({ host: 'x.test', fonts, stacks: { default: ['A', 'B'] }, hero: null }).font('default', run)).toBe('A')
+      expect(measureText(fonts, ['A', 'B'], run, 40)).toBe(interWidth())
+      // A weight: the face at that weight must draw it, for the family chosen and for the width measured.
+      expect(coveringFamily(fonts, ['A', 'B'], run, aAt)).toBe('A')
+      expect(coveringFamily(fonts, ['A', 'B'], run, other)).toBe('B')
+      expect(measureText(fonts, ['A', 'B'], run, 40, { weight: aAt })).toBe(interWidth())
+      expect(measureText(fonts, ['A', 'B'], run, 40, { weight: other })).toBeCloseTo(interWidth() * 1.5, 6)
+      // A fit without a weight measures the face that draws the run too, the same as the family it would be drawn in.
+      const box = { width: 560, height: 300, maxSize: 96, minSize: 40, leading: 1, maxLines: 4 }
+      expect(fitText(fonts, 'A', run.repeat(6), box)).toEqual(fitText(base, 'Inter', run.repeat(6), box))
+    },
+  )
+  it('the template context selects by the weight it is given', async () => {
+    const { fonts } = await weighted()
+    const ctx = templateContext({ host: 'x.test', fonts, stacks: { default: ['Fam', 'Inter'] }, hero: null })
+    expect(ctx.font('default', 'Привет', 700)).toBe('Inter')
+    expect(ctx.font('default', 'Привет', 400)).toBe('Fam')
+    const box = { width: 560, height: 300, maxSize: 96, minSize: 40, leading: 1, maxLines: 4 }
+    const text = 'Привет мир, это достаточно длинный заголовок для нескольких строк'
+    const bold = ctx.fit(text, { ...box, weight: 700 }, 'default')
+    expect(bold).toEqual(fitText(fonts, 'Inter', text, { ...box, weight: 700 }))
   })
   it('reports and strips chars no face draws (emoji included)', async () => {
     const { fonts } = await loaded
@@ -140,6 +216,69 @@ describe('fonts', () => {
     expect(() => fitText(fonts, 'Nope', 'x', { width: 100, height: 100, maxSize: 50, minSize: 20, leading: 1 })).toThrow(
       /"Nope" is not registered/,
     )
+  })
+  it('the matching rule is part of the digest of a site whose faces are not interchangeable, and of no other', async () => {
+    const inter = file('inter-latin-cyrillic-800.woff')
+    const archivo = file('archivo-latin-600.woff')
+    const digest = async (specs: Parameters<typeof loadFonts>[0]) => (await loadFonts(specs)).digest
+    // Faces of one family that draw different characters: which one is chosen decides the drawing.
+    const differing = [
+      { family: 'F', weight: 400, data: inter },
+      { family: 'F', weight: 700, data: archivo },
+    ]
+    // The same file at 400 and 700: interchangeable, and 400 / 700 are matched as they always were.
+    const same = [
+      { family: 'F', weight: 400, data: inter },
+      { family: 'F', weight: 700, data: inter },
+    ]
+    // The same file at 300 and 600: a request for 400 or 500 is matched differently from the nearest-weight rule.
+    const moved = [
+      { family: 'F', weight: 300, data: inter },
+      { family: 'F', weight: 600, data: inter },
+    ]
+    const single = [
+      { family: 'A', weight: 400, data: archivo },
+      { family: 'B', weight: 400, data: inter },
+    ]
+    const withRule = await digest(differing)
+    expect(FONT_MATCH_RULE).toMatch(/\w/)
+    expect(await digest(differing)).toBe(withRule) // stable
+    // Only the faces matter: the same two specs registered as two families (no rule) hash differently from one family (rule).
+    const tagged = async (specs: typeof differing) =>
+      (await digest(specs)) !== (await digest(specs.map((f, i) => ({ ...f, family: `F${i}` }))))
+    expect(await tagged(differing)).toBe(true)
+    expect(await tagged(moved)).toBe(true)
+    // 400 + 700 of one file, and families of one face: URLs as before the rule.
+    const manual = async (specs: typeof differing) => {
+      const loaded = await Promise.all(
+        specs.map(async (f) =>
+          createHash('sha256')
+            .update(
+              new Uint8Array(
+                await readFile(
+                  new URL(
+                    `../fixtures/fonts/${f.data === inter ? 'inter-latin-cyrillic-800.woff' : 'archivo-latin-600.woff'}`,
+                    import.meta.url,
+                  ),
+                ),
+              ),
+            )
+            .digest('hex'),
+        ),
+      )
+      return createHash('sha256')
+        .update(
+          specs
+            .map((f, i) => `${f.family}|${f.weight}|normal|${loaded[i]}`)
+            .sort()
+            .join('\n'),
+        )
+        .digest('hex')
+    }
+    expect(await digest(same)).toBe(await manual(same))
+    expect(await digest(single as typeof differing)).toBe(await manual(single as typeof differing))
+    expect(await digest(differing)).not.toBe(await manual(differing))
+    expect(await digest(moved)).not.toBe(await manual(moved))
   })
   it('digest changes when a face file changes, and is stable otherwise', async () => {
     const a = await loadFonts(specs)
