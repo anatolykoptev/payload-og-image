@@ -255,7 +255,7 @@ export type Target<D = any, P = any> = {
   photo?: false | ((a: ResolverArgs<D>) => Upload | ImageRef | null | undefined)
   /** This target's card encoding; wins over the plugin's `format`. A JPEG target's `path` should end in `.jpg`, a WebP one's in `.webp` (a path that names another image format is refused). */
   format?: CardFormat
-  /** This target's JPEG settings (`quality`, 1 to 100); wins over the plugin's `jpeg`. */
+  /** This target's JPEG settings (`quality`, 1 to 100; `chromaSubsampling`, `'4:2:0'` or `'4:4:4'`); wins over the plugin's `jpeg`. */
   jpeg?: JpegOptions
   /** This target's WebP settings (`quality`, 1 to 100); wins over the plugin's `webp`. */
   webp?: WebpOptions

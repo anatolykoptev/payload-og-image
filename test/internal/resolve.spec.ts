@@ -89,6 +89,23 @@ const generated = async (over: Record<string, unknown>) => {
   return r
 }
 
+describe('resolveCard, JPEG chroma subsampling', () => {
+  const doc = { id: 1, slug: 'a', title: 'A' }
+  const versionOf = async (over: Record<string, unknown>) => (await generated({ doc, ...over })).v
+  it('4:4:4 changes the card version and the encoding; 4:2:0 is the default and moves nothing', async () => {
+    const plain = await versionOf({ format: 'jpeg' })
+    const c420 = await versionOf({ format: 'jpeg', jpeg: { chromaSubsampling: '4:2:0' } })
+    const c444 = await versionOf({ format: 'jpeg', jpeg: { chromaSubsampling: '4:4:4' } })
+    expect(c420).toBe(plain)
+    expect(c444).not.toBe(plain)
+    // the same through a target's own jpeg
+    expect(await versionOf({ format: 'jpeg', target: { ...posts, jpeg: { chromaSubsampling: '4:4:4' } } })).toBe(c444)
+    const r = await generated({ doc, format: 'jpeg', jpeg: { chromaSubsampling: '4:4:4' } })
+    expect(r.encoding).toMatchObject({ format: 'jpeg', chromaSubsampling: '4:4:4' })
+    expect((await generated({ doc, format: 'jpeg' })).encoding).not.toHaveProperty('chromaSubsampling')
+  })
+})
+
 describe('resolveCard', () => {
   it('1: no images -> generated card at the target path with the current v', async () => {
     const r = await resolveCard({ ...(await base()), doc: { id: 1, slug: 'a', title: 'A' } })

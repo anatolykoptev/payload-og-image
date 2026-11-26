@@ -35,6 +35,9 @@ export type Box = {
 // @public
 export type CardFormat = 'png' | 'jpeg' | 'webp';
 
+// @public
+export type ChromaSubsampling = '4:2:0' | '4:4:4';
+
 // @public (undocumented)
 export function defineTarget<D, P>(t: Target<D, P>): Target<D, P>;
 
@@ -98,9 +101,10 @@ export type IndexableRoute = {
 // @public
 export function installTestRuntime(given: OgImagePluginOptions, docs: KitDocs, o?: TestRuntimeOptions): TestRuntime;
 
-// @public
+// @public (undocumented)
 export type JpegOptions = {
     quality?: number;
+    chromaSubsampling?: ChromaSubsampling;
 };
 
 // @public (undocumented)

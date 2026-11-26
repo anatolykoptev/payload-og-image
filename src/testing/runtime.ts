@@ -230,7 +230,16 @@ export function installTestRuntime(given: OgImagePluginOptions, docs: KitDocs, o
           render: async (el, a) => {
             const image = sharp({ create: { width: 8, height: 8, channels: 3, background: colourOf(JSON.stringify(el)) } })
             const format = a.encoding?.format ?? 'png'
-            return new Uint8Array(await (format === 'jpeg' ? image.jpeg() : format === 'webp' ? image.webp() : image.png()).toBuffer())
+            return new Uint8Array(
+              await (format === 'jpeg'
+                ? image.jpeg({
+                    chromaSubsampling: a.encoding && 'chromaSubsampling' in a.encoding ? a.encoding.chromaSubsampling : undefined,
+                  })
+                : format === 'webp'
+                  ? image.webp()
+                  : image.png()
+              ).toBuffer(),
+            )
           },
         }
   const renderer: Renderer = {

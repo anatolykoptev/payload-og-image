@@ -111,7 +111,7 @@ export type OgImagePluginOptions = {
    * version, so switching gives new URLs. A card path whose extension names another format is refused: a JPEG target uses `.jpg`, a WebP one `.webp`.
    */
   format?: CardFormat
-  /** JPEG settings: `quality` from 1 to 100 (default 82, mozjpeg). A target's own `jpeg` wins. */
+  /** JPEG settings: `quality` from 1 to 100 (default 82, mozjpeg); `chromaSubsampling` `'4:2:0'` (default) or `'4:4:4'` (cards only: the photo set stays 4:2:0). A target's own `jpeg` wins. */
   jpeg?: JpegOptions
   /** WebP settings: `quality` from 1 to 100 (default 80, libwebp). A target's own `webp` wins. */
   webp?: WebpOptions

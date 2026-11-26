@@ -32,6 +32,9 @@ describe('assertFormatOption', () => {
     [{ webp: { quality: '80' } }, /webp\.quality/],
     [{ jpeg: { quality: Number.NaN } }, /jpeg\.quality/],
     [{ jpeg: { qualty: 80 } }, /jpeg\.qualty is not an option/],
+    [{ jpeg: { chromaSubsampling: '4:2:2' } }, /jpeg\.chromaSubsampling must be one of '4:2:0', '4:4:4'/],
+    [{ jpeg: { chromaSubsampling: 444 } }, /jpeg\.chromaSubsampling/],
+    [{ webp: { chromaSubsampling: '4:4:4' } }, /webp\.chromaSubsampling is not an option/],
     [{ jpeg: 80 }, /jpeg must be an object/],
     [{ webp: null }, /webp must be an object/],
   ])('refuses an unknown format or a bad quality: %j', (o, message) => {
@@ -44,6 +47,21 @@ describe('formatOf', () => {
     expect(formatOf({}, {})).toMatchObject({ format: 'png' })
     expect(formatOf({ format: 'jpeg' }, {}).quality).toBe(DEFAULT_JPEG_QUALITY)
     expect(formatOf({ format: 'webp' }, {}).quality).toBe(DEFAULT_WEBP_QUALITY)
+  })
+  it("chromaSubsampling: only a JPEG asked for 4:4:4 carries it; the target's wins; 4:2:0 and PNG/WebP leave it out", () => {
+    expect(formatOf({ format: 'jpeg', jpeg: { chromaSubsampling: '4:4:4' } }, {})).toEqual({
+      format: 'jpeg',
+      quality: 82,
+      chromaSubsampling: '4:4:4',
+    })
+    expect(formatOf({ format: 'jpeg', jpeg: { chromaSubsampling: '4:4:4' } }, { jpeg: { chromaSubsampling: '4:2:0' } })).toEqual({
+      format: 'jpeg',
+      quality: 82,
+    })
+    expect(formatOf({ format: 'jpeg' }, { jpeg: { chromaSubsampling: '4:4:4' } }).chromaSubsampling).toBe('4:4:4')
+    expect(formatOf({ format: 'jpeg', jpeg: { chromaSubsampling: '4:2:0' } }, {})).toEqual({ format: 'jpeg', quality: 82 })
+    expect(formatOf({ format: 'webp', jpeg: { chromaSubsampling: '4:4:4' } }, {}).chromaSubsampling).toBeUndefined()
+    expect(formatOf({ jpeg: { chromaSubsampling: '4:4:4' } }, {}).chromaSubsampling).toBeUndefined() // PNG
   })
   it("a target's setting wins over the plugin's, for the format and for the quality of its own format", () => {
     expect(formatOf({ format: 'jpeg' }, { format: 'png' }).format).toBe('png')
