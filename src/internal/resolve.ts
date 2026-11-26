@@ -149,9 +149,10 @@ async function heroOf(
   raw: unknown,
 ): Promise<{ hero: Upload | null; collection: string | undefined }> {
   const id = uploadId(raw)
-  // The target's collection, else the one `populateUploads` read this very object from. What it reads from is also what the hero loader and the alpha probe
-  // look in; with neither, the site's only upload collection reads it, and they fall back to that one themselves.
-  const collection = i.target.heroCollection ?? (raw !== null && typeof raw === 'object' ? uploadSource.get(raw) : undefined)
+  // The collection `populateUploads` read this very object from is where it lives, whatever `heroCollection` says (a hero from a `logos` field is not the
+  // `media` upload of the same id); else the target's. What reads it is also what the hero loader and the alpha probe look in; with neither, the site's
+  // only upload collection reads it, and they fall back to that one themselves.
+  const collection = (raw !== null && typeof raw === 'object' ? uploadSource.get(raw) : undefined) ?? i.target.heroCollection
   const from = collection ?? i.uploadCollection
   return { hero: id === undefined || from === undefined ? null : await readUpload(args.related, from, id), collection }
 }

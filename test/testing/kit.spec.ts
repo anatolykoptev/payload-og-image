@@ -27,6 +27,7 @@
  * - kit.ts:121  wave a versioned URL at an unowned path through as an editor image -> "everyRouteHasOwnCard: a versioned URL at a path no card route owns" RED
  * - kit.ts:303  accept any positive shed count -> "queueSheds exact admission" RED
  * - runtime.ts `uploadOf` ignoring `_status: 'draft'` of a modelled upload on a public read -> "the test runtime uploads: modelled by collection and id ..." RED
+ * - runtime.ts the `uploadCollections.has(...)` guard removed from the fake `find` -> "a related document of a collection that is no upload collection is served from the fixtures" RED
  * - runtime.ts `uploadOf` falling back to the embedded fixtures when `uploads` is given -> "a collection `uploads` does not list holds nothing" RED
  * - runtime.ts the isTargetCollection / id-key validation removed -> "uploads naming a target collection, or an entry whose id is not its key, is a named error" RED
  * - runtime.ts `id: hit.id ?? id` -> `hit` -> "an entry takes its key as its id" RED
@@ -379,6 +380,32 @@ describe('the test runtime uploads', () => {
     const meta = (id: number) => ogMetadata({ config: {} as never, target: 'uploads', doc: { id } })
     expect(((await meta(1)).openGraph as any)?.images?.[0]?.url).toMatch(/\/og\/uploads\/u\//)
     expect((await meta(2)).openGraph).toBeUndefined() // never published: not even its draft collection's rule was overwritten
+  })
+})
+
+describe('the test runtime related documents', () => {
+  it('a related document of a collection that is no upload collection is served from the fixtures, as before', async () => {
+    const opts = options()
+    let seen: unknown
+    installTestRuntime(
+      {
+        ...opts,
+        targets: {
+          posts: defineTarget<any, any>({
+            ...opts.targets?.posts,
+            props: async ({ doc, related }: any) => (
+              (seen = await related('authors', doc.author)), { title: doc.title, label: 'Blog', site: 'S' }
+            ),
+          }),
+        },
+      },
+      {
+        published: { posts: [{ id: 1, slug: 'a', title: 'A', author: 7 }], authors: [{ id: 7, name: 'Ann' }] },
+        globals: { 'site-settings': { name: 'Site' } },
+      },
+    )
+    await ogMetadata({ config: {} as never, target: 'posts', doc: { id: 1 } })
+    expect(seen).toMatchObject({ id: 7, name: 'Ann' })
   })
 })
 

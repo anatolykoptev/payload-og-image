@@ -11,6 +11,7 @@
  * - resolve.ts:198  never ask `heroHasAlpha`, or ask it for a flattened hero -> "a transparent hero nobody flattens has its own version, asked in its upload collection" RED
  * - resolve.ts `heroOf` drawing the object the target handed over (`usableHero(raw)` first) -> "a hero object is only an id: it is read again with the caller's access" RED
  * - resolve.ts card `heroCollection` / alpha probe given `i.target.heroCollection` instead of the resolved one -> same test RED
+ * - resolve.ts `heroCollection ?? uploadSource.get(raw)` (the target first) -> the same test RED (its heroCollection-differs part)
  * - resolve.ts `uploadSource.get(raw)` dropped from heroOf -> "a populated hero is read again from the collection populateUploads read it from ..." RED
  * - resolve.ts:114  hash the raw hero object -> "a hero without a file is no part of the version" RED
  * - resolve.ts:160  leave `host` out of the version -> "the host is part of the version" RED
@@ -339,9 +340,12 @@ describe('resolveCard', () => {
     expect(heroHasAlpha).toHaveBeenCalledWith(populated, { collection: 'photos' })
     // A copy of it, or an object nobody populated, has no provenance: with no collection to name it is no hero.
     expect((await generated({ doc: { ...doc, heroImage: { ...populated } }, uploadCollection: undefined, related: read })).hero).toBeNull()
-    // The target's own heroCollection still wins over it.
+    // Where the object was read from wins over the target's heroCollection (a `logos` upload is not the `media` upload of the same id).
     const own = defineTarget<any, any>({ ...posts, heroCollection: 'media' })
     await generated({ doc, target: own, uploadCollection: undefined, related: read })
+    expect(read).toHaveBeenLastCalledWith('photos', '9')
+    // An object nobody populated is read from the target's heroCollection.
+    await generated({ doc: { ...doc, heroImage: { ...populated } }, target: own, uploadCollection: undefined, related: read })
     expect(read).toHaveBeenLastCalledWith('media', '9')
   })
   it('a transparent hero nobody flattens has its own version, asked in its upload collection', async () => {

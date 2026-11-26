@@ -155,7 +155,7 @@ export function installTestRuntime(given: OgImagePluginOptions, docs: KitDocs, o
       if (v === null || typeof v !== 'object' || seen.has(v)) return null
       seen.add(v)
       const u = v as Record<string, any>
-      if (u.id !== undefined && typeof u.url === 'string' && String(u.id) === String(id)) return u
+      if (u.id !== undefined && typeof u.url === 'string' && typeof u.filename === 'string' && String(u.id) === String(id)) return u
       for (const c of Object.values(u)) {
         const hit = find(c)
         if (hit) return hit
@@ -166,6 +166,15 @@ export function installTestRuntime(given: OgImagePluginOptions, docs: KitDocs, o
   }
   const isTargetCollection = (collection: string) =>
     Object.entries(options.targets).some(([name, t]) => (t.collection ?? name) === collection)
+  /** The collections an upload is read from: `uploads`' keys, the kit's stand-in, and any a target names for its hero or images. Any other collection is a plain document table. */
+  const uploadCollections = new Set([
+    KIT_UPLOADS,
+    ...Object.keys(o.uploads ?? {}),
+    ...Object.values(options.targets).flatMap((t) => [
+      ...(t.heroCollection ? [t.heroCollection] : []),
+      ...Object.values(t.imageCollections ?? {}),
+    ]),
+  ])
   for (const [slug, byId] of Object.entries(o.uploads ?? {})) {
     if (isTargetCollection(slug))
       throw new Error(
@@ -194,7 +203,7 @@ export function installTestRuntime(given: OgImagePluginOptions, docs: KitDocs, o
       user: headers.get('authorization') === EDITOR_AUTH ? { id: 1, collection: editorCollection } : null,
     }),
     find: async (args: { collection: string; where?: unknown; draft?: boolean; page?: number; limit?: number; sort?: string }) => {
-      if (!isTargetCollection(args.collection)) {
+      if (!isTargetCollection(args.collection) && uploadCollections.has(args.collection)) {
         const id = (args.where as { and?: unknown[] } | undefined)?.and?.[0] ?? args.where
         const upload = uploadOf(args.collection, (id as { id?: { equals?: unknown } } | undefined)?.id?.equals, args.draft === true)
         return { docs: upload ? [structuredClone(upload)] : [], totalDocs: upload ? 1 : 0 }
