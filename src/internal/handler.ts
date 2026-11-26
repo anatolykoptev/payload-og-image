@@ -5,6 +5,7 @@ import { type LoadedFont, type Stacks, stripMissing } from './fonts.js'
 import { encodingKey, type JpegOptions, type WebpOptions } from './format.js'
 import { createGate, type Gate, isShedError } from './gate.js'
 import type { Memo } from './memo.js'
+import { type PhotoCut, type PhotoName, photoNameOfFile } from './photo.js'
 import { pooled } from './pool.js'
 import {
   buildKindIndex,
@@ -13,10 +14,14 @@ import {
   getPath,
   MAX_SLUG,
   ogMode,
+  photosEnabled,
   type ResolvedCard,
+  type ResolvedPhotos,
   type ResolveInput,
   resolveCard,
+  resolvePhotos,
 } from './resolve.js'
+import { isWholeCard } from './store/validate.js'
 import type { CardEncoding, CardFormat, CardMime, CardStore, OnEvent, SiteInfo, Size, Upload } from './types.js'
 import { collectionOf, createUploadReader, type UploadField, type UploadReader, type VerifiedUpload } from './uploads.js'
 import { isVariantName } from './variants.js'
@@ -69,6 +74,11 @@ export type HeroLoader = {
   hasAlpha?: (hero: VerifiedUpload) => Promise<boolean>
   /** Whether the hero's file can be read at all (a read, no decode): false is why a card would be drawn without it. */
   readable?: (hero: VerifiedUpload) => Promise<boolean>
+  /**
+   * One size of the photo set cut from the upload's file (see `cutPhoto`): a clean crop, never drawn on. A loader without it (a test seam) serves no photo set:
+   * a page then advertises none.
+   */
+  photo?: (hero: VerifiedUpload, a: { name: PhotoName; quality: number; ground: string }) => Promise<PhotoCut>
 }
 /** `encoding` absent is PNG. */
 export type Renderer = {
@@ -132,6 +142,11 @@ class Downgraded extends Error {
   }
 }
 
+/** The upload's file could not be read or decoded: a 503, never a substitute. */
+class PhotoUnreadable extends Error {}
+/** The file has no such size (it is no raster image, or smaller than the record said): a 404. */
+class PhotoAbsent extends Error {}
+
 /** The last path segment, percent-decoded; undefined when it is malformed. */
 const lastSegment = (pathname: string): string | undefined => {
   try {
@@ -188,6 +203,14 @@ export type CardHandler = {
     a: { target: string; doc: Record<string, any> } | { staticKey: string },
     o: { previewing: boolean; request?: Request; uploads?: UploadReader },
   ): Promise<ResolvedCard>
+  /**
+   * The photo set of a document: clean crops of its hero photograph (see `resolvePhotos`), resolved the way the route resolves them, so the URL and the `v` a page
+   * lists are the route's own. Null when the target has no set or the document has no usable photograph. Reads the upload only.
+   */
+  photos(
+    a: { target: string; doc: Record<string, any> },
+    o: { previewing: boolean; request?: Request; uploads?: UploadReader },
+  ): Promise<ResolvedPhotos | null>
   /** A reader for one request's uploads: callers resolving several cards of one document (the sizes of a page) share it, so each upload is read once. */
   uploads(o: { previewing: boolean; request?: Request }): UploadReader
 }
@@ -414,6 +437,116 @@ export function createCardHandler(d: HandlerDeps): CardHandler {
     })
   }
 
+  async function photos(
+    a: { target: string; doc: Record<string, any> },
+    o: { previewing: boolean; request?: Request; uploads?: UploadReader },
+  ): Promise<ResolvedPhotos | null> {
+    if (!Object.hasOwn(d.targets, a.target)) throw new Error(`payload-og-image: no target "${a.target}"`)
+    const target = d.targets[a.target] as Target
+    return resolvePhotos({
+      target,
+      targetName: a.target,
+      variant: isVariantName(d.targets, a.target),
+      doc: a.doc,
+      // Only a resolver's argument: the photo needs no fonts, no template and no card.
+      site: await d.source.site(o.previewing ? o.request : undefined),
+      serverUrl: d.serverUrl,
+      heroBackground: d.heroBackground,
+      jpeg: d.jpeg,
+      related: (collection, id) => d.source.related(collection, id, { previewing: o.previewing, request: o.request }),
+      uploads: o.uploads ?? readerFor(o),
+      uploadFields: d.uploadFields?.(target.collection ?? a.target),
+      uploadCollection: d.uploadCollection,
+      canCut: d.heroLoader.photo !== undefined,
+    })
+  }
+
+  /**
+   * One image of the photo set, served through the card route's own machinery: the memo (single-flight), the store under a page id of its own per size, the etag and the
+   * cache headers. Never a card: a missing or unusable photograph is a 404 (the page advertises none), an unreadable file a 503. A size whose produced pixels are not the
+   * ones the page advertised (the upload's record disagreed with its file) is served briefly and never stored, so no version ever holds bytes of another size.
+   */
+  async function servePhoto(
+    request: Request,
+    a: { target: Target; targetName: string; slug: string; name: PhotoName },
+    previewing: boolean,
+  ): Promise<Response> {
+    const prepared = await admission.run(async () => {
+      const doc =
+        (previewing ? await d.source.draft(a.targetName, { slug: a.slug }, request) : null) ??
+        (await d.source.published(a.targetName, a.slug))
+      return doc ? photos({ target: a.targetName, doc }, { previewing, request }) : null
+    })
+    const image = prepared?.images.find((i) => i.name === a.name)
+    if (!prepared || !image) return notFound()
+    const { key, upload } = prepared
+    const type = { 'content-type': 'image/jpeg', etag: `"${image.v}"` }
+    const photo = d.heroLoader.photo as NonNullable<HeroLoader['photo']>
+    const cut = async () => {
+      const t0 = Date.now()
+      const out = await d.gate.run(() => photo(upload, { name: a.name, quality: prepared.quality, ground: prepared.ground }))
+      if (out.status === 'unreadable') throw new PhotoUnreadable()
+      if (out.status === 'absent') throw new PhotoAbsent()
+      if (!(await isWholeCard(out.bytes, 'jpeg'))) throw new PhotoUnreadable()
+      if (!previewing)
+        d.events.emit({ name: 'render', kind: key.kind, slug: key.slug, v: image.v, ms: Date.now() - t0, bytes: out.bytes.byteLength })
+      return out
+    }
+    try {
+      if (previewing) {
+        d.events.emit({ name: 'draft', kind: key.kind, slug: key.slug })
+        const { bytes } = await cut()
+        return respond(200, CACHE.none, { ...type, 'x-og-cache': 'draft' }, bytes)
+      }
+      const served: { source: 'memo' | 'store' | 'render' | 'downgraded' } = { source: 'memo' }
+      const bytes = await d.memo
+        .get(`${image.pageId}|${image.v}`, async () => {
+          const stored = await d.store.get(image.pageId, image.v, 'jpeg')
+          if (stored) {
+            served.source = 'store'
+            return stored
+          }
+          const out = await cut()
+          if (out.status === 'ok' && (out.width !== image.width || out.height !== image.height)) throw new Downgraded(out.bytes)
+          served.source = 'render'
+          await d.store.put(image.pageId, image.v, out.bytes, 'jpeg')
+          return out.bytes
+        })
+        .catch((e) => {
+          if (e instanceof Downgraded) {
+            served.source = 'downgraded'
+            return e.bytes
+          }
+          throw e
+        })
+      if (served.source === 'downgraded') {
+        d.events.emit({
+          name: 'downgraded',
+          kind: key.kind,
+          slug: key.slug,
+          v: image.v,
+          detail: { reason: 'photo size differs from the upload record' },
+        })
+        return respond(200, CACHE.degraded, { 'content-type': 'image/jpeg', 'x-og-cache': 'downgraded' }, bytes)
+      }
+      if (served.source !== 'render')
+        d.events.emit({ name: served.source === 'memo' ? 'hit_memo' : 'hit_store', kind: key.kind, slug: key.slug, v: image.v })
+      const current = new URL(request.url).searchParams.get('v') === image.v // only picks the cache header, never a key
+      const cache = current ? CACHE.immutable : CACHE.short
+      if (current && etagMatches(request.headers.get('if-none-match'), image.v))
+        return respond(304, cache, { ...type, 'x-og-cache': served.source })
+      return respond(200, cache, { ...type, 'x-og-cache': served.source }, bytes)
+    } catch (error) {
+      if (isShedError(error)) {
+        d.events.emit({ name: 'shed', kind: key.kind, slug: key.slug })
+        return unavailable()
+      }
+      if (error instanceof PhotoAbsent) return notFound()
+      d.events.emit({ name: 'render_error', kind: key.kind, slug: key.slug, detail: { message: `photo ${a.name}: ${errMessage(error)}` } })
+      return unavailable() // never a card in its place: a page that advertised a photograph gets a photograph or an error
+    }
+  }
+
   async function preview(a: { target: string; doc: Record<string, any>; request: Request }): Promise<PreviewResult> {
     if (!Object.hasOwn(d.targets, a.target)) throw new Error(`payload-og-image: no target "${a.target}"`)
     const target = d.targets[a.target] as Target
@@ -475,6 +608,18 @@ export function createCardHandler(d: HandlerDeps): CardHandler {
         ? d.targets[targetName]
         : undefined
     if (!target) return notFound()
+
+    // A photo-set image (`photo-16x9.jpg` beside the card) is no card: it is resolved, drawn and answered on its own path, before any card rule (an editor's own
+    // share image, a blank title or the card's file name) can turn it away. It exists only where `photosEnabled` says so, the rule the page's helper uses too.
+    const asked = lastSegment(new URL(request.url).pathname)
+    const photoName = asked === undefined ? undefined : photoNameOfFile(asked)
+    if (
+      photoName !== undefined &&
+      staticCard === undefined &&
+      targetName !== undefined &&
+      photosEnabled(target, isVariantName(d.targets, targetName))
+    )
+      return servePhoto(request, { target, targetName, slug, name: photoName }, previewing)
 
     // Pre-admission work (fonts, site, the document lookup, resolution) is bounded by its own small gate, separate from
     // the render gate: a burst of distinct slugs cannot open unbounded database reads before anything is shed.
@@ -598,5 +743,5 @@ export function createCardHandler(d: HandlerDeps): CardHandler {
       return unavailable()
     }
   }
-  return { GET, resolve, preview, uploads: readerFor }
+  return { GET, resolve, photos, preview, uploads: readerFor }
 }

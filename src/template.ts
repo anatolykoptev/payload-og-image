@@ -246,6 +246,12 @@ export type Target<D = any, P = any> = {
   share?: (a: ResolverArgs<D>) => unknown[]
   /** Fields to read (the slug field and the share-image field are always added). Omit it to read every field. */
   select?: Record<string, true>
+  /**
+   * The upload the page's photo set (clean crops for schema.org `image` and Google Discover, `ogPhotoImages`) is cut from. Default: the target's `hero`, read whether
+   * or not the card draws it. Never the editor's share image: name it only when it is a photograph. `false` gives the target no set. The set is served on the
+   * target's card route and needs a card path ending in `.:ext` (the zero-config `[file]` route): a fixed-file path has none.
+   */
+  photo?: false | ((a: ResolverArgs<D>) => Upload | ImageRef | null | undefined)
   /** This target's card encoding; wins over the plugin's `format`. A JPEG target's `path` should end in `.jpg`, a WebP one's in `.webp` (a path that names another image format is refused). */
   format?: CardFormat
   /** This target's JPEG settings (`quality`, 1 to 100); wins over the plugin's `jpeg`. */
@@ -283,6 +289,8 @@ export function defineTarget<D, P>(t: Target<D, P>): Target<D, P> {
       throw new Error('payload-og-image: target imageCollections must be an object of upload collection slugs by image name')
   }
   if (t.alt !== undefined && typeof t.alt !== 'function') throw new Error('payload-og-image: target alt must be a function')
+  if (t.photo !== undefined && t.photo !== false && typeof t.photo !== 'function')
+    throw new Error('payload-og-image: target photo must be a function or false')
   if (t.kind !== undefined && !/^[A-Za-z0-9_~-][A-Za-z0-9._~-]*$/.test(t.kind)) {
     throw new Error(`payload-og-image: target kind "${t.kind}" must be one URL-safe path segment`)
   }

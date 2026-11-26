@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
 import type { OgOverrides, RelatedFn, ResolverArgs, Target, Template } from '../template.js'
 import { DEFAULT_HERO_BACKGROUND, normaliseHeroBackground } from './colour.js'
+import { focalOf } from './crop.js'
 import { firstShareImage, type ShareImage, shareImageOf } from './eligible.js'
 import { type LoadedFont, type Stacks, stripMissing } from './fonts.js'
 import {
@@ -15,6 +16,7 @@ import {
   type WebpOptions,
 } from './format.js'
 import { IMAGE_NAME, MAX_CARD_IMAGES } from './limits.js'
+import { PHOTO_MIME, type PhotoName, photoFile, photoSizes } from './photo.js'
 import type { CardEncoding, CardKey, CardMime, SiteInfo, Size } from './types.js'
 import {
   collectionOf,
@@ -26,7 +28,7 @@ import {
   type UploadReader,
   type VerifiedUpload,
 } from './uploads.js'
-import { canonicalJson, cardVersion, normalizeProps, pageId } from './version.js'
+import { canonicalJson, cardVersion, normalizeProps, pageId, photoPageId, photoVersion } from './version.js'
 
 export type GeneratedCard = {
   kind: 'generated'
@@ -135,7 +137,7 @@ const isPlainObject = (v: unknown): v is Record<string, unknown> => {
  * the caller's access (published only, the editor's draft view in a preview). Whatever filled the object (a custom field, a hand-built value) is
  * not proof that the public may read that upload. With no collection to name, or nothing readable, there is no hero.
  */
-async function heroOf(i: ResolveInput, raw: unknown): Promise<VerifiedUpload | null> {
+async function heroOf(i: Pick<ResolveInput, 'target' | 'uploadCollection' | 'uploads'>, raw: unknown): Promise<VerifiedUpload | null> {
   const ref = refOf(raw, i.target.heroCollection ?? i.uploadCollection)
   return ref === undefined ? null : withFile((await i.uploads.load([ref]))[0] ?? null)
 }
@@ -390,5 +392,90 @@ export async function resolveCard(i: ResolveInput): Promise<ResolvedCard> {
     type: mimeOf(format),
     encoding,
     missing: [...new Set(missing)],
+  }
+}
+
+/** One image of a page's photo set: its absolute URL (versioned), the size it will be served at, and the store key. */
+export type PhotoImage = { name: PhotoName; url: string; width: number; height: number; v: string; pageId: string }
+
+/** The photo set of a document: the upload it is cut from and how it is encoded, and the images (never empty). */
+export type ResolvedPhotos = { key: CardKey; upload: VerifiedUpload; quality: number; ground: string; images: PhotoImage[] }
+
+export type PhotoInput = Pick<
+  ResolveInput,
+  | 'target'
+  | 'targetName'
+  | 'variant'
+  | 'doc'
+  | 'site'
+  | 'serverUrl'
+  | 'heroBackground'
+  | 'jpeg'
+  | 'related'
+  | 'uploads'
+  | 'uploadFields'
+  | 'uploadCollection'
+> & {
+  /** The hero loader can cut a photo (`HeroLoader.photo`); without it nothing is advertised, because nothing could be served. */
+  canCut: boolean
+}
+
+/**
+ * Whether a target has a photo set. ONE rule for the page that advertises the URLs and the route that serves them, so a page never lists a URL its route cannot answer:
+ * the target names an upload for it (`photo`, else its `hero`; `photo: false` opts out), is not a size variant, and its card path ends in `.:ext`, which is the path
+ * of a route that answers any file name in its folder (the zero-config `[file]` route). A fixed-file path (`card.png`) has a route of its own that would answer 404.
+ */
+export const photosEnabled = (target: Target, variant = false): boolean =>
+  !variant &&
+  target.photo !== false &&
+  (typeof target.photo === 'function' || typeof target.hero === 'function') &&
+  /\.:ext$/.test(target.path)
+
+/** The path a photo-set image is served at: the target's card path with its file name replaced by `photo-<size>.jpg`. */
+export function photoPath(target: Target, targetName: string, slug: string, name: PhotoName): string {
+  const card = cardPath(target, targetName, slug, 'jpeg')
+  return `${card.slice(0, card.lastIndexOf('/') + 1)}${photoFile(name)}`
+}
+
+const positive = (n: unknown): n is number => typeof n === 'number' && Number.isFinite(n) && n > 0
+
+/**
+ * The photo set of a document: clean crops of the upload the target names for it (never the editor's share image, never a card or a logo). The upload is read like a hero
+ * (verified by the request's reader, published only, the editor's draft view in a preview) whether or not the card draws it, and must be a raster image with a size on
+ * record. Independent of the document's `og.mode` and of the card: the set is not a card. Null when there is none; nothing is read for a target without one.
+ */
+export async function resolvePhotos(i: PhotoInput): Promise<ResolvedPhotos | null> {
+  if (!i.canCut || !photosEnabled(i.target, i.variant)) return null
+  const doc = await fillUploads(i.uploads, i.doc, i.uploadFields ?? [], i.target.uploadFields)
+  const args = { doc, site: i.site, related: i.related ?? (async () => null), overrides: {} as OgOverrides }
+  const pick = typeof i.target.photo === 'function' ? i.target.photo : i.target.hero
+  const upload = await heroOf(i, pick?.(args))
+  if (!upload || !PHOTO_MIME.includes(String(upload.mimeType).toLowerCase()) || !positive(upload.width) || !positive(upload.height))
+    return null
+  const slug = routable(nonEmpty(getPath(doc, i.target.slugField ?? 'slug')))
+  if (slug === undefined) return null
+  const sizes = photoSizes({ width: upload.width, height: upload.height }, upload)
+  if (sizes.length === 0) return null
+  const key = { kind: i.target.kind ?? i.targetName, slug }
+  const quality = formatOf({ format: 'jpeg', jpeg: i.jpeg }, { jpeg: i.target.jpeg }).quality
+  const own = i.target.heroBackground === undefined ? undefined : normaliseHeroBackground(i.target.heroBackground)
+  const ground = groundOf(own, i.heroBackground)
+  const origin = i.serverUrl.replace(/\/+$/, '')
+  return {
+    key,
+    upload,
+    quality,
+    ground,
+    images: sizes.map(({ name, width, height }) => {
+      const v = photoVersion({ name, upload, source: { width: upload.width as number, height: upload.height as number }, quality, ground })
+      return {
+        name,
+        width,
+        height,
+        v,
+        pageId: photoPageId(key, name),
+        url: `${origin}${photoPath(i.target, i.targetName, slug, name)}?v=${v}`,
+      }
+    }),
   }
 }

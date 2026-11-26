@@ -474,6 +474,7 @@ export type Target<D = any, P = any> = {
     }) => string | null | undefined;
     share?: (a: ResolverArgs<D>) => unknown[];
     select?: Record<string, true>;
+    photo?: false | ((a: ResolverArgs<D>) => Upload | ImageRef | null | undefined);
     format?: CardFormat;
     jpeg?: JpegOptions;
     webp?: WebpOptions;

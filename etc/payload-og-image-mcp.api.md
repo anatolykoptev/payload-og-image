@@ -20,7 +20,12 @@ export type AuditPage = {
         notStored: number;
         downgraded: number | null;
         missingDescription?: number;
+        discover: {
+            withPhotoSet: number;
+            large: number;
+        } | null;
     };
+    discoverNote: string;
     rows: AuditRow[];
 };
 
@@ -36,6 +41,7 @@ export type AuditRow = {
     hero: HeroReport | null;
     downgraded: boolean | null;
     hasDescription?: boolean;
+    discover: DiscoverReport | null;
 };
 
 // @public (undocumented)
@@ -79,6 +85,17 @@ export type CardReport = {
         bytes: number;
     } | null;
     hero: HeroReport | null;
+    reason?: string;
+};
+
+// @public
+export type DiscoverReport = {
+    photos: Array<{
+        ratio: PhotoName;
+        width: number;
+        height: number;
+    }>;
+    large: boolean | null;
     reason?: string;
 };
 
@@ -143,6 +160,11 @@ export type OgMcpToolV4 = {
         req: PayloadRequest;
     }) => Promise<OgMcpAnswer>;
 };
+
+// Warning: (ae-forgotten-export) The symbol "PHOTO_SET" needs to be exported by the entry point mcp.d.ts
+//
+// @public (undocumented)
+export type PhotoName = keyof typeof PHOTO_SET.ratios;
 
 // (No @packageDocumentation comment for this package)
 

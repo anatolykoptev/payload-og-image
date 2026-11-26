@@ -1,8 +1,9 @@
 import type { StaticCard } from '../template.js'
 import type { Gate } from './gate.js'
 import type { CardHandler, DocSource, HeroLoader } from './handler.js'
+import { PHOTO_SET, type PhotoName } from './photo.js'
 import { pooled } from './pool.js'
-import { type GeneratedCard, getPath, type ResolvedCard } from './resolve.js'
+import { type GeneratedCard, getPath, photosEnabled, type ResolvedCard } from './resolve.js'
 import type { CardMime, CardStore, Upload } from './types.js'
 import { collectionOf } from './uploads.js'
 
@@ -45,6 +46,18 @@ export type CardReport =
       reason?: string
     }
 
+/**
+ * A page's readiness for Google Discover, as far as the plugin can see: its photo set (clean crops of the hero photograph) and whether the 16:9 crop is at least
+ * `PHOTO_SET.capWidth` wide (1200 px, Google's bar for a large preview). The page's `max-image-preview:large` robots tag is not something the plugin can check.
+ */
+export type DiscoverReport = {
+  photos: Array<{ ratio: PhotoName; width: number; height: number }>
+  /** The 16:9 photo is at least 1200 px wide; null when the page has no photo set. */
+  large: boolean | null
+  /** Why there is no photo set. Absent when there is one. */
+  reason?: string
+}
+
 export type AuditRow = {
   id: string | number | null
   slug: string | null
@@ -58,6 +71,8 @@ export type AuditRow = {
   downgraded: boolean | null
   /** Whether the document has text at the configured field path; absent when no path is configured. */
   hasDescription?: boolean
+  /** The Discover readiness of the page (its photo set); null for a static card, which has no document. */
+  discover: DiscoverReport | null
 }
 
 export type AuditPage = {
@@ -66,9 +81,23 @@ export type AuditPage = {
   limit: number
   total: number
   hasNext: boolean
-  summary: { rows: number; generated: number; stored: number; notStored: number; downgraded: number | null; missingDescription?: number }
+  summary: {
+    rows: number
+    generated: number
+    stored: number
+    notStored: number
+    downgraded: number | null
+    missingDescription?: number
+    /** Rows with a photo set, and with a 16:9 photo of at least 1200 px (null for the static scope). */
+    discover: { withPhotoSet: number; large: number } | null
+  }
+  /** What the Discover lines cannot say. */
+  discoverNote: string
   rows: AuditRow[]
 }
+
+const DISCOVER_NOTE =
+  "Discover: `max-image-preview:large` is a robots tag of the page, which the plugin cannot see: check the page's robots meta (withLargeImagePreview in payload-og-image/next adds it). A 16:9 photo under 1200 px wide cannot earn a large preview."
 
 export type ServeResult =
   | { status: 'png'; bytes: Uint8Array; type: CardMime; v: string; source: string; url: string; stored: boolean }
@@ -149,7 +178,24 @@ export function createInspector(d: InspectorDeps): Inspector {
     return { scope: a.target, card: await d.handler.resolve({ target: a.target, doc }, { previewing: false }), doc }
   }
 
-  async function describe(card: ResolvedCard, check: boolean): Promise<Omit<AuditRow, 'id' | 'slug' | 'hasDescription'>> {
+  async function discoverOf(scope: string, doc: Record<string, any>): Promise<DiscoverReport> {
+    const set = await d.handler.photos({ target: scope, doc }, { previewing: false })
+    if (!set) {
+      const enabled = photosEnabled(d.targets[scope] as never, false)
+      return {
+        photos: [],
+        large: null,
+        reason: enabled
+          ? 'no usable hero photograph: none set, not published, not a raster image, or under 600 px wide'
+          : 'the target has no photo set: it needs a `photo` or `hero` and a card path ending in .:ext',
+      }
+    }
+    const photos = set.images.map(({ name, width, height }) => ({ ratio: name, width, height }))
+    const wide = photos.find((p) => p.ratio === '16x9')
+    return { photos, large: wide ? wide.width >= PHOTO_SET.capWidth : null }
+  }
+
+  async function describe(card: ResolvedCard, check: boolean): Promise<Omit<AuditRow, 'id' | 'slug' | 'hasDescription' | 'discover'>> {
     if (card.kind === 'generated') {
       const stat = await d.store.stat(card.pageId, card.v, card.encoding.format)
       const hero = await heroReport(card, check)
@@ -301,6 +347,7 @@ export function createInspector(d: InspectorDeps): Inspector {
           id: doc.id ?? null,
           slug: typeof slug === 'string' || typeof slug === 'number' ? String(slug) : null,
           ...base,
+          discover: scope === STATIC ? null : await discoverOf(scope, doc),
         }
         if (describedBy && scope !== STATIC) {
           const text = getPath(doc, describedBy)
@@ -322,7 +369,15 @@ export function createInspector(d: InspectorDeps): Inspector {
           notStored: rows.filter((r) => r.kind === 'generated').length - stored,
           downgraded: checkHeroes ? rows.filter((r) => r.downgraded).length : null,
           ...(describedBy && scope !== STATIC ? { missingDescription: rows.filter((r) => r.hasDescription === false).length } : {}),
+          discover:
+            scope === STATIC
+              ? null
+              : {
+                  withPhotoSet: rows.filter((r) => r.discover?.large !== null).length,
+                  large: rows.filter((r) => r.discover?.large === true).length,
+                },
         },
+        discoverNote: DISCOVER_NOTE,
         rows,
       }
     },

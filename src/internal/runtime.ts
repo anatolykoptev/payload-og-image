@@ -9,7 +9,7 @@ import { nextOgRenderer } from '../render/nextOg.js'
 import { createGate } from './gate.js'
 import { type CardHandler, createCardHandler, type DocSource, type HeroLoader, type Renderer, type RouteContext } from './handler.js'
 import { createInspector, type Inspector, ToolInputError } from './inspect.js'
-import type { ResolvedCard } from './resolve.js'
+import type { ResolvedCard, ResolvedPhotos } from './resolve.js'
 import { cachedSite } from './site.js'
 import { CUSTOM_KEY, type OgState } from './state.js'
 import type { CardStore, OnEvent } from './types.js'
@@ -21,6 +21,8 @@ export type OgRuntime = {
   resolveForMetadata(a: { target: string; id: string | number } | { static: string }, request?: Request): Promise<ResolvedCard>
   /** The card of each of `targets` (a target and its variants) for one document, read once. A size that fails is a rejection of its own. */
   resolveSizes(a: { targets: string[]; id: string | number }, request?: Request): Promise<PromiseSettledResult<ResolvedCard>[]>
+  /** The photo set of a document (see `CardHandler.photos`): published unless a draft-mode editor is previewing. Null when the target has none or the document has no usable photograph. */
+  resolvePhotos(a: { target: string; id: string | number }, request?: Request): Promise<ResolvedPhotos | null>
   /** The variant names declared on a target, in declaration order. */
   variantsOf(target: string): string[]
   /** An editor's live preview of a document being typed (see `CardHandler.preview`). */
@@ -114,6 +116,7 @@ export function buildRuntime(state: OgState, payload: Payload, over: RuntimeOver
       handler: () => disabledHandler,
       resolveForMetadata: async () => ({ kind: 'none' }),
       resolveSizes: async (a) => a.targets.map(() => ({ status: 'fulfilled' as const, value: { kind: 'none' as const } })),
+      resolvePhotos: async () => null,
       variantsOf: () => [],
       preview: async () => ({ kind: 'none' }),
       emit: state.events.emit,
@@ -262,6 +265,11 @@ export function buildRuntime(state: OgState, payload: Payload, over: RuntimeOver
       const doc = await docOf(a.target, a.id, previewing, req)
       if (!doc) return { kind: 'none' }
       return handlerFor().resolve({ target: a.target, doc }, { previewing, request: req })
+    },
+    async resolvePhotos(a, request) {
+      const { previewing, req } = await previewOf(request)
+      const doc = await docOf(a.target, a.id, previewing, req)
+      return doc ? handlerFor().photos({ target: a.target, doc }, { previewing, request: req }) : null
     },
     async resolveSizes(a, request) {
       const { previewing, req } = await previewOf(request)

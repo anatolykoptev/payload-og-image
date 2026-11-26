@@ -81,6 +81,13 @@ export function presetTarget(p: ResolvedPreset): Target {
     // Only a photo card has a hero: a text card must not hash or load one it never draws.
     hero: ({ doc }: ResolverArgs<unknown>) => (p.hero && choose(doc) === 'photo' ? (read(doc, p.hero.path) as ImageRef) : undefined),
     ...(p.hero ? { heroCollection: p.hero.collection } : {}),
+    // The photo set is cut from the hero field whether or not the card draws it (a 680 x 470 hero is too small for the photo card and still gives a set; a collection that
+    // forces the text card still has its hero). Read as a bare id and verified by the reader, so the card's own reads do not change. Never the editor's share image: a hero
+    // that IS the share image field (the `meta.image` fallback, or a plugin `seoImage.path` that is also the hero) is no photo of ours.
+    photo:
+      p.hero && p.seo?.path !== p.hero.path
+        ? ({ doc }: ResolverArgs<unknown>) => read(doc, (p.hero as { path: string }).path) as ImageRef
+        : false,
     // A preset knows which upload fields it draws: the editor's share image, and the hero unless the collection forces text (the hero decides
     // the preset, so it is read for 'auto' and 'photo' only). Nothing else is read from the document.
     uploadFields: [...(p.seo ? [p.seo.path] : []), ...(p.preset !== 'text' && p.hero ? [p.hero.path] : [])],

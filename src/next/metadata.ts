@@ -1,5 +1,6 @@
 import type { Metadata } from 'next'
 import type { SanitizedConfig } from 'payload'
+import type { PhotoName } from '../internal/photo.js'
 import type { ResolvedCard } from '../internal/resolve.js'
 import { getRuntime } from '../internal/runtime.js'
 import { variantTargetName } from '../internal/variants.js'
@@ -105,4 +106,44 @@ export async function ogImages(a: OgImagesArgs): Promise<OgImage[]> {
     else logNoRuntime('images', error)
     return []
   }
+}
+
+/** One image of a page's photo set: a clean crop of its hero photograph (no text, no logo), by ratio. */
+export type OgPhotoImage = { url: string; width: number; height: number; ratio: PhotoName }
+
+/** What `ogPhotoImages` takes: the same page key as `ogMetadata`. */
+export type OgPhotoImagesArgs = {
+  config: Promise<SanitizedConfig> | SanitizedConfig
+  target: string
+  doc: { id: string | number } | null | undefined
+}
+
+/**
+ * The photo set of a page for schema.org `image` and Google Discover: up to three clean crops of the page's hero photograph, 16:9, 4:3 and 1:1 in that order,
+ * each at most 1200 px wide and never enlarged (a small photograph gives smaller crops, none under 600 px wide). The branded card is never in it: Google asks for no
+ * logo or text in a structured-data image, so `og:image` stays the card (`ogMetadata`) and this list is the photograph. `[]` when the page has no usable photograph
+ * (no hero, an unpublished or unreadable one, a file too small, or a target whose card path is not a `.:ext` route): the page then lists no image from this feature.
+ * Failure handling is `ogMetadata`'s: in production an event and `[]`, in development and test it throws. See docs/reference.md.
+ */
+export async function ogPhotoImages(a: OgPhotoImagesArgs): Promise<OgPhotoImage[]> {
+  let rt: Awaited<ReturnType<typeof getRuntime>> | undefined
+  try {
+    if (a.doc == null) return []
+    rt = await getRuntime(a.config)
+    const set = await rt.resolvePhotos({ target: a.target, id: a.doc.id })
+    return (set?.images ?? []).map(({ url, width, height, name }) => ({ url, width, height, ratio: name }))
+  } catch (error) {
+    if (process.env.NODE_ENV !== 'production') throw error
+    if (rt) rt.emit({ name: 'render_error', detail: { message: `photos: ${String((error as Error)?.message ?? error)}` } })
+    else logNoRuntime('photos', error)
+    return []
+  }
+}
+
+/** schema.org `primaryImageOfPage` for a list from `ogPhotoImages`: the 16:9 crop as an `ImageObject`, or undefined when the list has none. */
+export function ogPrimaryImageOfPage(
+  images: readonly OgPhotoImage[],
+): { '@type': 'ImageObject'; url: string; width: number; height: number } | undefined {
+  const wide = images.find((i) => i.ratio === '16x9')
+  return wide ? { '@type': 'ImageObject', url: wide.url, width: wide.width, height: wide.height } : undefined
 }

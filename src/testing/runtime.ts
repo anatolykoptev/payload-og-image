@@ -264,6 +264,11 @@ export function installTestRuntime(given: OgImagePluginOptions, docs: KitDocs, o
     }
     return url
   }
+  // A real file in `heroDir` is cut by the production loader; any other hero has no file, so the kit's set is empty for it (never a stand-in photograph).
+  if (real?.photo) {
+    const cut = real.photo
+    heroLoader.photo = async (hero, a) => (isReal(hero) ? cut(hero, a) : { status: 'unreadable' })
+  }
   heroLoader.readable = async (hero) =>
     real && isReal(hero)
       ? (real.readable as NonNullable<HeroLoader['readable']>)(hero)

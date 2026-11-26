@@ -55,7 +55,43 @@ export type OgMetadataArgs = {
 };
 
 // @public
+export type OgPhotoImage = {
+    url: string;
+    width: number;
+    height: number;
+    ratio: PhotoName;
+};
+
+// @public
+export function ogPhotoImages(a: OgPhotoImagesArgs): Promise<OgPhotoImage[]>;
+
+// @public
+export type OgPhotoImagesArgs = {
+    config: Promise<SanitizedConfig> | SanitizedConfig;
+    target: string;
+    doc: {
+        id: string | number;
+    } | null | undefined;
+};
+
+// @public
+export function ogPrimaryImageOfPage(images: readonly OgPhotoImage[]): {
+    '@type': 'ImageObject';
+    url: string;
+    width: number;
+    height: number;
+} | undefined;
+
+// @public
+export type OgRobots = Exclude<Metadata['robots'], string | null | undefined>;
+
+// @public
 export const ogTag: (collection: string, key: string | number) => string;
+
+// Warning: (ae-forgotten-export) The symbol "PHOTO_SET" needs to be exported by the entry point next.d.ts
+//
+// @public (undocumented)
+export type PhotoName = keyof typeof PHOTO_SET.ratios;
 
 // @public (undocumented)
 export type RouteContext = {
@@ -64,6 +100,15 @@ export type RouteContext = {
 
 // @public
 export const withHead: <C>(get: (r: Request, c: C) => Promise<Response> | Response) => (r: Request, c: C) => Promise<Response>;
+
+// @public
+export function withLargeImagePreview(robots: string): string;
+
+// @public
+export function withLargeImagePreview(robots?: OgRobots | null): OgRobots;
+
+// @public
+export function withLargeImagePreview(robots?: Metadata['robots']): Metadata['robots'];
 
 // (No @packageDocumentation comment for this package)
 

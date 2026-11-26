@@ -2,6 +2,7 @@ import { constants } from 'node:fs'
 import { open } from 'node:fs/promises'
 import net from 'node:net'
 import path from 'node:path'
+import { cropWindow, uprightSize } from '../internal/crop.js'
 import { DepLoadError, loadSharp } from '../internal/deps.js'
 import type { HeroLoader } from '../internal/handler.js'
 import { MAX_SIDE } from '../internal/limits.js'
@@ -10,6 +11,7 @@ import type { OnEvent, Upload } from '../internal/types.js'
 import { collectionOf, type VerifiedUpload } from '../internal/uploads.js'
 import { heroTag } from '../internal/version.js'
 import { guardedFetch, isPublicAddress, type ResolveHost, systemResolve } from './guardedFetch.js'
+import { cutPhoto } from './photo.js'
 import { prepareShape } from './shape.js'
 import { looksLikeSvg, looksRaster } from './sniff.js'
 
@@ -141,8 +143,6 @@ async function fetchRemote(
   }
 }
 
-const clamp = (n: unknown, fallback: number) => (typeof n === 'number' && Number.isFinite(n) ? Math.min(100, Math.max(0, n)) : fallback)
-
 /** The size an SVG is drawn at, once per upload version: the pixel cap (`MAX_RENDER_PIXELS`) bounds it, and sharp scales that raster to each card's box. */
 const SVG_COVER = { width: 1000, height: 1000 }
 /** Rasterised SVGs remembered per upload version (the least recently used goes first): an SVG is drawn once per version per process. */
@@ -197,26 +197,12 @@ async function prepare(
     // The header alone: format, size and EXIF orientation, no pixel decode.
     const meta = await sharp(bytes, input).metadata()
     if (!meta.format || !RASTER.has(meta.format)) return null
-    // After `rotate()` the image is upright, so a quarter turn swaps the stored width and height.
-    const turned = (meta.orientation ?? 1) >= 5
-    const width = (turned ? meta.height : meta.width) ?? 0
-    const height = (turned ? meta.width : meta.height) ?? 0
-    if (!width || !height) return null
-    const aspect = box.width / box.height
-    const cropW = Math.min(width, Math.round(height * aspect))
-    const cropH = Math.min(height, Math.round(cropW / aspect))
-    if (cropW < 1 || cropH < 1) return null
-    const at = (focus: number, size: number, crop: number) =>
-      Math.round(Math.min(size - crop, Math.max(0, (focus / 100) * size - crop / 2)))
-    const cut = sharp(bytes, input)
-      .rotate()
-      .extract({
-        left: at(clamp(hero.focalX, 50), width, cropW),
-        top: at(clamp(hero.focalY, 50), height, cropH),
-        width: cropW,
-        height: cropH,
-      })
-      .resize(box.width, box.height)
+    // After `rotate()` the image is upright: the window is cut from the upright size, by the one crop function the photo set uses too.
+    const upright = uprightSize(meta)
+    if (!upright) return null
+    const crop = cropWindow(upright, box.width / box.height, hero)
+    if (!crop) return null
+    const cut = sharp(bytes, input).rotate().extract(crop).resize(box.width, box.height)
     // Flattened only when the site chose a ground (sharp flattens before it scales, whatever the chain order). Without one the alpha stays in the PNG, so the card
     // composites the hero as a direct `<img>` would (a flatten onto white first leaves a pale fringe on any other card colour).
     const png = await (o.background === undefined ? cut : cut.flatten({ background: o.background }))
@@ -364,6 +350,18 @@ export function payloadHeroLoader(o: HeroLoaderOptions): HeroLoader {
     } catch (error) {
       if (error instanceof DepLoadError) throw error // sharp itself is broken: a render error that names it, not a silent hero-less card
       return null
+    }
+  }
+  load.photo = async (hero, a) => {
+    try {
+      const { bytes, svg, unreadable } = await rasterReady(hero)
+      if (unreadable) return { status: 'unreadable' }
+      // Never an SVG, whatever its record says: a photo is a photograph, and a drawing's rasterisation is not one.
+      if (svg || !bytes) return { status: 'absent' }
+      return await cutPhoto(bytes, hero, a, { maxPixels })
+    } catch (error) {
+      if (error instanceof DepLoadError) throw error
+      return { status: 'unreadable' }
     }
   }
   load.readable = remembered(
