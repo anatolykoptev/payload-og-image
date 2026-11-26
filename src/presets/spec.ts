@@ -31,8 +31,8 @@ export const DENSITY = 2
 export const IMAGE_BOXES = {
   logo: { width: 440, height: 88 }, // drawn at most 220 x 44
   partner: { width: 320, height: 88 }, // drawn at most 160 x 44
-  mark: { width: 480, height: 480 }, // the logo, whole, on the right
-  art: { width: 540, height: 630 }, // the uploaded brand art: the right of the card, whole height
+  mark: { width: 400, height: 400 }, // the logo, whole, on the right
+  art: { width: 464, height: 630 }, // the uploaded brand art: the right of the card, whole height
 } as const
 export const PHOTO_IMAGE_BOXES = {
   logo: { width: 300, height: 72 }, // drawn at most 150 x 36
@@ -67,9 +67,9 @@ export type SlotName = keyof typeof SLOTS
 export const TEXT = {
   /** Left edge of the text column; the brand art starts at `artX`. */
   x: 80,
-  artX: 660,
-  /** Column width with and without the brand art. */
-  columnWidth: { art: 580, plain: 900 },
+  artX: 736,
+  /** Column width beside the faint logo (it sits behind the title), beside uploaded art, and with neither. */
+  columnWidth: { mark: 900, art: 640, plain: 900 },
   head: {
     y: 96,
     height: 44,
@@ -92,12 +92,12 @@ export const TEXT = {
     ladder: {
       // With the art there is no ellipsis: a title that does not fit whole at the last rung drops the art and is fitted on the plain ladder.
       art: [
+        [96, 2],
+        [84, 2],
         [72, 2],
-        [64, 2],
-        [56, 2],
-        [52, 3],
-        [48, 3],
-        [44, 4],
+        [64, 3],
+        [56, 3],
+        [48, 4],
       ],
       plain: [
         [112, 2],
@@ -113,8 +113,12 @@ export const TEXT = {
   },
   sub: { size: 30, leading: 1.35, gap: 24, maxLines: 2, dropTitleLines: 2, bottom: 478 },
   foot: { y: 500, height: 34, size: 26, gap: 14, pill: { size: 22, padX: 14, height: 34 } },
-  /** The logo on the right, contained in a 480 x 480 box at (700, 75) and never clipped, drawn at `opacity` unless the site sets `artOpacity`. */
-  art: { x: 700, y: 75, size: 480, opacity: 0.35 },
+  /**
+   * The logo on the right, contained in a 400 x 400 box at (736, 115) and never clipped, drawn at `opacity` unless the site sets `artOpacity`. It is faint and
+   * stays behind the title, so the title column is as wide as without it (900 px): a 42-character title keeps its 84 px two lines. Uploaded brand art is
+   * opaque, so it takes the right of the card and the column narrows to 640.
+   */
+  art: { x: 736, y: 115, size: 400, opacity: 0.35 },
   strip: { height: 8, opacity: 0.55 },
 } as const
 

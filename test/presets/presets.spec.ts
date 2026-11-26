@@ -604,13 +604,20 @@ describe('the head, the right side and the title ladder', () => {
     expect(l.partner?.w).toBeLessThanOrEqual(160)
     expect(l.name?.text).toBe('OxFoundry')
   })
-  it('the logo on the right is contained in its 480 box at (700, 75), centred, and never clipped', async () => {
-    const ctx = await ctxOf({ logo: [await square()], mark: [await pngOf(480, 320)] })
+  it('the logo on the right is contained in its 400 box at (736, 115), centred, and never clipped', async () => {
+    const ctx = await ctxOf({ logo: [await square()], mark: [await pngOf(400, 260)] })
     const l = textLayout({ title: 'A short title', site: 'S' }, ctx)
     expect(l.art).toBe('mark')
-    expect(l.colW).toBe(580)
-    expect(l.mark).toEqual({ x: 700, y: 75 + 80, w: 480, h: 320 })
+    expect(l.colW).toBe(900)
+    expect(l.mark).toEqual({ x: 736, y: 115 + 70, w: 400, h: 260 })
     expect((l.mark as { x: number; w: number }).x + (l.mark as { w: number }).w).toBeLessThanOrEqual(1200)
+  })
+  it('a 42-character title beside a square logo stays large: 84 px or more on two lines', async () => {
+    const ctx = await ctxOf({ logo: [await square()], mark: [await pngOf(400, 400)] })
+    const l = textLayout({ title: 'OxPulse: encrypted calls for a bad network', site: 'S' }, ctx)
+    expect(l.art).toBe('mark')
+    expect(l.title.lines).toBe(2)
+    expect(l.title.size).toBeGreaterThanOrEqual(84)
   })
   it('a title that does not fit whole beside the art drops the art and is fitted on the plain ladder; the uploaded art too', async () => {
     const long =
@@ -765,7 +772,7 @@ describe('goldens: the two presets keep their URL and what they draw', () => {
   }
   const GOLDEN: Record<string, { v: string; drawn: string }> = {
     'text/-': { v: 'c3ce841ad08e', drawn: '0aa2da980b982f0b391bdc3c476072f883597d6830a6da5ce7bd07414fc40332' },
-    'text/logo': { v: '07bdfc08c619', drawn: '3cedee1c73230795e681207e99499ed6b40a9c568bde3651649241b0a32171c2' },
+    'text/logo': { v: '07bdfc08c619', drawn: 'e4e8d6949ec5b941d0a4d7149afed664a6adf45e54d471ba6ec1f266b27e3982' },
     'photo/-': { v: '46123276026e', drawn: '17f9955d454687cfd7c45801e96a7cb9e9f95c4df55da3396387e1f861c0ad66' },
   }
   it.each([
@@ -846,13 +853,13 @@ describe('safe zone', () => {
     }
     expect(boxes).toBeGreaterThan(500)
   })
-  it('the text column narrows to 580 with art and widens to 900 without', async () => {
+  it('the text column narrows to 640 beside uploaded art and widens to 900 without', async () => {
     const p: PresetProps = { title: 'A title long enough to take a few lines of the card, to see the column', site: 'S' }
     const art = textLayout(p, await ctxOf({ art: ['x'] }))
     const plain = textLayout(p, await ctxOf({}))
-    expect(art.colW).toBe(580)
+    expect(art.colW).toBe(640)
     expect(plain.colW).toBe(900)
-    expect(art.title.rect.x + art.title.rect.w).toBeLessThanOrEqual(660)
+    expect(art.title.rect.x + art.title.rect.w).toBeLessThanOrEqual(736 - 16)
   })
 })
 

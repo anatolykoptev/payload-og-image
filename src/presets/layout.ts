@@ -128,7 +128,7 @@ export type TextLayout = {
 
 /** The layout with the given art, or undefined when the title would not fit whole beside it (there is no ellipsis next to art). */
 function textLayoutFor(p: PresetProps, ctx: TemplateContext, art: TextLayout['art']): TextLayout | undefined {
-  const colW = art ? TEXT.columnWidth.art : TEXT.columnWidth.plain
+  const colW = art === 'mark' ? TEXT.columnWidth.mark : art === 'art' ? TEXT.columnWidth.art : TEXT.columnWidth.plain
   const x = TEXT.x
   const boxes: NamedRect[] = []
   const place = (name: string, r: Rect) => {
