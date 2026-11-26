@@ -1,3 +1,4 @@
+import { type Field, flatFields, singleUpload } from './fields.js'
 import type { Upload } from './types.js'
 
 /**
@@ -100,30 +101,15 @@ function verified(collection: string, doc: Record<string, any> | undefined): Ver
 /** One upload field of a collection: where it sits in a document, and the upload collection its schema says it points to. */
 export type UploadField = { path: string[]; relationTo: string }
 
-type Field = {
-  type?: string
-  name?: string
-  relationTo?: unknown
-  hasMany?: boolean
-  fields?: Field[]
-  tabs?: Array<{ fields?: Field[]; name?: string }>
-}
-
 /**
  * The single-valued upload fields of a collection (top level, in groups, rows and tabs), with their upload collection. A `hasMany` upload stays a
- * list of bare ids: a resolver names the one a hero or named image takes.
+ * list of bare ids: a resolver names the one a hero or named image takes. Access is the reader's business, so a field the public may not read is
+ * still listed (an editor reads it).
  */
-export function uploadFieldsOf(fields: Field[] | undefined, prefix: string[] = []): UploadField[] {
-  const found: UploadField[] = []
-  for (const f of fields ?? []) {
-    if (f.type === 'upload' && f.name && typeof f.relationTo === 'string' && !f.hasMany)
-      found.push({ path: [...prefix, f.name], relationTo: f.relationTo })
-    else if (f.type === 'group' && f.name) found.push(...uploadFieldsOf(f.fields, [...prefix, f.name]))
-    else if (f.type === 'tabs') for (const t of f.tabs ?? []) found.push(...uploadFieldsOf(t.fields, t.name ? [...prefix, t.name] : prefix))
-    else if (!f.name && f.fields) found.push(...uploadFieldsOf(f.fields, prefix)) // a row or collapsible: no value of its own
-  }
-  return found
-}
+export const uploadFieldsOf = (fields: Field[] | undefined): UploadField[] =>
+  flatFields(fields)
+    .filter(singleUpload)
+    .map((e) => ({ path: e.keys, relationTo: e.field.relationTo as string }))
 
 /** `doc` with `value` at `path`: a copy of the objects along the path, so the document the source returned is never changed. */
 function withValue(doc: Record<string, any>, path: string[], value: unknown): Record<string, any> {
