@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.0](https://github.com/anatolykoptev/payload-og-image/compare/v0.7.2...v0.8.0) (2026-11-26)
+
+
+### Features
+
+* several named images per card, and a hero from a hasMany upload field ([#83](https://github.com/anatolykoptev/payload-og-image/issues/83)) ([c2ae3cd](https://github.com/anatolykoptev/payload-og-image/commit/c2ae3cdfb1472009777977364e84b5380d91d243))
+
 ## [0.7.2](https://github.com/anatolykoptev/payload-og-image/compare/v0.7.1...v0.7.2) (2026-11-26)
 
 

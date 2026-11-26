@@ -1,6 +1,6 @@
 {
   "name": "payload-og-image",
-  "version": "0.7.2",
+  "version": "0.8.0",
   "description": "Payload CMS plugin: generated, content-versioned Open Graph share cards with a crash-safe store and a test kit.",
   "license": "Apache-2.0",
   "homepage": "https://github.com/anatolykoptev/payload-og-image#readme",
