@@ -17,6 +17,9 @@ const tarball = join(work, packed.filename)
 const inTarball = new Set(packed.files.map((f) => f.path))
 
 const pkg = JSON.parse(readFileSync('package.json', 'utf8'))
+// The bundled Inter faces and their licence ship in the tarball (the presets register them from an embedded copy of these very files).
+for (const f of ['OFL.txt', ...['latin', 'latin-ext', 'cyrillic'].flatMap((s) => [400, 700].map((w) => `inter-${s}-${w}-normal.woff`))])
+  if (!inTarball.has(`fonts/${f}`)) errors.push(`fonts/${f} is not in the tarball`)
 for (const [name, file] of Object.entries(pkg.bin ?? {})) {
   // npm 11 drops a bin whose path starts with `./` at publish ("script name ... was invalid"): v0.1.1 shipped without og-parity.
   if (file.startsWith('./')) errors.push(`bin "${name}" -> ${file}: write it without the leading ./`)

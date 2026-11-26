@@ -4,7 +4,7 @@ import { lexicalEditor } from '@payloadcms/richtext-lexical'
 import { buildConfig } from 'payload'
 import { ogImagePlugin } from 'payload-og-image'
 import sharp from 'sharp'
-import { ogOptions } from './src/og/options.js'
+import { ogOptions, presetOptions } from './src/og/options.js'
 import { payloadMajor } from './src/og/payloadMajor.js'
 import { revalidateDeletedPost, revalidatePost, revalidateSite } from './src/og/revalidate.js'
 
@@ -42,7 +42,7 @@ export default buildConfig({
   db: sqliteAdapter({ client: { url: process.env.DATABASE_URL || 'file:./dev.db' } }),
   editor: lexicalEditor(),
   jobs: { autoRun: [] },
-  plugins: [ogImagePlugin(ogOptions)],
+  plugins: [ogImagePlugin(process.env.OG_DEV_MODE === 'preset' ? presetOptions : ogOptions)],
   secret: process.env.PAYLOAD_SECRET || 'dev-only-secret',
   // Payload 4 removed the top-level `sharp` option and throws on the key even when it is undefined.
   ...(payloadMajor() >= 4 ? {} : { sharp }),

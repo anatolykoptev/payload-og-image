@@ -106,9 +106,41 @@ target a `.jpg` path: the same card is about a quarter of the size of the palett
 but opt-in, because not every link-preview crawler reads WebP. See [JPEG and WebP cards](docs/reference.md#jpeg-and-webp-cards) and
 [crawlers](docs/crawlers.md#image-formats).
 
+## Zero config: the built-in presets
+
+No templates, fonts or store to write: name the collections and add one route file.
+
+```ts
+ogImagePlugin({ collections: ['posts', 'pages'] })
+```
+
+```ts
+// app/(frontend)/og/[kind]/[slug]/[file]/route.ts
+import config from '@payload-config'
+import { createOgRoute } from 'payload-og-image/next'
+
+const route = createOgRoute({ config })
+export const GET = route.GET
+export const HEAD = GET
+```
+
+Each collection becomes an ordinary target built from two named, versioned presets: `payload-og-image:photo@1` (a JPEG: the hero
+full-bleed with a scrim under the title) and `payload-og-image:text@1` (a PNG: a dark ground, the site name and label on the left, the title,
+and a large brand mark on the right). A document whose hero is at least 800 x 420 draws the photo preset, any other the text preset; the page's
+`ogMetadata` advertises `card.jpg` or `card.png` accordingly, and the route answers 404 for the other file name. With neither `collections` nor
+`targets` the plugin refuses to start.
+
+What is detected, and how to override each: the title (`admin.useAsTitle`, then `title`, then `name`; none is a start-up error naming the
+collection; `title`), the hero (a single upload field named `hero`, `heroImage`, `image`, `cover`, `coverImage` or `featuredImage`, else `meta.image`;
+`hero`, or `false` for never a photo), the label (`labels.plural`; `label`), the sub line (none; `subtitle`), the path (`:slug`, or `:id` when
+the collection has no `slug` field; `path`, which must hold `:ext`), and `preset: 'text' | 'photo'` to force one. The site name is `siteName`, else the `serverURL` host.
+`site()` may return `logo` and `brandArt` (an upload id): the logo's mark is drawn in the head and, large, on the right of the text card; `brandArt` takes the right side instead.
+The bundled fonts (Inter 400 and 700, latin, latin-ext and cyrillic; SIL OFL 1.1) are registered only when you give no `fonts` and `stacks`, so a site with
+fonts of its own keeps every card URL it has. See [reference](docs/reference.md#zero-config-presets).
+
 ## What you get
 
-- `payload-og-image`: `ogImagePlugin`, `defineTemplate`, `defineTarget`, and `ogFields()` for the optional per-document
+- `payload-og-image`: `ogImagePlugin`, `defineTemplate`, `defineTarget`, `presets` (the two built-in templates), and `ogFields()` for the optional per-document
   `og` group (mode, headline, subtitle; see [reference](docs/reference.md#per-document-share-card-fields)).
 - `payload-og-image/client`: the admin's live card preview (`OgPreviewField`), referenced by the `og` group; run
   `payload generate:importmap` after adding the plugin.

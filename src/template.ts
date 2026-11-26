@@ -48,6 +48,28 @@ export interface ImageLists {
   readonly propertyIsEnumerable?: readonly string[] | undefined
 }
 
+/** One item of a row laid out by `ctx.fitRow`: a pill, a badge or a run of text. */
+export type RowItem = {
+  /** Identifies the item in the answer. */
+  key: string
+  text: string
+  /** The font stack the text is drawn with. */
+  stack: string
+  /** Font size in px. */
+  size: number
+  /** The weight the text is drawn at (default 400): the face of that weight measures it. */
+  weight?: number
+  /** Letter spacing in em, as the item sets it (`-0.02`). */
+  tracking?: number
+  /** Horizontal padding on each side inside the item (a pill, a badge), in px. Default 0. */
+  padX?: number
+  /** Which item goes first when the row is too wide: the HIGHEST number. 0 is never dropped (the row's own text). */
+  priority: number
+}
+
+/** `ctx.fitRow`'s answer for one item that stayed: the item and its measured width in px (padding included). */
+export type RowFit = RowItem & { width: number }
+
 /** What a template's `render` gets besides its props. Site data reaches a template only through props, so it is part of the version. */
 export type TemplateContext = {
   host: string
@@ -68,6 +90,12 @@ export type TemplateContext = {
   fit(text: string, box: Box, stack: string): { size: number; lines: number; text: string; width?: number }
   /** The font family of `stack` that draws every character of `text`. */
   font(stack: string, text: string): string
+  /**
+   * Lays a row of items out in `width` px with `gap` px between them (default 16). While the row is too wide the item with the highest
+   * `priority` is dropped WHOLE, never cut short; an item with priority 0 is never dropped. The answer is the items that stayed, in the
+   * order given, each with its measured width. An item whose text is empty is dropped.
+   */
+  fitRow(items: RowItem[], width: number, gap?: number): RowFit[]
 }
 
 export type Template<P extends PropsModel> = {
@@ -83,6 +111,8 @@ export type Template<P extends PropsModel> = {
   /** Which font stack each text field uses (field name -> stack name); a field without an entry uses the stack of its own name. */
   stacks?: Record<string, string>
   heroBox?: Size
+  /** This template's card encoding. Precedence: the target's `format`, then this one, then the plugin's. A card path with `:ext` takes its extension from the result. */
+  format?: CardFormat
   /** The size each named image (`Target.images`) is cut to, by name. A target that names an image the template does not declare is refused when its card is resolved. */
   imageBoxes?: Record<string, Size>
   /** The colour this template's transparent hero is flattened onto (`#rgb` or `#rrggbb`), instead of the plugin's `heroBackground`. A target's own wins. */
@@ -99,6 +129,7 @@ export function defineTemplate<P extends PropsModel>(t: Omit<Template<P>, 'size'
   if (typeof t.id !== 'string' || t.id.trim() === '') throw new Error('payload-og-image: a template needs a non-empty id')
   if (typeof t.revision !== 'string') throw new Error(`payload-og-image: template "${t.id}" needs a string revision`)
   if (t.heroBackground !== undefined) normaliseHeroBackground(t.heroBackground) // a named error now, not at the first card
+  if (t.format !== undefined) assertFormatOption(`template "${t.id}"`, { format: t.format })
   const size = t.size ?? DEFAULT_SIZE
   if (!validSize(size)) throw new Error(`payload-og-image: template "${t.id}" has an invalid size`)
   if (t.imageBoxes !== undefined) {
@@ -132,7 +163,11 @@ export type ResolverArgs<D> = {
 }
 
 export type Target<D = any, P = any> = {
-  /** Route path of the card; must contain `:slug` or `:id`, and may contain `:kind`. */
+  /**
+   * Route path of the card; must contain `:slug` or `:id`, and may contain `:kind`. `:ext` (in the last segment) is the card's file
+   * extension, `png`, `jpg` or `webp` by the format the card is drawn in: `/og/:kind/:slug/card.:ext`. The route then serves a card only
+   * under its own file name (`card.jpg` for a JPEG card), and answers 404 to the others.
+   */
   path: string
   /** Defaults to the target's name in the plugin's `targets` map. */
   kind?: string
@@ -185,6 +220,8 @@ export function defineTarget<D, P>(t: Target<D, P>): Target<D, P> {
   if (/[?#]/.test(t.path)) {
     throw new Error(`payload-og-image: target path "${t.path}" must be a pathname only (no query or fragment): the card URL appends ?v=`)
   }
+  if (/:ext\b/.test(t.path) && /:ext\b/.test(t.path.slice(0, t.path.lastIndexOf('/') + 1)))
+    throw new Error(`payload-og-image: target path "${t.path}" must hold :ext in its last segment only (the file name)`)
   if (!/:(slug|id)\b/.test(t.path)) {
     throw new Error(`payload-og-image: target path "${t.path}" has no :slug or :id, so every document would share one card URL`)
   }

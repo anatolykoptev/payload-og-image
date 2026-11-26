@@ -137,6 +137,31 @@ export function missingGlyphs(fonts: LoadedFont[], stack: string[], text: string
   return [...new Set([...text].filter((ch) => !covers(faces, ch)))]
 }
 
+/**
+ * The width in px of `text` on one line at `size`: each character measured with the first family of the stack that draws it, in that
+ * family's face nearest to `weight` (upright before italic). `tracking` (em) is added to every character, as the card sets it.
+ */
+export function measureText(
+  fonts: LoadedFont[],
+  stack: string[],
+  text: string,
+  size: number,
+  o: { weight?: number; tracking?: number } = {},
+): number {
+  const weight = o.weight ?? 400
+  const faces = stack.flatMap((family) => {
+    const nearest = facesOf(fonts, family).sort(
+      (a, b) => Number(a.style !== 'normal') - Number(b.style !== 'normal') || Math.abs(a.weight - weight) - Math.abs(b.weight - weight),
+    )[0]
+    return nearest ? [nearest] : []
+  })
+  const first = faces[0]
+  if (!first) throw new Error(`payload-og-image: measureText: font family "${stack[0]}" is not registered`)
+  const tracking = o.tracking ?? 0
+  const em = [...text].reduce((sum, ch) => sum + (faces.find((f) => f.has(ch)) ?? first).advance(ch) / 1000 + tracking, 0)
+  return em * size
+}
+
 /** The text without the characters nothing in the stack draws: never tofu, never a blank card. */
 export function stripMissing(fonts: LoadedFont[], stack: string[], text: string): { text: string; missing: string[] } {
   const missing = missingGlyphs(fonts, stack, text)

@@ -9,6 +9,9 @@
  * - handler.ts:269  immutable for every version -> "stale v is short" RED
  * - payloadSource.ts:35  drop the `_status: published` filter from the published read -> "draft never cached" RED (a never-published post answers 200 to the public) */
 
+import { cp, mkdtemp } from 'node:fs/promises'
+import os from 'node:os'
+import path from 'node:path'
 import { installTestRuntime, ogKit } from 'payload-og-image/testing'
 import { describe, it, vi } from 'vitest'
 import * as cardRoute from '../app/(frontend)/og/[kind]/[slug]/card.png/route.js'
@@ -48,7 +51,12 @@ describe('dev app share cards', () => {
         params: { kind: u.pathname.split('/')[2] as string, slug: decodeURIComponent(u.pathname.split('/')[3] as string) },
       }),
     }))
-  it('configured paths match route files', () => kit.routesMatchPaths({ appDir: new URL('../app', import.meta.url).pathname }))
+  it('configured paths match route files', async () => {
+    // The `[file]` route belongs to `OG_DEV_MODE=preset` (its `:ext` path): these classic options declare none, so it is left out of this check.
+    const appDir = await mkdtemp(path.join(os.tmpdir(), 'og-dev-app-'))
+    await cp(new URL('../app', import.meta.url).pathname, appDir, { recursive: true, filter: (f) => !f.includes('[file]') })
+    await kit.routesMatchPaths({ appDir })
+  })
   it('draft never cached', () =>
     kit.draftNeverCached({ module: cardRoute, params: p('a'), target: 'posts', slug: 'a', draftOnly: 'unpublished' }))
   it('store hit skips render', () => kit.storeHitSkipsRender({ module: cardRoute, params: p('hero') }))

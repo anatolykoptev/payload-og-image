@@ -8,6 +8,7 @@ import type { Memo } from './memo.js'
 import { pooled } from './pool.js'
 import {
   buildKindIndex,
+  cardFile,
   type GeneratedCard,
   getPath,
   MAX_SLUG,
@@ -113,6 +114,15 @@ export const CACHE = {
 class Downgraded extends Error {
   constructor(readonly bytes: Uint8Array) {
     super('downgraded')
+  }
+}
+
+/** The last path segment, percent-decoded; undefined when it is malformed. */
+const lastSegment = (pathname: string): string | undefined => {
+  try {
+    return decodeURIComponent(pathname.split('/').pop() as string)
+  } catch {
+    return undefined
   }
 }
 
@@ -455,6 +465,13 @@ export function createCardHandler(d: HandlerDeps): CardHandler {
     if (!prepared) return notFound()
     const { card, fonts, digest, site } = prepared
     if (card.kind !== 'generated') return notFound()
+    // A `:ext` path serves a card only under its own file name (`card.jpg` for a JPEG card). The name is read from the request's pathname, never from
+    // a route param: a static `card.png` route and a pinned `createOgRoute({ target })` route have none.
+    if (/:ext\b/.test(target.path)) {
+      const asked = lastSegment(new URL(request.url).pathname)
+      if (asked === undefined || asked !== cardFile(target, targetName ?? (staticCard as StaticCard).kind, slug, card.encoding.format))
+        return notFound()
+    }
     if (card.missing.length)
       d.events.emit({ name: 'glyph_missing', kind: card.key.kind, slug: card.key.slug, detail: { chars: card.missing } })
     const type = { 'content-type': card.type, etag: `"${card.v}"` }

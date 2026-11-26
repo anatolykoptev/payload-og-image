@@ -51,6 +51,10 @@ Floor (README): Payload `^3.93.0` or `^4.0.0-beta.12`, Next.js `^16.4.5`, React 
 9. **Per-document overrides wanted?** If editors should set the card headline or switch the card off per page, enable `fields` (section below) and plan the migration.
 10. **Crawler pre-flight**: `robots.txt` must not `Disallow` the card path; pages that Next caches must be revalidated on save or be `force-dynamic`.
 
+## Zero config (no templates to write)
+
+`ogImagePlugin({ collections: ['posts'] })` plus the route file `app/(frontend)/og/[kind]/[slug]/[file]/route.ts` (`createOgRoute({ config })`, `GET`, `HEAD = GET`) gives a finished card from two built-in presets: photo (JPEG, hero at least 800 x 420) and text (PNG). Details and every override in `references/zero-config.md`. Prefer it when the user wants a good card with no design work; write a template (below) only for a brand of their own.
+
 ## Minimal wiring
 
 Plugin (`payload.config.ts`):
@@ -134,6 +138,7 @@ In the plugin repository, [`scripts/probe-dev-server.mjs`](https://github.com/an
 - No route file, or a route folder that does not match `path`: pages advertise a URL that 404s. `kit.routesMatchPaths` catches it.
 - Payload REST answers 404 to HEAD: add `export const HEAD = withHead(GET)` in `app/(payload)/api/[...slug]/route.ts`. Not on the card route.
 - Next 16 streams `generateMetadata` output into `<body>` for crawlers not on its HTML-limited list (Telegram is not); streaming applies to pages rendered at request time. Check with `curl -A 'TelegramBot'`; if `og:image` is not in `<head>`, set `htmlLimitedBots` (see `references/pitfalls.md`).
+- A zero-config site needs the `[file]` route, not `card.png/route.ts`: the preset path ends `card.:ext`, and a photo card requested as `card.png` is a 404.
 - `og:image` must remain a single image. Do not add a second image in a layout or page; a page's `openGraph` replaces the layout's whole `openGraph` (shallow merge).
 - Cached pages keep an old `?v`: `force-dynamic` or revalidate with `ogTag` on save.
 - JPEG for photo cards; WebP is not safe on every platform.
@@ -142,6 +147,7 @@ In the plugin repository, [`scripts/probe-dev-server.mjs`](https://github.com/an
 
 ## References (load on demand)
 
+- `references/zero-config.md`: `collections`, what is auto-detected and how to override it, the preset choice, the refusal messages, the `[file]` route, bundled fonts, slots.
 - `references/targets.md`: target options, hero (and a hero from a `hasMany` field), named `images`, format, static cards, size variants and `ogImages`, store and gate options.
 - `references/templates.md`: writing a template, props, `ctx.fit`, fonts and stacks, the CSS subset.
 - `references/fields-and-mcp.md`: the `og` group, `mode` table, migration, admin preview, MCP tools.

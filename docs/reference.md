@@ -244,6 +244,52 @@ id resolves, so those cards get a new `v` once (the hero is part of the version)
 (an id, or `{ id }`) as well as an upload. `heroCollection` and every `imageCollections` value must be an upload collection
 of the config, or the plugin refuses to start, naming it.
 
+## Zero-config presets
+
+`ogImagePlugin({ collections: [...] })` expands each collection into an ordinary target before anything validates (as `variants` do), so resolve, the
+handler and the store know nothing about presets. With `collections`, `site`, `fonts`, `stacks`, `templates`, `targets` and `store` are optional. With
+neither `collections` nor `targets` (nor `static`) the plugin refuses to start.
+
+| Entry of `collections` | Default                                                                                                                                             |
+| ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `slug`                 | the collection, also the target's name and kind                                                                                                     |
+| `preset`               | `auto`: photo for a document with a hero of at least 800 x 420 (a raster upload with a file), text otherwise; or `text`/`photo`                     |
+| `title`                | `admin.useAsTitle`, then `title`, then `name`; none of them is a start-up error                                                                     |
+| `hero`                 | the first single upload field named `hero`, `heroImage`, `image`, `cover`, `coverImage`, `featuredImage`; else `meta.image`; `false`: never a photo |
+| `label`                | `labels.plural`, else the capitalised slug                                                                                                          |
+| `subtitle`             | none; a text or textarea field path                                                                                                                 |
+| `path`                 | `/og/:kind/:slug/card.:ext` (`:id` when there is no `slug` field); must hold `:ext`                                                                 |
+
+Plugin options on this path: `siteName` (default the `serverURL` host without `www.`), `logoCollection` (the upload collection `site().logo` and
+`site().brandArt` are read from; default the only upload collection). A collection with `meta.image` (plugin-seo) also sets `seoImage` unless you did.
+`og.mode` works as before: `off` gives no card, `custom` and `inherit` prefer the editor's image, `generated` always draws a preset.
+
+**One route, two formats.** `:ext` is the extension of the card's format: the target's `format`, else the template's (`Template.format`: the
+photo preset is `jpeg`, the text preset `png`), else the plugin's. The route serves a card only under its own file name, read from the request
+**pathname** (never a route param, which a static `card.png` route does not have): a photo card requested as `card.png` is a 404. A site's existing
+`card.png/route.ts` keeps working beside the `[file]` route.
+
+**Versions.** Both presets are templates (`payload-og-image:photo`, `payload-og-image:text`, revision `1`): their spec lives in `src/presets/spec.ts` and enters the
+version through the template id and revision, so a design change is a revision bump that moves only preset cards. A site that does not opt in
+hashes exactly as before (`test/compat/golden.spec.ts`).
+
+**Fonts.** Inter 400 and 700, each in latin, latin-ext and cyrillic (families `Inter`, `Inter Ext`, `Inter Cyrillic`, stack `default`), are registered only when
+the site gives neither `fonts` nor `stacks`. The licence is `fonts/OFL.txt`. The faces are read from an embedded copy of `fonts/*.woff`
+(`scripts/fetch-fonts.mjs` writes both from a pinned `@fontsource/inter`), never from a file path, because a bundled `import.meta.url` is not a file URL inside Next.
+A site with fonts of its own draws the presets with its own `default` stack.
+
+**Safe zone.** Text, a logo and a pill stay inside x 64 to 1136 and y 96 to 534: about 15% of a wide card is cropped top and bottom by some feeds.
+Only the photo, the scrims, the brand art and the 8 px accent strip bleed. `textLayout` and `photoLayout` are pure functions of the props and `ctx`, so the zone is tested without pixels.
+
+**Slots.** Both presets draw the props `pill`, `badge`, `pill2`, `caption` and `meta` (priority 1 to 5; a higher number drops first) when a custom
+target hands them to `presets.text` or `presets.photo`: a value over its `maxChars` (28, 6, 24, 48, 32) is dropped, and `ctx.fitRow` drops whole items by priority until the row fits.
+Nothing is ever cut; only the title keeps `ctx.fit`'s ellipsis at its last step.
+
+**The text card** (dark ground `#121416`, ink `#EEF0F2`, muted `#A3A9B0`, accent `#8FB4FF`): the left column holds the head lockup (logo mark, site name,
+a hairline, the label), the title, the sub line and the foot (`author · domain`, where the author is the `byline` prop); the right 45% holds the brand art or
+the logo's mark at about 470 px, bleeding past the edge; with neither, the right side is empty and the title column widens from 560 to 900 px. **The photo card** covers the hero at its focal
+point, with a bottom scrim to the ground colour (peak opacity 0.70), a white bottom-anchored title and a fact row. A photograph that cannot be prepared draws the text layout in the same template, as any downgrade.
+
 ## Several images per card
 
 `Target.images` names lists of uploads besides the hero, for a template that draws a stack of photos, a logo or a row of

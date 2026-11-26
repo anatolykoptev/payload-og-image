@@ -1,0 +1,50 @@
+# Zero config: the built-in presets
+
+Source: `docs/reference.md` (Zero-config presets), `src/presets/`, `src/plugin/index.ts`.
+
+```ts
+ogImagePlugin({ collections: ['posts', { slug: 'pages', preset: 'text', subtitle: 'excerpt' }], siteName: 'Example' })
+```
+
+```ts
+// app/(frontend)/og/[kind]/[slug]/[file]/route.ts
+import config from '@payload-config'
+import { createOgRoute } from 'payload-og-image/next'
+
+const route = createOgRoute({ config })
+export const GET = route.GET
+export const HEAD = GET
+```
+
+Pages call `ogMetadata({ config, target: 'posts', doc })` as for any target: the target's name is the collection slug.
+
+## What is detected, and how to override each
+
+| Item     | Detected                                                                                                                | Override                         |
+| -------- | ----------------------------------------------------------------------------------------------------------------------- | -------------------------------- |
+| title    | `admin.useAsTitle`, then `title`, then `name` (text or textarea). None: start-up error naming the collection            | `title: 'field.path'`            |
+| hero     | first single upload field named `hero`, `heroImage`, `image`, `cover`, `coverImage`, `featuredImage`; else `meta.image` | `hero: 'field.path'`, or `false` |
+| label    | `labels.plural`, else the capitalised slug                                                                              | `label`                          |
+| sub line | none                                                                                                                    | `subtitle: 'text.field.path'`    |
+| slug     | a text `slug` field; else the path uses `:id`                                                                           | `path` (must hold `:ext`)        |
+| preset   | `auto`: photo for a raster hero of at least 800 x 420, text otherwise                                                   | `preset: 'text'` or `'photo'`    |
+
+The site name is `siteName`, else `site()`'s `name`, else the `serverURL` host. `site()` may return `logo` and `brandArt` (upload ids or objects with an id); set `logoCollection` when the site has several upload collections.
+
+## Rules
+
+- A photo card is `card.jpg`, a text card `card.png`; the other name is a 404 (the name is read from the request path). A page's `ogMetadata` always advertises the right one.
+- `og.mode` behaves as for any target. A forced `photo` with no hero field is a start-up error; a forced `photo` on a document with no usable hero draws the text card.
+- Own `fonts` and `stacks` (with a `default` stack) are used as they are and the bundled Inter is not added, so existing card URLs do not move. Give neither and Inter (latin, latin-ext, cyrillic) is used.
+- Never give a target `overrideAccess: true` reads in props: presets draw the title, label and sub line only, read from the published document.
+
+## Refusals and what each means
+
+| Message                                                  | Fix                                           |
+| -------------------------------------------------------- | --------------------------------------------- |
+| `nothing is configured: give collections ... or targets` | add `collections` or `targets`                |
+| `collection "x" has no title field the card can draw`    | set `title` to a text field path              |
+| `collections names "x", which is not a collection`       | fix the slug                                  |
+| `an auth collection`                                     | cards for users are never offered             |
+| `path ... needs :ext`                                    | write the path as `/og/:kind/:slug/card.:ext` |
+| `preset 'photo' needs a hero upload field`               | set `hero`, or use `preset: 'auto'`           |

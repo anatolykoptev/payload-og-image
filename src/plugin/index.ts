@@ -18,13 +18,51 @@ import { buildKindIndex } from '../internal/resolve.js'
 import { CUSTOM_KEY, createState } from '../internal/state.js'
 import type { OnEvent, SiteInfo } from '../internal/types.js'
 import { withVariants } from '../internal/variants.js'
+import { expandPresets } from '../presets/expand.js'
+import type { PresetName } from '../presets/target.js'
 import type { StaticCard, Target, Template } from '../template.js'
 import { withEndpoints } from './endpoints.js'
 import { type OgFieldsOption, targetsCarryOg, withOgFields } from './fields.js'
 
 export { type OgDocFields, type OgFieldsOption, ogFields } from './fields.js'
 
+export type { PresetName }
+
+/** One collection of `collections`: a slug, or a slug with what to override. Everything not given is detected from the collection's config. */
+export type PresetCollection =
+  | string
+  | {
+      slug: string
+      /** `auto` (default): the photo preset for a document whose hero is at least 800 x 420, the text preset otherwise. `text` or `photo` forces one. */
+      preset?: PresetName
+      /** The title field path; default `admin.useAsTitle`, else `title`, else `name`; none of them is a start-up error. */
+      title?: string
+      /** The hero upload field path (a single upload field); default the first of `hero`, `heroImage`, `image`, `cover`, `coverImage`, `featuredImage`, else `meta.image`. `false`: never a photo. */
+      hero?: string | false
+      /** The card's label; default the collection's `labels.plural`. */
+      label?: string
+      /** A text or textarea field path drawn as the sub line; default none. */
+      subtitle?: string
+      /** The card path; must hold `:ext`. Default `/og/:kind/:slug/card.:ext` (`:id` for a collection with no `slug` field). */
+      path?: string
+    }
+
 export type OgImagePluginOptions = {
+  /**
+   * Opts collections in to the built-in presets, `payload-og-image:photo@1` (JPEG) and `payload-og-image:text@1` (PNG): each becomes an ordinary
+   * target, so `targets` still work beside them. With `collections`, `site`, `fonts`, `stacks`, `templates`, `targets` and `store` are all optional:
+   * no `site` names the site after `siteName` or the `serverURL` host; no `fonts` and `stacks` registers the bundled Inter (latin, latin-ext and
+   * cyrillic, 400 and 700; a site with fonts of its own gets none of them, so its card URLs do not move); no `store` keeps cards in memory.
+   * With neither `collections` nor `targets` the plugin refuses to start. The card route is `app/(frontend)/og/[kind]/[slug]/[file]/route.ts`.
+   */
+  collections?: PresetCollection[]
+  /** The site's name on preset cards when `site` is not given; default the `serverURL` host without `www.`. */
+  siteName?: string
+  /**
+   * The upload collection `site().logo` and `site().brandArt` (an id, or an object with one) are read from. Default: the only upload collection of
+   * the config. A site that returns neither draws no logo mark; `brandArt` is drawn on the right of the text preset in place of the logo's mark.
+   */
+  logoCollection?: string
   /** The site data cards draw (its name, say). Published values unless `draft` is true: then `user` is the authenticated editor. */
   site(a: { payload: Payload; draft?: boolean; user?: unknown }): Promise<SiteInfo> | SiteInfo
   /** Globals `site()` reads: saving one drops the cached `site()` result. */
@@ -88,6 +126,10 @@ export type OgImagePluginOptions = {
   /** Every card route answers 404 and no metadata is produced. */
   disabled?: boolean
 }
+
+/** What `ogImagePlugin` takes: the options, with the six a site may leave out when it gives `collections`. */
+export type OgImagePluginInput = Omit<OgImagePluginOptions, 'site' | 'fonts' | 'stacks' | 'templates' | 'targets' | 'store'> &
+  Partial<Pick<OgImagePluginOptions, 'site' | 'fonts' | 'stacks' | 'templates' | 'targets' | 'store'>>
 
 const DEFAULT_SAMPLE = 'Aa’‘“”–—…'
 const SEGMENT = /^[A-Za-z0-9_~-][A-Za-z0-9._~-]*$/
@@ -206,10 +248,11 @@ function validate(o: OgImagePluginOptions, config: Config): string {
  * It adds up to two endpoints (none when `disabled`): the admin-only `GET /payload-og-image/stats` always, and
  * `POST /payload-og-image/preview` when a target collection carries the `og` group. It stores its state in `config.custom`, hooks `afterChange` on the site globals, and checks fonts and the store when Payload starts.
  */
-export function ogImagePlugin(options: OgImagePluginOptions): (config: Config) => Config {
+export function ogImagePlugin(options: OgImagePluginInput): (config: Config) => Config {
   return (config) => {
-    // Variants become hidden sibling targets before anything reads `targets`: validation, the kind index, the fields and the runtime all see them.
-    const o = withVariants({ ...options, targets: options.targets ?? {} })
+    // Presets expand into ordinary targets first, then variants into hidden sibling targets, before anything reads `targets`: validation, the kind index, the fields and the runtime all see them.
+    const expanded = expandPresets(options, config)
+    const o = withVariants({ ...expanded, targets: expanded.targets ?? {} })
     const serverUrl = validate(o, config)
     const state = createState(o, serverUrl)
     const globals = (config.globals ?? []).map((g) => {
@@ -274,6 +317,7 @@ async function selfTest(state: ReturnType<typeof createState>): Promise<void> {
       const formats = new Set<CardFormat>([
         o.format ?? 'png',
         ...Object.values(o.targets).map((t) => t.format ?? o.format ?? 'png'),
+        ...o.templates.flatMap((t) => (t.format === undefined ? [] : [t.format])),
         ...Object.values(o.static ?? {}).map((c) => c.format ?? o.format ?? 'png'),
       ])
       for (const format of formats) {

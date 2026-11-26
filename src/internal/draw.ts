@@ -1,5 +1,5 @@
-import type { ImageLists, TemplateContext } from '../template.js'
-import { coveringFamily, fitText, fontFamilyFor, type LoadedFont, type Stacks } from './fonts.js'
+import type { ImageLists, RowFit, RowItem, TemplateContext } from '../template.js'
+import { coveringFamily, fitText, fontFamilyFor, type LoadedFont, measureText, type Stacks } from './fonts.js'
 import type { Renderer } from './handler.js'
 import { stripUndrawable } from './sanitize.js'
 import type { CardEncoding } from './types.js'
@@ -30,6 +30,7 @@ export function templateContext(a: {
       return fitText(a.fonts, coveringFamily(a.fonts, s, text) ?? s, text, box)
     },
     font: (stack, text) => fontFamilyFor(a.fonts, stackOf(stack), text),
+    fitRow: (items, width, gap = 16) => fitRow(a.fonts, stackOf, items, width, gap),
   }
 }
 
@@ -44,4 +45,30 @@ export async function drawElement(
 ): Promise<{ bytes: Uint8Array; dropped: string[] }> {
   const { node, dropped } = await stripUndrawable(el, o.fonts)
   return { bytes: await renderer.render(node as never, o), dropped }
+}
+
+/**
+ * A row of items in `width`: each is measured (text plus its padding), and while the row with its gaps is wider than `width` the item with the
+ * highest `priority` goes, whole (the first of equals from the end). Priority 0 is never dropped, so a row of nothing but such items may be wider
+ * than `width`: the caller sized the text itself. The widths are rounded up to whole pixels, so a layout never claims less than is drawn.
+ */
+export function fitRow(fonts: LoadedFont[], stackOf: (name: string) => string[], items: RowItem[], width: number, gap: number): RowFit[] {
+  if (!Number.isFinite(width) || !Number.isFinite(gap) || gap < 0)
+    throw new Error('payload-og-image: fitRow needs a finite width and a gap of at least 0')
+  let row: RowFit[] = items
+    .filter((i) => i.text.trim() !== '')
+    .map((i) => ({
+      ...i,
+      width: Math.ceil(
+        measureText(fonts, stackOf(i.stack), i.text, i.size, { weight: i.weight, tracking: i.tracking }) + 2 * (i.padX ?? 0),
+      ),
+    }))
+  const total = (r: RowFit[]) => r.reduce((sum, i) => sum + i.width, 0) + gap * Math.max(0, r.length - 1)
+  while (row.length > 0 && total(row) > width) {
+    const worst = Math.max(...row.map((i) => i.priority))
+    if (worst <= 0) break
+    const at = row.map((i) => i.priority).lastIndexOf(worst)
+    row = row.filter((_, n) => n !== at)
+  }
+  return row
 }

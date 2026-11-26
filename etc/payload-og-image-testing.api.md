@@ -133,10 +133,16 @@ export type OgFieldsOption = {
 };
 
 // @public
-export function ogImagePlugin(options: OgImagePluginOptions): (config: Config) => Config;
+export function ogImagePlugin(options: OgImagePluginInput): (config: Config) => Config;
+
+// @public
+export type OgImagePluginInput = Omit<OgImagePluginOptions, 'site' | 'fonts' | 'stacks' | 'templates' | 'targets' | 'store'> & Partial<Pick<OgImagePluginOptions, 'site' | 'fonts' | 'stacks' | 'templates' | 'targets' | 'store'>>;
 
 // @public (undocumented)
 export type OgImagePluginOptions = {
+    collections?: PresetCollection[];
+    siteName?: string;
+    logoCollection?: string;
     site(a: {
         payload: Payload;
         draft?: boolean;
@@ -280,6 +286,40 @@ export type OnEvent = (e: OgEvent) => void;
 export type Params = Record<string, string>;
 
 // @public
+export type PresetCollection = string | {
+    slug: string;
+    preset?: PresetName;
+    title?: string;
+    hero?: string | false;
+    label?: string;
+    subtitle?: string;
+    path?: string;
+};
+
+// @public (undocumented)
+export type PresetName = 'auto' | 'photo' | 'text';
+
+// @public (undocumented)
+export type PresetProps = {
+    title: string;
+    subtitle?: string;
+    label?: string;
+    site: string;
+    byline?: string;
+    pill?: string;
+    pill2?: string;
+    badge?: string;
+    caption?: string;
+    meta?: string;
+};
+
+// @public
+export const presets: {
+    readonly text: Template<PresetProps>;
+    readonly photo: Template<PresetProps>;
+};
+
+// @public
 export type PropsModel = {
     [key: string]: PropValue;
 };
@@ -323,6 +363,23 @@ export type RouteContext = {
 export type RouteModule = {
     GET(r: Request, c: RouteContext): Promise<Response>;
     HEAD?(r: Request, c: RouteContext): Promise<Response>;
+};
+
+// @public
+export type RowFit = RowItem & {
+    width: number;
+};
+
+// @public
+export type RowItem = {
+    key: string;
+    text: string;
+    stack: string;
+    size: number;
+    weight?: number;
+    tracking?: number;
+    padX?: number;
+    priority: number;
 };
 
 // @public (undocumented)
@@ -397,6 +454,7 @@ export type Template<P extends PropsModel> = {
     textFields?: (keyof P & string)[];
     stacks?: Record<string, string>;
     heroBox?: Size;
+    format?: CardFormat;
     imageBoxes?: Record<string, Size>;
     heroBackground?: string;
     render(p: P, ctx: TemplateContext): ReactElement;
@@ -414,6 +472,7 @@ export type TemplateContext = {
         width?: number;
     };
     font(stack: string, text: string): string;
+    fitRow(items: RowItem[], width: number, gap?: number): RowFit[];
 };
 
 // @public (undocumented)

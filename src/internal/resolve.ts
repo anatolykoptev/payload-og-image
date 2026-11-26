@@ -3,7 +3,17 @@ import type { OgOverrides, RelatedFn, ResolverArgs, Target, Template } from '../
 import { DEFAULT_HERO_BACKGROUND, normaliseHeroBackground } from './colour.js'
 import { firstShareImage, type ShareImage, shareImageOf } from './eligible.js'
 import { type LoadedFont, type Stacks, stripMissing } from './fonts.js'
-import { type CardFormat, encodingOf, formatOf, groundOf, type JpegOptions, mimeOf, variantOf, type WebpOptions } from './format.js'
+import {
+  type CardFormat,
+  encodingOf,
+  extensionOf,
+  formatOf,
+  groundOf,
+  type JpegOptions,
+  mimeOf,
+  variantOf,
+  type WebpOptions,
+} from './format.js'
 import { IMAGE_NAME, MAX_CARD_IMAGES } from './limits.js'
 import { pooled } from './pool.js'
 import type { CardEncoding, CardKey, CardMime, SiteInfo, Size, Upload } from './types.js'
@@ -222,10 +232,28 @@ const fontsKey = (digest: string, stacks: Stacks) =>
     .update(`${digest}\n${canonicalJson(stacks)}`)
     .digest('hex')
 
-/** `/og/:kind/:slug/card.png` filled in. A single pass, so a value that contains `:slug` is never expanded again. */
-export function cardPath(target: Target, targetName: string, slug: string): string {
+/**
+ * `/og/:kind/:slug/card.png` filled in; `:ext` is the extension of the card's `format` (`png`, `jpg`, `webp`). A single pass, so a value that
+ * contains `:slug` is never expanded again. A path with `:ext` and no format to take it from is the caller's bug and throws.
+ */
+export function cardPath(target: Target, targetName: string, slug: string, format?: CardFormat): string {
   const values: Record<string, string> = { kind: target.kind ?? targetName, slug, id: slug }
-  return target.path.replace(/:(kind|slug|id)\b/g, (_, name: string) => encodeURIComponent(values[name] as string))
+  return target.path.replace(/:(kind|slug|id|ext)\b/g, (_, name: string) => {
+    if (name === 'ext') {
+      if (format === undefined) throw new Error(`payload-og-image: card path "${target.path}" has :ext and no format to name it`)
+      return extensionOf(format)
+    }
+    return encodeURIComponent(values[name] as string)
+  })
+}
+
+/** The file name a card is served under (the last segment of its path, percent-decoded), or undefined when the path is malformed. */
+export function cardFile(target: Target, targetName: string, slug: string, format: CardFormat): string | undefined {
+  try {
+    return decodeURIComponent(cardPath(target, targetName, slug, format).split('/').pop() as string)
+  } catch {
+    return undefined
+  }
 }
 
 /** kind -> target name. Two targets sharing a kind would share card URLs and store keys, so it throws. */
@@ -312,7 +340,11 @@ export async function resolveCard(i: ResolveInput): Promise<ResolvedCard> {
   const flattened = background !== undefined || i.heroFlattened
   const heroTransparent =
     hero !== null && !flattened && i.heroHasAlpha ? await i.heroHasAlpha(hero, { collection: i.target.heroCollection }) : false
-  const { format, quality } = formatOf({ format: i.format, jpeg: i.jpeg, webp: i.webp }, i.target)
+  // The target's own format wins, then the template's, then the plugin's.
+  const { format, quality } = formatOf(
+    { format: i.format, jpeg: i.jpeg, webp: i.webp },
+    { ...i.target, format: i.target.format ?? template.format },
+  )
   const encoding: CardEncoding = encodingOf(format, quality, groundOf(background, i.heroBackground))
   const v = cardVersion({
     templateId,
@@ -345,7 +377,7 @@ export async function resolveCard(i: ResolveInput): Promise<ResolvedCard> {
     heroTransparent,
     heroGround: background ?? (i.heroFlattened ? (i.heroBackground ?? DEFAULT_HERO_BACKGROUND) : undefined),
     alt: altOf(i.target, args, props, cardTitle),
-    url: `${i.serverUrl.replace(/\/+$/, '')}${cardPath(i.target, i.targetName, slug)}?v=${v}`,
+    url: `${i.serverUrl.replace(/\/+$/, '')}${cardPath(i.target, i.targetName, slug, format)}?v=${v}`,
     size: template.size,
     type: mimeOf(format),
     encoding,
