@@ -20,6 +20,9 @@ make preflight             # lint, typecheck, test, build, api-extractor: the sa
 node scripts/probe-dev-server.mjs   # after the build: serves the dev app with `next start` and probes it over HTTP (CI runs it too)
 ```
 
+The probe ends by driving the admin editor in Chromium (`scripts/admin-editor-smoke.mjs`): install it once with
+`pnpm exec playwright-core install chromium`, or set `PROBE_BROWSER_CDP` to the URL of a browser that is already running.
+
 - **Public API.** `etc/*.api.md` are api-extractor reports of the three entry points (`payload-og-image`,
   `/next`, `/testing`). A change to an exported name, signature or type fails `make preflight` until you accept it with
   `pnpm api:update` and commit the updated report, so the change shows up in review.
