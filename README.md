@@ -43,6 +43,9 @@ Keep `fontkit` out of the Next bundle, in `next.config`:
 serverExternalPackages: ['fontkit']
 ```
 
+SVG logos are drawn by `@resvg/resvg-wasm` (a dependency of the plugin), found next to the plugin or from the project's working directory. A server
+bundle that cannot reach it (pnpm's strict layout with a bundled plugin) draws the no-logo card: add `@resvg/resvg-wasm` to your own dependencies.
+
 ## Use
 
 **1. Register the plugin** with your fonts, one template and one target per collection:

@@ -1,5 +1,6 @@
 import { readFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
+import path from 'node:path'
 import { Worker } from 'node:worker_threads'
 import { SaxesParser, type SaxesTagNS } from 'saxes'
 
@@ -486,10 +487,30 @@ export function looksLikeSvg(bytes: Uint8Array): boolean {
   )
 }
 
-const require_ = createRequire(import.meta.url)
+// Where a package is looked for: next to this module (an installed package, a linked checkout), then from the working directory (a bundled
+// server, where this module's own location is a build chunk). `resolve` is bound, not called on the `createRequire` result: a bundler follows
+// `require.resolve(...)` calls it can see into the package.
+const resolvers = () =>
+  [createRequire(import.meta.url), createRequire(path.join(process.cwd(), 'noop.js'))].map((r): ((id: string) => string) =>
+    r.resolve.bind(r),
+  )
+const locate = (id: string): string => {
+  let last: unknown
+  for (const resolve of resolvers()) {
+    try {
+      return resolve(id)
+    } catch (error) {
+      last = error
+    }
+  }
+  throw last
+}
+// Named through a variable: a bundler (Turbopack, webpack) would otherwise follow the literal into the package and try to bundle its WebAssembly,
+// which this module only reads from disk and hands to a worker.
+const RESVG = ['@resvg', 'resvg-wasm'].join('/')
 let wasm: Promise<WebAssembly.Module> | undefined
 const compiled = () => {
-  wasm ??= readFile(require_.resolve('@resvg/resvg-wasm/index_bg.wasm')).then((b) => WebAssembly.compile(b))
+  wasm ??= readFile(locate(`${RESVG}/index_bg.wasm`)).then((b) => WebAssembly.compile(b))
   wasm.catch(() => {
     wasm = undefined
   })
@@ -532,7 +553,7 @@ const renderInWorker = (svg: string, width: number, timeoutMs: number): Promise<
       const worker = new Worker(WORKER, {
         eval: true,
         resourceLimits: WORKER_LIMITS,
-        workerData: { svg, width, module, resvg: require_.resolve('@resvg/resvg-wasm') },
+        workerData: { svg, width, module, resvg: locate(RESVG) },
       })
       const done = (png: Buffer | null) => {
         clearTimeout(timer)
