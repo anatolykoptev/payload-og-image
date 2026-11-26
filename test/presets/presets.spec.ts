@@ -81,11 +81,10 @@ describe('expansion', () => {
     expect(() => expandPresets({ collections: [{ slug: 'people', preset: 'photo' }] }, configOf())).toThrow(/needs a hero upload field/)
     expect(() => expandPresets({ collections: [{ slug: 'posts', title: 'nope' }] }, configOf())).toThrow(/is not a text or textarea field/)
     expect(() => expandPresets({ exclude: ['nope'] }, configOf())).toThrow(/exclude names "nope"/)
-    expect(() => expandPresets({ collections: ['posts'], exclude: ['posts'] }, configOf())).toThrow(/both in collections and in exclude/)
   })
   it('a custom path must end in .:ext, and a fixed path cannot serve both encodings: refused at start-up for presets and hand-written targets alike', () => {
     const plugin = (o: unknown) => () => ogImagePlugin(o as never)(configOf())
-    expect(plugin({ collections: [{ slug: 'posts', path: '/og/:kind/:slug/card.png' }] })).toThrow(/serves one file but its card can be/)
+    expect(plugin({ collections: [{ slug: 'posts', path: '/og/:kind/:slug/card.png' }] })).toThrow(/needs :ext/)
     expect(plugin({ collections: [{ slug: 'posts', path: '/og/:ext/:slug/card' }] })).toThrow(
       /must hold :ext only as the end of its file name/,
     )
@@ -189,6 +188,219 @@ describe('the plugin serves every public page on its own', () => {
     const c = configOf({ collections: [{ slug: '__proto__', fields: [{ name: 'title', type: 'text' }], ...read(() => true) }] } as never)
     const o = expandPresets({}, c)
     expect(Object.hasOwn(o.targets, '__proto__')).toBe(true)
+  })
+})
+
+describe("start-up cannot be ended by the site's own access functions or a missing serverURL", () => {
+  const titled = (access: unknown) =>
+    configOf({
+      collections: [
+        {
+          slug: 'posts',
+          access: { read: access },
+          fields: [
+            { name: 'title', type: 'text' },
+            { name: 'slug', type: 'text' },
+          ],
+        },
+      ],
+    } as never)
+  it('an async access.read that rejects (it needs req.payload) skips the collection and is never an unhandled rejection', async () => {
+    const seen: unknown[] = []
+    const listener = (e: unknown) => seen.push(e)
+    process.on('unhandledRejection', listener)
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      const o = expandPresets(
+        {},
+        titled(async () => {
+          throw new Error('needs payload')
+        }),
+      )
+      expect(o.targets).toEqual({})
+      expect(String(warn.mock.calls[0]?.[0])).toContain('async and cannot be evaluated')
+      // a field-level async rule too
+      const field = configOf({
+        collections: [
+          {
+            slug: 'posts',
+            access: { read: () => true },
+            fields: [
+              {
+                name: 'title',
+                type: 'text',
+                access: {
+                  read: async () => {
+                    throw new Error('x')
+                  },
+                },
+              },
+            ],
+          },
+        ],
+      } as never)
+      expect(expandPresets({ collections: ['posts'] } as never, field)).toBeDefined
+      await new Promise((r) => setTimeout(r, 20))
+      await new Promise((r) => setImmediate(r))
+      expect(seen).toEqual([])
+    } catch (e) {
+      if (!String((e as Error).message).includes('no title field')) throw e
+      await new Promise((r) => setTimeout(r, 20))
+      expect(seen).toEqual([])
+    } finally {
+      process.off('unhandledRejection', listener)
+      warn.mockRestore()
+    }
+  })
+  it('a function that throws is told apart from one that denies, in the start-up line', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      expandPresets(
+        {},
+        titled(() => {
+          throw new Error('needs payload')
+        }),
+      )
+      expect(String(warn.mock.calls[0]?.[0])).toContain('cannot be evaluated when the config is built')
+      warn.mockClear()
+      expandPresets(
+        {},
+        titled(() => false),
+      )
+      expect(String(warn.mock.calls[0]?.[0])).toContain('does not let an anonymous request read it')
+    } finally {
+      warn.mockRestore()
+    }
+  })
+  it('the plugin boots with no serverURL anywhere, with zero discovered targets and with discovered ones, and says so once', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      const bare = (c: Config) => ({ ...c, serverURL: undefined }) as Config
+      const none = ogImagePlugin({})(bare(configOf({ collections: [{ slug: 'users', auth: true, fields: [] }] } as never)))
+      expect(none.custom?.['payload-og-image']?.serverUrl).toBe('http://localhost:3000')
+      const some = ogImagePlugin({})(bare(titled(() => true)))
+      expect(some.custom?.['payload-og-image']?.serverUrl).toBe('http://localhost:3000')
+      expect(warn.mock.calls.filter((c) => String(c[0]).includes('no serverURL is set')).length).toBe(2) // once per install
+      // a classic install still needs its origin
+      expect(() =>
+        ogImagePlugin({
+          site: () => ({ name: 'S' }),
+          fonts: BUNDLED_FONTS,
+          stacks: BUNDLED_STACKS,
+          templates: [],
+          targets: {},
+          store: { memory: true },
+        })(bare(configOf())),
+      ).toThrow(/absolute `serverURL`/)
+      // a serverURL that is set but wrong is still refused
+      expect(() => ogImagePlugin({ serverURL: 'not a url' })(configOf())).toThrow(/serverURL must be an http\(s\) origin/)
+    } finally {
+      warn.mockRestore()
+    }
+  })
+})
+
+describe('restrictions are carried through every container, and into the og overrides', () => {
+  const posts = (fields: unknown[]) =>
+    configOf({
+      collections: [
+        { slug: 'posts', access: { read: () => true }, fields },
+        { slug: 'media', upload: { staticDir: '/x' }, fields: [] },
+      ],
+    } as never)
+  const title = { name: 'title', type: 'text' }
+  it('a title under a hidden tab, a hidden tabs wrapper, a hidden row or a hidden collapsible is not detected', () => {
+    const t = (fields: unknown[]) => () => expandPresets({ collections: ['posts'] }, posts(fields))
+    expect(t([{ type: 'tabs', tabs: [{ label: 'T', admin: { hidden: true }, fields: [title] }] }])).toThrow(/no title field/)
+    expect(t([{ type: 'tabs', tabs: [{ name: 'g', label: 'T', access: { read: () => false }, fields: [title] }] }])).toThrow(
+      /no title field/,
+    )
+    expect(t([{ type: 'tabs', admin: { hidden: true }, tabs: [{ label: 'T', fields: [title] }] }])).toThrow(/no title field/)
+    expect(t([{ type: 'row', admin: { hidden: true }, fields: [title] }])).toThrow(/no title field/)
+    expect(t([{ type: 'collapsible', label: 'C', admin: { hidden: true }, fields: [title] }])).toThrow(/no title field/)
+    expect(t([{ type: 'tabs', tabs: [{ label: 'T', fields: [title] }] }])).not.toThrow()
+  })
+  it('og.headline and og.subtitle that the collection hides are never drawn; ones that are allowed (or absent) still are', async () => {
+    const hidden = posts([
+      title,
+      { name: 'slug', type: 'text' },
+      {
+        type: 'group',
+        name: 'og',
+        fields: [
+          { name: 'headline', type: 'text', admin: { hidden: true } },
+          { name: 'subtitle', type: 'text' },
+        ],
+      },
+    ])
+    const h = await presetHarness({
+      config: hidden,
+      input: { collections: ['posts'] },
+      docs: { a: { id: 1, slug: 'a', title: 'Real title', og: { headline: 'ADMIN ONLY', subtitle: 'Public sub' } } },
+    })
+    const c = await h.resolve('posts', 'a')
+    if (c.kind !== 'generated') throw new Error('expected a generated card')
+    expect(c.props.title).toBe('Real title')
+    expect(c.props.subtitle).toBe('Public sub')
+  })
+})
+
+describe('paths and precedence', () => {
+  it('an expanded preset path must carry a document key', () => {
+    expect(() => expandPresets({ collections: [{ slug: 'posts', path: '/og/posts/card.:ext' }] }, configOf())).toThrow(/needs :slug or :id/)
+  })
+  it('adding presets does not retire a classic .png route whose own template is a PNG', () => {
+    const png = defineTemplate<{ title: string }>({ id: 'png', revision: '1', render: () => ({ type: 'div', props: {} }) as never })
+    const o = {
+      site: () => ({ name: 'S' }),
+      fonts: BUNDLED_FONTS,
+      stacks: BUNDLED_STACKS,
+      store: { memory: true },
+      templates: [png],
+      collections: ['posts'],
+      targets: {
+        classic: { collection: 'people', path: '/og/:kind/:slug/card.png', template: () => 'png', props: () => ({ title: 't' }) },
+      },
+    }
+    expect(() => ogImagePlugin(o as never)(configOf())).not.toThrow()
+  })
+  it('a collection with an explicit target of its own name, or in exclude, is left alone: no error', () => {
+    const mine = { path: '/og/:kind/:slug/card.png', template: 'x', props: () => ({}) }
+    const o = expandPresets({ collections: ['posts', 'people'], exclude: ['people'], targets: { posts: mine } } as never, configOf())
+    expect(Object.keys(o.targets)).toEqual(['posts'])
+    expect(o.targets.posts).toBe(mine)
+  })
+  it('a share image from another upload collection with the same id is still a deliberate share image on a forced-text card', async () => {
+    const config = configOf({
+      collections: [
+        { slug: 'users', auth: true, fields: [] },
+        {
+          slug: 'articles',
+          fields: [
+            { name: 'title', type: 'text' },
+            { name: 'slug', type: 'text' },
+            { name: 'heroImage', type: 'upload', relationTo: 'media' },
+            { type: 'group', name: 'meta', fields: [{ name: 'image', type: 'upload', relationTo: 'photos' }] },
+          ],
+        },
+        { slug: 'media', upload: { staticDir: '/x' }, fields: [] },
+        { slug: 'photos', upload: { staticDir: '/y' }, fields: [] },
+      ],
+    } as never)
+    const doc = {
+      id: 1,
+      slug: 's',
+      title: 'Same id',
+      heroImage: upload(1, 'hero.jpg', 640, 360),
+      meta: { image: upload(1, 'photo.jpg', 1200, 800) },
+    }
+    const h = await presetHarness({
+      config,
+      uploads: null,
+      input: { collections: { articles: { preset: 'text' } } } as never,
+      docs: { s: doc },
+    })
+    expect((await h.resolve('articles', 's')).kind).toBe('own')
   })
 })
 
@@ -771,9 +983,9 @@ describe('goldens: the two presets keep their URL and what they draw', () => {
     },
   }
   const GOLDEN: Record<string, { v: string; drawn: string }> = {
-    'text/-': { v: 'c3ce841ad08e', drawn: '0aa2da980b982f0b391bdc3c476072f883597d6830a6da5ce7bd07414fc40332' },
-    'text/logo': { v: '07bdfc08c619', drawn: 'e4e8d6949ec5b941d0a4d7149afed664a6adf45e54d471ba6ec1f266b27e3982' },
-    'photo/-': { v: '46123276026e', drawn: '17f9955d454687cfd7c45801e96a7cb9e9f95c4df55da3396387e1f861c0ad66' },
+    'text/-': { v: 'f29ae70a0621', drawn: '0aa2da980b982f0b391bdc3c476072f883597d6830a6da5ce7bd07414fc40332' },
+    'text/logo': { v: '0cab04db6665', drawn: 'e4e8d6949ec5b941d0a4d7149afed664a6adf45e54d471ba6ec1f266b27e3982' },
+    'photo/-': { v: '8a460bda065e', drawn: '17f9955d454687cfd7c45801e96a7cb9e9f95c4df55da3396387e1f861c0ad66' },
   }
   it.each([
     ['text', undefined],

@@ -8,7 +8,10 @@ export type {
   OgFieldsOption,
   OgImagePluginInput,
   OgImagePluginOptions,
+  OgImagePluginPresetOptions,
   PresetCollection,
+  PresetCollectionOptions,
+  PresetCollections,
   PresetName,
 } from '../plugin/index.js'
 export { ogFields, ogImagePlugin } from '../plugin/index.js'

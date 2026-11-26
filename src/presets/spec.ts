@@ -6,7 +6,8 @@ import type { ImageShape } from '../template.js'
 /** The preset templates' ids and the revision both carry. A preset is named `<id>@<revision>`. */
 export const TEXT_ID = 'payload-og-image:text'
 export const PHOTO_ID = 'payload-og-image:photo'
-export const REVISION = '1'
+/** 2: the redesign (contained logos, the faint logo on the right, the new scrim and ladders). */
+export const REVISION = '2'
 
 export const CARD = { width: 1200, height: 630 } as const
 
@@ -41,7 +42,6 @@ export const PHOTO_IMAGE_BOXES = {
 
 /** A logo is contained and trimmed (an opaque JPEG on a uniform ground is cut out of it), and drawn in the ink when most of it would vanish on the ground (under 3:1). */
 const logoShape = (fill: string): ImageShape => ({
-  fit: 'contain',
   trim: true,
   key: true,
   contrast: { ground: COLOURS.ground, fill, min: 3 },

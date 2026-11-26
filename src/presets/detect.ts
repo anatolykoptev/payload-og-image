@@ -8,7 +8,13 @@ type Field = {
   type?: string
   name?: string
   fields?: Field[]
-  tabs?: Array<{ fields?: Field[]; name?: string }>
+  tabs?: Array<{
+    fields?: Field[]
+    name?: string
+    hidden?: boolean
+    admin?: { hidden?: boolean; disabled?: boolean }
+    access?: { read?: unknown }
+  }>
   relationTo?: unknown
   hasMany?: boolean
   hidden?: boolean
@@ -28,35 +34,52 @@ export type CollectionLike = {
 const TITLE_NAMES = ['title', 'name']
 const HERO_NAMES = ['hero', 'heroImage', 'image', 'cover', 'coverImage', 'featuredImage']
 
-/** What an access function is asked with at config time: nobody signed in. */
-const ANONYMOUS = { user: null, headers: new Headers() }
+type Asked = { kind: 'answer'; value: unknown } | { kind: 'async' } | { kind: 'threw' }
 
-/** The answer of an `access.read`-style function for an anonymous request, or `undefined` when it throws or is not synchronous. */
-function askAnonymously(fn: unknown, extra: Record<string, unknown> = {}): unknown {
-  if (typeof fn !== 'function') return undefined
+/**
+ * What an `access.read`-style function says to an anonymous request, asked with a FRESH stub each time (a function may mutate its request). A function
+ * that throws (it needs a real request, `req.payload`...) or answers with a Promise cannot be evaluated when the config is built; a Promise gets a
+ * rejection handler at once, because a rejected access function must never become an unhandled rejection that ends start-up.
+ */
+function askAnonymously(fn: unknown, extra: Record<string, unknown> = {}): Asked {
   try {
-    const answer = (fn as (a: unknown) => unknown)({ req: ANONYMOUS, ...extra })
-    return answer !== null && typeof answer === 'object' && typeof (answer as { then?: unknown }).then === 'function' ? undefined : answer
+    const answer = (fn as (a: unknown) => unknown)({ req: { user: null, headers: new Headers() }, ...extra })
+    if (answer !== null && typeof answer === 'object' && typeof (answer as { then?: unknown }).then === 'function') {
+      ;(answer as Promise<unknown>).then(undefined, () => undefined)
+      return { kind: 'async' }
+    }
+    return { kind: 'answer', value: answer }
   } catch {
-    return undefined
+    return { kind: 'threw' }
   }
 }
 
 /** Why the public may not be shown this collection's documents, or undefined when it may (an `access.read` of `true` or a `Where`). */
 export function collectionReadProblem(c: CollectionLike): string | undefined {
   if (c.access?.read === undefined) return "no access.read (Payload's default needs a login)"
-  const answer = askAnonymously(c.access.read)
-  if (answer === true || (answer !== null && typeof answer === 'object')) return undefined
-  return 'access.read does not let an anonymous request read it'
+  const a = askAnonymously(c.access.read)
+  if (a.kind === 'threw') return 'access.read cannot be evaluated when the config is built (it threw with a stub request)'
+  if (a.kind === 'async') return 'access.read is async and cannot be evaluated when the config is built'
+  return a.value === true || (a.value !== null && typeof a.value === 'object')
+    ? undefined
+    : 'access.read does not let an anonymous request read it'
 }
 
-/** Why a field (or group) cannot be drawn on a public card, or undefined. */
-function blockOf(f: Field): string | undefined {
+/** Why a field (or group, tab, row) cannot be drawn on a public card, or undefined. */
+function blockOf(f: {
+  name?: string
+  hidden?: boolean
+  admin?: { hidden?: boolean; disabled?: boolean }
+  access?: { read?: unknown }
+}): string | undefined {
   if (f.hidden === true || f.admin?.hidden === true) return 'hidden'
   if (f.admin?.disabled === true) return 'admin.disabled'
   if (typeof f.name === 'string' && f.name.startsWith('_')) return 'internal (named _...)'
-  if (f.access?.read !== undefined && askAnonymously(f.access.read, { doc: undefined, siblingData: {} }) !== true)
-    return 'not publicly readable'
+  if (f.access?.read !== undefined) {
+    const a = askAnonymously(f.access.read, { doc: undefined, siblingData: {} })
+    if (a.kind === 'threw' || a.kind === 'async') return 'its access.read cannot be evaluated when the config is built'
+    if (a.value !== true) return 'not publicly readable'
+  }
   return undefined
 }
 
@@ -66,11 +89,12 @@ type Entry = { path: string; field: Field; blocked?: string }
 export function flatFields(fields: Field[] | undefined, prefix: string[] = [], blocked?: string): Entry[] {
   const out: Entry[] = []
   for (const f of fields ?? []) {
+    // Every container passes its restriction (its own, or the one it inherited) to everything inside it.
     const own = blocked ?? blockOf(f)
     if (f.type === 'group' && f.name) out.push(...flatFields(f.fields, [...prefix, f.name], own))
     else if (f.type === 'tabs')
-      for (const t of f.tabs ?? []) out.push(...flatFields(t.fields, t.name ? [...prefix, t.name] : prefix, blocked))
-    else if (!f.name && f.fields) out.push(...flatFields(f.fields, prefix, blocked))
+      for (const t of f.tabs ?? []) out.push(...flatFields(t.fields, t.name ? [...prefix, t.name] : prefix, own ?? blockOf(t)))
+    else if (!f.name && f.fields) out.push(...flatFields(f.fields, prefix, own))
     else if (f.name) out.push({ path: [...prefix, f.name].join('.'), field: f, ...(own ? { blocked: own } : {}) })
   }
   return out
@@ -145,3 +169,13 @@ export function labelOf(c: CollectionLike, label: string | undefined): string {
 /** `slug` when the collection has a top-level scalar text `slug` field the public may read; else the path keys by `:id`. */
 export const hasSlugField = (c: CollectionLike): boolean =>
   flatFields(c.fields).some((e) => e.path === 'slug' && scalarText(e) && !e.blocked)
+
+/** Whether a field the preset READS from a document's `og` group (`og.headline`, `og.subtitle`) may be drawn: absent is fine (nobody can set it), present must pass the same rules. */
+export const overrideAllowed = (c: CollectionLike, path: string): boolean =>
+  flatFields(c.fields).every((e) => e.path !== path || !e.blocked)
+
+/** The upload collection a field path points to (a single upload field), when it is one. */
+export const uploadCollectionOf = (c: CollectionLike, path: string): string | undefined => {
+  const e = flatFields(c.fields).find((x) => x.path === path && singleUpload(x))
+  return e ? (e.field.relationTo as string) : undefined
+}

@@ -8,8 +8,10 @@ import {
   hasSlugField,
   heroOf,
   labelOf,
+  overrideAllowed,
   textPathOf,
   titlePathOf,
+  uploadCollectionOf,
 } from './detect.js'
 import { BUNDLED_FONTS, BUNDLED_STACKS } from './fonts.js'
 import { presetTarget, type ResolvedPreset } from './target.js'
@@ -44,9 +46,15 @@ function resolvePreset(c: CollectionLike, own: PresetCollectionOptions, o: OgIma
     fail(`collection "${c.slug}": preset must be 'auto', 'photo' or 'text'`)
   const hasSlug = hasSlugField(c)
   const path = own.path ?? (hasSlug ? '/og/:kind/:slug/card.:ext' : '/og/:kind/:id/card.:ext')
+  // A preset can draw either of two encodings (a photo card falls back to the text card), so its file name must follow the format.
+  if (!/:ext\b/.test(path))
+    fail(`collection "${c.slug}": path "${path}" needs :ext (the photo preset is a JPEG, the text preset a PNG): end it in card.:ext`)
+  if (!/:(slug|id)\b/.test(path))
+    fail(`collection "${c.slug}": path "${path}" needs :slug or :id: without a document key every document would share one card URL`)
   const hero = heroOf(c, own.hero)
   if ((own.preset ?? 'auto') === 'photo' && hero === undefined)
     fail(`collection "${c.slug}": preset 'photo' needs a hero upload field, and none was found (set hero: '<upload field path>')`)
+  const seo = o.seoImage ?? (hasSeoImage(c) ? { path: 'meta.image' } : undefined)
   return {
     slug: c.slug,
     preset: own.preset ?? 'auto',
@@ -59,7 +67,9 @@ function resolvePreset(c: CollectionLike, own: PresetCollectionOptions, o: OgIma
     path,
     logoCollection: o.logoCollection,
     artOpacity: o.artOpacity,
-    seo: o.seoImage ?? (hasSeoImage(c) ? { path: 'meta.image' } : undefined),
+    seo: seo ? { ...seo, collection: uploadCollectionOf(c, seo.path) } : undefined,
+    ogHeadline: overrideAllowed(c, 'og.headline'),
+    ogSubtitle: overrideAllowed(c, 'og.subtitle'),
   }
 }
 
@@ -106,9 +116,8 @@ export function expandPresets(o: OgImagePluginInput, config: Config): OgImagePlu
   for (const [slug, opts] of explicit) {
     const c = known.get(slug)
     if (!c) fail(`collections names "${slug}", which is not a collection of this config`)
-    if (targets.has(slug) && Object.hasOwn(o.targets ?? {}, slug))
-      fail(`collections names "${slug}", and a target of that name is configured too`)
-    if (exclude.has(slug)) fail(`"${slug}" is both in collections and in exclude`)
+    // Precedence: an explicit target of the same name wins over everything, then `exclude` over `collections`; neither is an error.
+    if (Object.hasOwn(o.targets ?? {}, slug) || exclude.has(slug)) continue
     add(c as CollectionLike, opts)
   }
   // Discovery: everything else that is public, unless the list form says "these only".

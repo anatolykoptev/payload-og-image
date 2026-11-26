@@ -131,8 +131,10 @@ built from two named, versioned presets: `payload-og-image:photo@1` (a JPEG: the
 (a PNG: a dark ground, the site's logo, name and label on the left, the title, and the logo again, whole and faint, on the right). A document whose hero is at least 800 x 420 draws the photo preset, any other the
 text preset; the page's `ogMetadata` advertises `card.jpg` or `card.png` accordingly, and the route answers 404 for any other file name, for classic cards too.
 
+With no `serverURL` in the Payload config (a default install) the plugin still boots: card URLs then use `http://localhost:3000` and one start-up line says so; the origin is never taken from a request (a spoofed `Host` would end in a cached page), so set `serverURL` before you deploy.
+
 Everything is optional customisation on top: `exclude: ['internal']` opts a collection out; `collections: { posts: { preset: 'text', label: 'News' } }` customises one
-(and adds a collection discovery skipped); a list, `collections: ['posts']`, is exactly those; explicit `targets` win and are untouched. Per collection, what is detected and how to override it:
+(and adds a collection discovery skipped); a list, `collections: ['posts']`, is exactly those; explicit `targets` win and are untouched (precedence on overlaps: an explicit target of the same name, then `exclude`, then `collections`). Per collection, what is detected and how to override it:
 the title (`admin.useAsTitle`, then `title`, then `name`; `title`), the hero (a single upload field named `hero`, `heroImage`, `image`, `cover`, `coverImage` or `featuredImage`, else `meta.image`;
 `hero`, or `false` for never a photo), the label (`labels.plural`; `label`), the sub line (none; `subtitle`), the path (`:slug`, or `:id` when
 the collection has no `slug` field; `path`, ending in `.:ext`), and `preset: 'text' | 'photo'` to force one. Only fields the public may read are ever detected: not `hidden`,

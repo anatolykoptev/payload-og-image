@@ -20,7 +20,10 @@ export type ResolvedPreset = {
   logoCollection?: string
   artOpacity?: number
   /** The editor's own share image for this collection (the plugin's `seoImage`, else plugin-seo's `meta.image`), when there is one. */
-  seo?: { path: string; isDeliberate?: (image: unknown) => boolean }
+  seo?: { path: string; isDeliberate?: (image: unknown) => boolean; collection?: string }
+  /** The document's `og.headline` and `og.subtitle` may be drawn (the fields are absent or pass the field rules). */
+  ogHeadline: boolean
+  ogSubtitle: boolean
 }
 
 /** An own property, never the prototype's: `constructor.name` is not a field path. */
@@ -79,8 +82,8 @@ export function presetTarget(p: ResolvedPreset): Target {
     hero: ({ doc }: ResolverArgs<unknown>) => (p.hero && choose(doc) === 'photo' ? (read(doc, p.hero.path) as ImageRef) : undefined),
     ...(p.hero ? { heroCollection: p.hero.collection } : {}),
     props: ({ doc, site, overrides }: ResolverArgs<unknown>): PresetProps => ({
-      title: overrides?.headline ?? str(read(doc, p.title)) ?? '',
-      subtitle: overrides?.subtitle ?? (p.subtitle ? str(read(doc, p.subtitle)) : undefined),
+      title: (p.ogHeadline ? overrides?.headline : undefined) ?? str(read(doc, p.title)) ?? '',
+      subtitle: (p.ogSubtitle ? overrides?.subtitle : undefined) ?? (p.subtitle ? str(read(doc, p.subtitle)) : undefined),
       label: p.label,
       byline: p.byline ? str(read(doc, p.byline)) : undefined,
       site: site.name,
@@ -101,7 +104,17 @@ export function presetTarget(p: ResolvedPreset): Target {
       }
     },
     // Scoped to this target. The hero is never the editor's deliberate share image, whether or not this card draws it (a text card does not).
-    ...(p.seo ? { seoImage: { ...p.seo, except: ({ doc }: ResolverArgs<unknown>) => (p.hero ? read(doc, p.hero.path) : undefined) } } : {}),
+    ...(p.seo
+      ? {
+          seoImage: {
+            path: p.seo.path,
+            isDeliberate: p.seo.isDeliberate,
+            except: ({ doc }: ResolverArgs<unknown>) =>
+              // Ids are only unique within a collection: the hero is the same upload only when it is read from the share image's own collection.
+              p.hero && (p.seo?.collection === undefined || p.seo.collection === p.hero.collection) ? read(doc, p.hero.path) : undefined,
+          },
+        }
+      : {}),
     ...(p.logoCollection
       ? { imageCollections: { logo: p.logoCollection, partner: p.logoCollection, mark: p.logoCollection, art: p.logoCollection } }
       : {}),

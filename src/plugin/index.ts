@@ -140,9 +140,10 @@ export type OgImagePluginOptions = {
   disabled?: boolean
 }
 
-type SixOptional = 'site' | 'fonts' | 'stacks' | 'templates' | 'targets' | 'store'
 /** The options with the six a site may leave out when the presets serve it. */
-type PresetOptions = Omit<OgImagePluginOptions, SixOptional> & Partial<Pick<OgImagePluginOptions, SixOptional>>
+/** The plugin options with the six fields a preset install may leave out. */
+export type OgImagePluginPresetOptions = Omit<OgImagePluginOptions, 'site' | 'fonts' | 'stacks' | 'templates' | 'targets' | 'store'> &
+  Partial<Pick<OgImagePluginOptions, 'site' | 'fonts' | 'stacks' | 'templates' | 'targets' | 'store'>>
 
 /**
  * What `ogImagePlugin` takes: the classic options (your own `targets`, every field given); or the presets, with `collections` and the six fields
@@ -151,9 +152,11 @@ type PresetOptions = Omit<OgImagePluginOptions, SixOptional> & Partial<Pick<OgIm
  */
 export type OgImagePluginInput =
   | OgImagePluginOptions
-  | (PresetOptions & { collections: PresetCollections })
-  | (PresetOptions & { collections?: undefined; targets?: undefined })
+  | (OgImagePluginPresetOptions & { collections: PresetCollections })
+  | (OgImagePluginPresetOptions & { collections?: undefined; targets?: undefined })
 
+/** The origin card URLs use when a preset install has no `serverURL` at all: Next's and Payload's development default. */
+const FALLBACK_ORIGIN = 'http://localhost:3000'
 const DEFAULT_SAMPLE = 'Aa’‘“”–—…'
 const SEGMENT = /^[A-Za-z0-9_~-][A-Za-z0-9._~-]*$/
 const COLOUR = /^(#[0-9a-fA-F]{3,8}|[A-Za-z]{3,20})$/
@@ -161,7 +164,7 @@ const fail = (msg: string): never => {
   throw new Error(`payload-og-image: ${msg}`)
 }
 
-function validate(o: OgImagePluginOptions, config: Config): string {
+function validate(o: OgImagePluginOptions, config: Config, ctx: { presets: boolean; userTemplates: Set<string> }): string {
   if (typeof o.site !== 'function') fail('options.site must be a function')
   if (!Array.isArray(o.fonts) || o.fonts.length === 0) fail('options.fonts must list at least one font face')
   if (!o.stacks || typeof o.stacks !== 'object') fail('options.stacks must be an object of font stacks')
@@ -173,22 +176,30 @@ function validate(o: OgImagePluginOptions, config: Config): string {
   }
   if (!Object.hasOwn(o.stacks, 'default')) fail('options.stacks needs a "default" stack: the fallback card and unmapped text fields use it')
   let serverUrl = config.serverURL
-  try {
-    const u = new URL(o.serverURL ?? serverUrl ?? '')
-    if (u.protocol !== 'https:' && u.protocol !== 'http:') throw new Error('protocol')
-    if (o.serverURL !== undefined) {
-      // The option is an ORIGIN: card paths are appended to it, so anything more would build wrong or leaky URLs.
-      if (u.username !== '' || u.password !== '') throw new Error('credentials')
-      if (u.pathname !== '/' || u.search !== '' || u.hash !== '') throw new Error('not an origin')
-      serverUrl = u.origin
-    }
-  } catch {
-    fail(
-      o.serverURL !== undefined
-        ? `options.serverURL must be an http(s) origin such as "https://example.com" (no credentials, path, query or fragment), got ${JSON.stringify(o.serverURL)}`
-        : 'the Payload config (or the `serverURL` option) needs an absolute `serverURL` (card URLs are absolute)',
+  if (ctx.presets && o.serverURL === undefined && !config.serverURL) {
+    // A fresh install must boot, and Payload allows an unset `serverURL`. The origin of a card URL is never taken from a request (a spoofed Host header
+    // would end in a cached page), so the presets fall back to Payload's own development origin and say so once.
+    serverUrl = FALLBACK_ORIGIN
+    console.warn(
+      `payload-og-image: no serverURL is set (neither in the Payload config nor as an option): card URLs use ${FALLBACK_ORIGIN}. Set \`serverURL\` to your site's origin.`,
     )
-  }
+  } else
+    try {
+      const u = new URL(o.serverURL ?? serverUrl ?? '')
+      if (u.protocol !== 'https:' && u.protocol !== 'http:') throw new Error('protocol')
+      if (o.serverURL !== undefined) {
+        // The option is an ORIGIN: card paths are appended to it, so anything more would build wrong or leaky URLs.
+        if (u.username !== '' || u.password !== '') throw new Error('credentials')
+        if (u.pathname !== '/' || u.search !== '' || u.hash !== '') throw new Error('not an origin')
+        serverUrl = u.origin
+      }
+    } catch {
+      fail(
+        o.serverURL !== undefined
+          ? `options.serverURL must be an http(s) origin such as "https://example.com" (no credentials, path, query or fragment), got ${JSON.stringify(o.serverURL)}`
+          : 'the Payload config (or the `serverURL` option) needs an absolute `serverURL` (card URLs are absolute)',
+      )
+    }
 
   const templates = new Map<string, Template<any>>()
   for (const t of o.templates ?? []) {
@@ -256,7 +267,10 @@ function validate(o: OgImagePluginOptions, config: Config): string {
   const encodings = (own: CardFormat | undefined, template: string | ((a: never) => string)): CardFormat[] => {
     if (own !== undefined) return [own]
     const pick = (t: Template<any> | undefined) => t?.format ?? o.format ?? 'png'
-    return typeof template === 'string' ? [pick(templates.get(template))] : [...templates.values()].map(pick)
+    if (typeof template === 'string') return [pick(templates.get(template))]
+    // A function may choose any template the site registered. The presets' own templates, which the plugin adds itself, are no candidate of a
+    // hand-written target: adding presets must never retire a valid classic route.
+    return [...templates.values()].filter((t) => ctx.userTemplates.has(t.id)).map(pick)
   }
   for (const [name, t] of Object.entries(o.targets ?? {})) {
     assertFormatOption(`target "${name}"`, t)
@@ -282,7 +296,10 @@ export function ogImagePlugin(options: OgImagePluginInput): (config: Config) => 
     // Presets expand into ordinary targets first, then variants into hidden sibling targets, before anything reads `targets`: validation, the kind index, the fields and the runtime all see them.
     const expanded = expandPresets(options, config)
     const o = withVariants({ ...expanded, targets: expanded.targets ?? {} })
-    const serverUrl = validate(o, config)
+    const serverUrl = validate(o, config, {
+      presets: !(options.collections === undefined && options.targets !== undefined),
+      userTemplates: new Set((options.templates ?? []).map((t) => t.id)),
+    })
     const state = createState(o, serverUrl)
     const globals = (config.globals ?? []).map((g) => {
       if (!(o.siteGlobals ?? []).includes(g.slug)) return g

@@ -77,7 +77,6 @@ export type ImageRef = string | number | {
 
 // @public
 export type ImageShape = {
-    fit?: 'cover' | 'contain';
     trim?: boolean;
     key?: boolean;
     contrast?: {
@@ -131,12 +130,10 @@ export type OgFieldsOption = {
 // @public
 export function ogImagePlugin(options: OgImagePluginInput): (config: Config) => Config;
 
-// Warning: (ae-forgotten-export) The symbol "PresetOptions" needs to be exported by the entry point index.d.ts
-//
 // @public
-export type OgImagePluginInput = OgImagePluginOptions | (PresetOptions & {
+export type OgImagePluginInput = OgImagePluginOptions | (OgImagePluginPresetOptions & {
     collections: PresetCollections;
-}) | (PresetOptions & {
+}) | (OgImagePluginPresetOptions & {
     collections?: undefined;
     targets?: undefined;
 });
@@ -207,6 +204,9 @@ export type OgImagePluginOptions = {
 };
 
 // @public
+export type OgImagePluginPresetOptions = Omit<OgImagePluginOptions, 'site' | 'fonts' | 'stacks' | 'templates' | 'targets' | 'store'> & Partial<Pick<OgImagePluginOptions, 'site' | 'fonts' | 'stacks' | 'templates' | 'targets' | 'store'>>;
+
+// @public
 export type OgOverrides = {
     headline?: string;
     subtitle?: string;
@@ -215,12 +215,24 @@ export type OgOverrides = {
 // @public (undocumented)
 export type OnEvent = (e: OgEvent) => void;
 
-// Warning: (ae-forgotten-export) The symbol "PresetCollectionOptions" needs to be exported by the entry point index.d.ts
-//
 // @public
 export type PresetCollection = string | ({
     slug: string;
 } & PresetCollectionOptions);
+
+// @public
+export type PresetCollectionOptions = {
+    preset?: PresetName;
+    title?: string;
+    hero?: string | false;
+    label?: string;
+    subtitle?: string;
+    byline?: string;
+    path?: string;
+};
+
+// @public
+export type PresetCollections = PresetCollection[] | Record<string, PresetCollectionOptions>;
 
 // @public (undocumented)
 export type PresetName = 'auto' | 'photo' | 'text';
@@ -404,10 +416,6 @@ export type Upload = {
 export type WebpOptions = {
     quality?: number;
 };
-
-// Warnings were encountered during analysis:
-//
-// dist/plugin/index.d.ts:159:5 - (ae-forgotten-export) The symbol "PresetCollections" needs to be exported by the entry point index.d.ts
 
 // (No @packageDocumentation comment for this package)
 

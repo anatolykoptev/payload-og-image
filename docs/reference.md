@@ -253,7 +253,7 @@ handler and the store know nothing about presets. With presets, `site`, `fonts`,
 request (called with `{ req: { user: null } }` when the config is built) with `true` or a `Where`, and that has a title field the public may read. A collection with no `access.read`
 (Payload's default needs a login), one whose function throws, returns a Promise or `false`, or has no usable title, is skipped; one start-up line names every skipped collection and the reason.
 The per-request reads (published only, the visitor's access) stay the exposure guard. `exclude` opts collections out (an unknown name is a start-up error); `collections` as an object of options by slug
-customises (and adds) entries on top of discovery; `collections` as a list is exactly those collections; a target of the same name wins.
+customises (and adds) entries on top of discovery; `collections` as a list is exactly those collections; a target of the same name wins (precedence on overlaps: an explicit target, then `exclude`, then `collections`; none of them is an error). A skip line tells apart a function that cannot be evaluated when the config is built (it threw with a stub request, or is async) from one that denies an anonymous request.
 
 | Option of a collection | Default                                                                                                                                             |
 | ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -267,6 +267,8 @@ customises (and adds) entries on top of discovery; `collections` as a list is ex
 
 **What may be drawn.** A detected field must be a scalar the public may read: not `hidden`, `admin.hidden` or `admin.disabled`, not under such a group, not named `_...`, no `hasMany`, and an
 `access.read` on it (checked with an anonymous request when the config is built) must answer `true`. An explicit path that fails the rule is a start-up error naming why.
+
+With no `serverURL` anywhere, a preset install boots with `http://localhost:3000` as the card origin and one start-up line (the origin is never read from a request). A classic install still needs it. The preset templates' revision is `2`: a design change is a revision bump.
 
 Plugin options on this path: `siteName` (default the `serverURL` host without `www.`), `logoCollection` (the upload collection `site().logo`, `site().partnerLogo` and `site().brandArt` are read from; default the only upload collection),
 `artOpacity` (0 to 1; the logo on the right of the text card, default 0.35). A collection with `meta.image` (plugin-seo) makes that target honour it as the editor's share image (unless the plugin's own `seoImage` is set, which it then follows); the editor's

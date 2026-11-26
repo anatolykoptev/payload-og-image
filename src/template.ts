@@ -48,13 +48,12 @@ export interface ImageLists {
   readonly propertyIsEnumerable?: readonly string[] | undefined
 }
 
-/** How a named image is prepared beyond the cut to its `imageBoxes` size. The shape is part of the template, so it is covered by the template's `revision`. */
+/**
+ * How a named image is prepared instead of the plain cut to its `imageBoxes` size: a shaped image is always CONTAINED (the whole image scaled to fit inside the box, never
+ * cropped, and only as large as its aspect makes it: the template reads its size from the data URL), then trimmed, keyed and tinted as asked. The shape is part of the
+ * template: changing it (or `heroColours`) changes the drawing, so it needs a bump of the template's `revision`, or old URLs keep serving old bytes.
+ */
 export type ImageShape = {
-  /**
-   * `cover` (default): cut to the box around the focal point. `contain`: the whole image scaled to fit inside the box and NEVER cropped; the result is only
-   * as large as its aspect makes it (it is not padded to the box), so a template reads its size from the data URL.
-   */
-  fit?: 'cover' | 'contain'
   /** Cut away the transparent or uniform margin first (the colour of the top-left pixel), then fit. */
   trim?: boolean
   /** An opaque image on a uniform ground (a JPEG logo on white) is cut out of it: its silhouette becomes the alpha, so no white tile is drawn. */
