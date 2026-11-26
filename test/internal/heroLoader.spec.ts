@@ -32,8 +32,7 @@ describe('heroLoaderFor', () => {
     )
     const payload = { collections: { media: { config: { upload: { staticDir: dir } } } } } as unknown as Payload
     const hero = verifiedUpload({ id: 1, filename: 't.png', url: '/m/t.png', updatedAt: 'u' })
-    const px = async (c: string) =>
-      pixel((await heroLoaderFor(payload, { heroBackground: c })(hero, { width: 20, height: 20 }, { collection: 'media' })) as string)
+    const px = async (c: string) => pixel((await heroLoaderFor(payload, { heroBackground: c })(hero, { width: 20, height: 20 })) as string)
     expect(await px('#369')).toEqual([51, 102, 153, 255])
     expect(await px('#336699')).toEqual([51, 102, 153, 255])
   })
@@ -48,11 +47,9 @@ describe('heroLoaderFor', () => {
     const payload = { collections: { media: { config: { upload: { staticDir: dir } } } } } as unknown as Payload
     const hero = verifiedUpload({ id: 1, filename: 't.png', url: '/m/t.png', updatedAt: 'u' })
     const box = { width: 20, height: 20 }
-    expect(
-      await pixel((await heroLoaderFor(payload, { heroBackground: '#f1f3ef' })(hero, box, { collection: 'media' })) as string),
-    ).toEqual([241, 243, 239, 255])
+    expect(await pixel((await heroLoaderFor(payload, { heroBackground: '#f1f3ef' })(hero, box)) as string)).toEqual([241, 243, 239, 255])
     // Only the alpha is pinned: the colour under a clear pixel is whatever the palette quantiser left.
-    expect((await pixel((await heroLoaderFor(payload, {})(hero, box, { collection: 'media' })) as string))[3]).toBe(0)
+    expect((await pixel((await heroLoaderFor(payload, {})(hero, box)) as string))[3]).toBe(0)
   })
   it('a named image keeps its alpha on a site that sets heroBackground: keepAlpha flattens onto no ground at all', async () => {
     const dir = await mkdtemp(path.join(os.tmpdir(), 'og-hero-'))
@@ -66,9 +63,9 @@ describe('heroLoaderFor', () => {
     const logo = verifiedUpload({ id: 1, filename: 'logo.png', url: '/m/logo.png', updatedAt: 'u' })
     const box = { width: 20, height: 20 }
     const load = heroLoaderFor(payload, { heroBackground: '#f1f3ef' })
-    expect(await pixel((await load(logo, box, { collection: 'media' })) as string)).toEqual([241, 243, 239, 255]) // the hero: flattened
-    expect((await pixel((await load(logo, box, { collection: 'media', keepAlpha: true })) as string))[3]).toBe(0) // a named image: not
+    expect(await pixel((await load(logo, box)) as string)).toEqual([241, 243, 239, 255]) // the hero: flattened
+    expect((await pixel((await load(logo, box, { keepAlpha: true })) as string))[3]).toBe(0) // a named image: not
     // Not even a ground the call names itself.
-    expect((await pixel((await load(logo, box, { collection: 'media', background: '#336699', keepAlpha: true })) as string))[3]).toBe(0)
+    expect((await pixel((await load(logo, box, { background: '#336699', keepAlpha: true })) as string))[3]).toBe(0)
   })
 })

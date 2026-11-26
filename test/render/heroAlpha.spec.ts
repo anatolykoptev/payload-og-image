@@ -117,7 +117,7 @@ describe('a transparent hero', () => {
       l,
       reads,
       has: (hero: Parameters<NonNullable<typeof l.hasAlpha>>[0], collection?: string) =>
-        (l.hasAlpha as NonNullable<typeof l.hasAlpha>)(hero, { collection }),
+        (l.hasAlpha as NonNullable<typeof l.hasAlpha>)(verifiedUpload({ ...hero }, collection)),
     }
   }
 

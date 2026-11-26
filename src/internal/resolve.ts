@@ -76,7 +76,7 @@ export type ResolveInput = {
   /** True when the site set `heroBackground` (white included), so a transparent hero is flattened. */
   heroFlattened?: boolean
   /** Whether a hero has a see-through pixel; asked only for a hero the site did not flatten. */
-  heroHasAlpha?: (hero: VerifiedUpload, o?: { collection?: string }) => Promise<boolean>
+  heroHasAlpha?: (hero: VerifiedUpload) => Promise<boolean>
   /** Effective card / hero palette tags when not the default (see `paletteTags`). */
   cardPalette?: string
   heroPalette?: string
@@ -342,8 +342,7 @@ export async function resolveCard(i: ResolveInput): Promise<ResolvedCard> {
   const ownBackground = i.target.heroBackground ?? template.heroBackground
   const background = ownBackground === undefined ? undefined : normaliseHeroBackground(ownBackground)
   const flattened = background !== undefined || i.heroFlattened
-  const heroTransparent =
-    hero !== null && !flattened && i.heroHasAlpha ? await i.heroHasAlpha(hero, { collection: collectionOf(hero) }) : false
+  const heroTransparent = hero !== null && !flattened && i.heroHasAlpha ? await i.heroHasAlpha(hero) : false
   // The target's own format wins, then the template's, then the plugin's.
   const { format, quality } = formatOf(
     { format: i.format, jpeg: i.jpeg, webp: i.webp },
