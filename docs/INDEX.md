@@ -5,6 +5,7 @@
 | [README](../README.md)                             | What the plugin does, install, zero config, the three-file setup, compatibility                                                            |
 | [reference](reference.md)                          | Image selection, cache headers, drafts, admin preview, endpoints, zero-config presets, images and logos, formats, the store, test kit, MCP |
 | [templates](templates.md)                          | Writing a template: props, the CSS subset, fonts and stacks                                                                                |
+| [share-image-spec](share-image-spec.md)            | What every card and agent conforms to: platform image rules, safe zones, the standard design, the pre-ship checklist                       |
 | [crawlers](crawlers.md)                            | What link-preview crawlers require and which part of the package covers it                                                                 |
 | [operations](operations.md)                        | Events, alerts, playbooks, how the card store works                                                                                        |
 | [agent skill](../skills/payload-og-image/SKILL.md) | An Agent Skill for coding agents: configure the plugin on a Payload site, decision checklist, verification                                 |
