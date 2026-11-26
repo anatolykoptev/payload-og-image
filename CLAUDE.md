@@ -1,14 +1,15 @@
 # payload-og-image: notes for agents
 
-A Payload CMS 3 plugin that draws content-versioned Open Graph cards. TypeScript, ESM, pnpm, vitest, biome,
+A Payload CMS 3 and 4 plugin that draws content-versioned Open Graph cards. TypeScript, ESM, pnpm, vitest, biome,
 api-extractor, release-please. Every document is indexed in [docs/INDEX.md](docs/INDEX.md).
 
 ## Layout
 
 - `src/exports/`: the six public entry points (`index`, `client`, `next`, `testing`, `mcp`, `mcp/v3`). Nothing else is public.
 - `src/plugin/`: `ogImagePlugin`, option validation, the Payload document source. `src/template.ts`: `defineTemplate`, `defineTarget`.
-- `src/next/`: `createOgRoute`, `ogMetadata`, `withHead`. `src/internal/`: version, handler, memo, gate, store, resolve.
-- `src/render/`: the next/og renderer, hero loading and the guarded fetch. `src/testing/`: the test kit and the `og-parity` bin.
+- `src/next/`: `createOgRoute`, `ogMetadata`, `withHead`. `src/internal/`: version, handler, memo, gate, store, resolve, uploads (the one upload reader).
+- `src/presets/`: the zero-config presets (`payload-og-image:text`, `photo`), their spec, detection and expansion into targets.
+- `src/render/`: the next/og renderer, hero and logo loading, the guarded fetch and the SVG sanitiser and resvg worker (`svg.ts`). `src/testing/`: the test kit and the `og-parity` bin.
 - `test/`: vitest specs mirroring `src/`. `dev/`: a Payload + Next app used by `pnpm dev` and the kit's own spec.
 - `etc/*.api.md`: committed api-extractor reports. `scripts/verify-pack.mjs`: the pre-publish tarball check.
 
