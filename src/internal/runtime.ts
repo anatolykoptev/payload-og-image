@@ -8,7 +8,7 @@ import { payloadHeroLoader } from '../render/hero.js'
 import { nextOgRenderer } from '../render/nextOg.js'
 import { createGate } from './gate.js'
 import { type CardHandler, createCardHandler, type DocSource, type HeroLoader, type Renderer, type RouteContext } from './handler.js'
-import { createInspector, type Inspector } from './inspect.js'
+import { createInspector, type Inspector, ToolInputError } from './inspect.js'
 import type { ResolvedCard } from './resolve.js'
 import { cachedSite } from './site.js'
 import { CUSTOM_KEY, type OgState } from './state.js'
@@ -115,7 +115,7 @@ export function buildRuntime(state: OgState, payload: Payload, over: RuntimeOver
         scopes: async () => [],
         card: async () => ({ found: false, reason: 'payload-og-image is disabled' }),
         audit: async () => {
-          throw new Error('payload-og-image is disabled')
+          throw new ToolInputError('payload-og-image is disabled in this config (`disabled: true`), so there is nothing to audit')
         },
         serve: async () => ({ status: 'not_found', reason: 'payload-og-image is disabled' }),
         locate: () => null,
@@ -269,7 +269,7 @@ export async function getRuntime(config: Promise<SanitizedConfig> | SanitizedCon
     rt = (async () => {
       const payload = await getPayload({ config: resolved })
       const state = payload.config.custom?.[CUSTOM_KEY] as OgState | undefined
-      if (!state) throw new Error('payload-og-image: the plugin is not in this Payload config (add ogImagePlugin to `plugins`)')
+      if (!state) throw new ToolInputError('payload-og-image: the plugin is not in this Payload config (add ogImagePlugin to `plugins`)')
       return buildRuntime(state, payload)
     })()
     built.set(resolved, rt)

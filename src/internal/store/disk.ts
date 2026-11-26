@@ -216,11 +216,13 @@ export function diskStore(o: DiskStoreOptions): DiskStore {
       }
       let bytes: Uint8Array
       let seen: { ino: number; mtimeMs: number; size: number }
+      let key = ''
       try {
         const st = await handle.stat()
         // Not a regular file (a fifo, a device): foreign, never read and never deleted.
         if (!st.isFile()) return null
         seen = st
+        key = `${file}|${st.ino}|${st.mtimeMs}|${st.size}`
         if (st.size > maxBytes) {
           // Larger than the whole cache budget cannot be one of our cards: drop it, allocate nothing.
           await dropIfSame(file, seen)
@@ -229,13 +231,18 @@ export function diskStore(o: DiskStoreOptions): DiskStore {
         }
         const buf = Buffer.alloc(st.size)
         const { bytesRead } = await handle.read(buf, 0, st.size, 0)
+        // Fewer bytes than the size the key was made from: a foreign writer truncated the file between fstat and read. A validated key must
+        // never vouch for those bytes, so the key is dropped and the read is a miss (the next one sees the new size and validates in full).
+        if (bytesRead !== st.size) {
+          validated.delete(key)
+          return null
+        }
         bytes = new Uint8Array(buf.buffer, buf.byteOffset, bytesRead)
       } catch {
         return null
       } finally {
         await handle.close().catch(noop)
       }
-      const key = `${file}|${seen.ino}|${seen.mtimeMs}|${seen.size}`
       if (format !== 'png' && validated.has(key)) return bytes
       if (await isWholeCard(bytes, format)) {
         if (format !== 'png') {

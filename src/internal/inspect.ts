@@ -93,6 +93,8 @@ export class ToolInputError extends Error {
     this.name = 'ToolInputError'
   }
 }
+/** True for a `ToolInputError` of THIS copy of the module only (see `isShedError`: another copy's error degrades to an ordinary one). */
+export const isToolInputError = (e: unknown): e is ToolInputError => e instanceof ToolInputError
 
 export type InspectorDeps = {
   /** Bounds the work an inspector does at once (document reads, hero reads, resolution): a full queue is a `ShedError`. Separate from the render gate. */

@@ -3,7 +3,7 @@ import type { ImageLists, ImageShape, StaticCard, Target, Template, TemplateCont
 import { drawElement, templateContext } from './draw.js'
 import { type LoadedFont, type Stacks, stripMissing } from './fonts.js'
 import { encodingKey, type JpegOptions, type WebpOptions } from './format.js'
-import { createGate, type Gate, ShedError } from './gate.js'
+import { createGate, type Gate, isShedError } from './gate.js'
 import type { Memo } from './memo.js'
 import { pooled } from './pool.js'
 import {
@@ -528,7 +528,7 @@ export function createCardHandler(d: HandlerDeps): CardHandler {
       }
       return respond(200, cache, { ...type, 'x-og-cache': served.source }, bytes)
     } catch (error) {
-      if (error instanceof ShedError) {
+      if (isShedError(error)) {
         d.events.emit({ name: 'shed', kind: card.key.kind, slug: card.key.slug })
         return unavailable()
       }
@@ -551,7 +551,7 @@ export function createCardHandler(d: HandlerDeps): CardHandler {
       return await serve(request, rc, previewing)
     } catch (error) {
       // Before a card existed (params, fonts, site, lookup, resolve): nothing may escape, nothing is cached.
-      if (error instanceof ShedError) {
+      if (isShedError(error)) {
         d.events.emit({ name: 'shed' })
         return unavailable()
       }

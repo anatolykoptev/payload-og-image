@@ -195,7 +195,7 @@ const ALPHA_CAP = 1000
 
 /**
  * A question about an upload answered once and remembered: keyed (collection and tag), a bounded LRU, and concurrent askers share
- * one computation. An answer that says `keep: false` (an unreadable file) is not remembered, so a fixed file is picked up.
+ * one computation. An answer that says `keep: false` is not remembered (an unreadable file, so a fixed file is picked up; `readable`, so a lost file is noticed).
  * These run before the store lookup (a card's URL needs them) and from audits, so the steady state must cost nothing.
  */
 function remembered<A extends unknown[]>(
@@ -267,7 +267,8 @@ export function payloadHeroLoader(o: HeroLoaderOptions): HeroLoader {
     (hero, where) => keyOf(hero, where),
     async (hero, where) => {
       try {
-        return (await read(hero, where)) !== null ? { value: true, keep: true } : { value: false, keep: false } // an unreadable file may be fixed
+        // Never remembered: a file deleted or corrupted after a `true` must show as unreadable, and `readable` only serves audits and `og_card` (not the hot path).
+        return { value: (await read(hero, where)) !== null, keep: false }
       } catch {
         return { value: false, keep: false }
       }
