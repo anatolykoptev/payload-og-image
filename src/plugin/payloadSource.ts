@@ -2,6 +2,7 @@ import type { Payload } from 'payload'
 import type { DocSource } from '../internal/handler.js'
 import type { OgState } from '../internal/state.js'
 import type { SiteInfo } from '../internal/types.js'
+import { orAbsent } from '../internal/uploads.js'
 import type { Target } from '../template.js'
 
 type FindArgs = Parameters<Payload['find']>[0]
@@ -84,7 +85,8 @@ function withoutStatus(args: FindArgs): FindArgs {
 /**
  * Documents by id, the way every read behind a card is made: access-respecting (`overrideAccess: false`), and published only. A drafts-enabled
  * collection gets the `_status` predicate, so a draft-only document is never returned to the public; an editor previewing (`user`) sees the draft.
- * One find, whatever the number of ids. Only the documents found are returned; none when the caller may not read the collection.
+ * One find, whatever the number of ids. Only the documents found are returned. An error is thrown as it is: whether it means "no such readable
+ * document" is the caller's to decide, through `orAbsent`.
  */
 async function readMany(
   payload: Payload,
@@ -95,29 +97,25 @@ async function readMany(
   if (ids.length === 0) return []
   const known = payload.collections as unknown as Record<string, { config?: { versions?: { drafts?: unknown } } } | undefined>
   const base = { collection, depth: 0, limit: ids.length, pagination: false, overrideAccess: false }
-  try {
-    const match = ids.length === 1 ? { id: { equals: ids[0] } } : { id: { in: ids } }
-    const args = user
-      ? { ...base, where: match, draft: true, user }
-      : {
-          ...base,
-          where: known[collection]?.config?.versions?.drafts ? { and: [match, { _status: { equals: 'published' } }] } : match,
-          draft: false,
-        }
-    return (await payload.find(args as unknown as FindArgs)).docs as Array<Record<string, any>>
-  } catch {
-    return [] // not readable by this caller
-  }
+  const match = ids.length === 1 ? { id: { equals: ids[0] } } : { id: { in: ids } }
+  const args = user
+    ? { ...base, where: match, draft: true, user }
+    : {
+        ...base,
+        where: known[collection]?.config?.versions?.drafts ? { and: [match, { _status: { equals: 'published' } }] } : match,
+        draft: false,
+      }
+  return (await payload.find(args as unknown as FindArgs)).docs as Array<Record<string, any>>
 }
 
-/** One document by id (see `readMany`): null when it does not exist or the caller may not read it. */
+/** One document by id (see `readMany`): null when it does not exist or the caller may not read it; any other error is thrown. */
 export async function readRelated(
   payload: Payload,
   collection: string,
   id: string | number,
   user?: unknown,
 ): Promise<Record<string, any> | null> {
-  return (await readMany(payload, collection, [id], user))[0] ?? null
+  return (await orAbsent(() => readMany(payload, collection, [id], user), []))[0] ?? null
 }
 
 /**
@@ -134,18 +132,7 @@ export function payloadSource(payload: Payload, state: OgState, cachedSite: () =
   // The root of the editor's share-image field the read must always select: the target's own, else the plugin's.
   const seoPathOf = (name: string) => targetOf(name).seoImage?.path ?? o.seoImage?.path
   // A collection the caller may not read at all makes Payload throw `Forbidden`: that is no document (404), not a server error.
-  const first = async (args: FindArgs) => {
-    try {
-      return ((await payload.find(args)).docs[0] ?? null) as Record<string, any> | null
-    } catch (error) {
-      if (
-        (error as { name?: string; status?: number } | null)?.name === 'Forbidden' ||
-        (error as { status?: number } | null)?.status === 403
-      )
-        return null
-      throw error
-    }
-  }
+  const first = (args: FindArgs) => orAbsent(async () => ((await payload.find(args)).docs[0] ?? null) as Record<string, any> | null, null)
   // Editors: users of the admin user collection (or the configured auth collections), nobody else.
   const editorCollections = new Set(o.editors ?? [payload.config?.admin?.user ?? 'users'])
   const editor = async (request: Request) => {

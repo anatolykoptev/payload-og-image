@@ -340,7 +340,7 @@ describe('resolveCard', () => {
     expect(collectionOf(r.hero as VerifiedUpload)).toBe('photos') // the loader and the alpha probe look there too
     const heroHasAlpha = vi.fn(async () => false)
     await generated({ doc, uploadCollection: undefined, related: read, heroHasAlpha })
-    expect(heroHasAlpha).toHaveBeenCalledWith(populated, { collection: 'photos' })
+    expect(heroHasAlpha).toHaveBeenCalledWith(populated)
     // A copy of it, or an object nobody populated, has no provenance: with no collection to name it is no hero.
     expect((await generated({ doc: { ...doc, heroImage: { ...populated } }, uploadCollection: undefined, related: read })).hero).toBeNull()
     // Where the object was read from wins over the target's heroCollection (a `logos` upload is not the `media` upload of the same id).
@@ -360,7 +360,7 @@ describe('resolveCard', () => {
     const heroHasAlpha = ask(true)
     const clear = await generated({ doc, target, heroHasAlpha })
     expect(clear.v).not.toBe(opaque.v)
-    expect(heroHasAlpha).toHaveBeenCalledWith(real, { collection: 'media' })
+    expect(heroHasAlpha).toHaveBeenCalledWith(real)
     expect(opaque.v).toBe((await generated({ doc, target })).v) // no probe at all: the 0.4.0 version
     // A site that set a ground flattens the hero: no probe, the 0.4.0 version.
     const flat = ask(true)
