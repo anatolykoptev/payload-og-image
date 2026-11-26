@@ -23,6 +23,30 @@ export const isVerified = (v: unknown): v is VerifiedUpload =>
 /** The collection a verified upload was read from. */
 export const collectionOf = (u: VerifiedUpload): string => u[VERIFIED]
 
+/**
+ * Is this error a DEFINITE answer that there is no readable document? Payload throws `Forbidden` when the caller may not read a collection at all
+ * and `NotFound` for a missing one; both are "no such readable record". Any other error (connection, timeout, adapter) is a failure of the read: it
+ * says nothing about whether the record exists.
+ */
+export const isDefiniteAbsence = (error: unknown): boolean => {
+  const e = error as { name?: string; status?: number } | null
+  return e?.name === 'Forbidden' || e?.name === 'NotFound' || e?.status === 403 || e?.status === 404
+}
+
+/**
+ * The ONE place a failed read is told from an empty answer: `absent` for a definite "no such readable record" (see `isDefiniteAbsence`), the error
+ * itself for anything else. A caller never maps an arbitrary error to "absent": a card drawn from a read that failed would carry a version (and an
+ * immutable cache header) for a card the data never produced.
+ */
+export async function orAbsent<T>(read: () => Promise<T>, absent: T): Promise<T> {
+  try {
+    return await read()
+  } catch (error) {
+    if (isDefiniteAbsence(error)) return absent
+    throw error
+  }
+}
+
 const keyOf = (r: UploadKey) => `${r.collection}\u0000${r.id}`
 
 /** The id of an upload, whether the value is a populated object or the bare id. */
@@ -55,7 +79,8 @@ export type UploadReader = {
 /**
  * One reader per request. Every ref not yet asked for is read in ONE `id in` find per upload collection; a ref asked for before is answered from
  * what that read returned, so the same upload named twice (the hero, and the share image field it also sits in) costs nothing the second time.
- * A read that fails leaves its uploads unreadable (null), exactly as a missing one.
+ * Only a definite answer is "no upload" (`orAbsent`): a read that fails for any other reason rejects every `load` that asked for it, for the rest
+ * of the request, so nothing is resolved from a partial read.
  */
 export function createUploadReader(read: ReadUploads): UploadReader {
   const memo = new Map<string, Promise<VerifiedUpload | null>>()
@@ -72,13 +97,10 @@ export function createUploadReader(read: ReadUploads): UploadReader {
         byId.set(r.id, r)
       }
       for (const [collection, byId] of fresh) {
-        const found = (async () => {
-          try {
-            return await read(collection, [...byId.keys()])
-          } catch {
-            return new Map<string, Record<string, any>>()
-          }
-        })()
+        const found = orAbsent(
+          () => read(collection, [...byId.keys()]),
+          new Map<string, Record<string, any>>() as ReadonlyMap<string, Record<string, any>>,
+        )
         for (const [id, ref] of byId) {
           memo.set(
             keyOf(ref),
