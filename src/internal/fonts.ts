@@ -104,13 +104,18 @@ export async function loadFonts(specs: FontSpec[]): Promise<{ fonts: LoadedFont[
 
 const facesOf = (fonts: LoadedFont[], family: string) => fonts.filter((f) => f.family === family)
 
-/** The face a family is measured with: upright before italic, then the heaviest. Independent of registration order. */
-const measuringFace = (fonts: LoadedFont[], family: string, weight?: number): LoadedFont | undefined =>
-  facesOf(fonts, family).sort(
-    (a, b) =>
-      Number(a.style !== 'normal') - Number(b.style !== 'normal') ||
-      (weight === undefined ? b.weight - a.weight : Math.abs(a.weight - weight) - Math.abs(b.weight - weight)),
-  )[0]
+/**
+ * The face of a family that draws and measures at `weight`: upright before italic, then the nearest weight (the LOWER one when two are as
+ * near), or with no weight the heaviest. Independent of registration order. `only`: the faces to choose among (default all of them).
+ */
+const measuringFace = (fonts: LoadedFont[], family: string, weight?: number, only?: (f: LoadedFont) => boolean): LoadedFont | undefined =>
+  facesOf(fonts, family)
+    .filter((f) => only?.(f) ?? true)
+    .sort(
+      (a, b) =>
+        Number(a.style !== 'normal') - Number(b.style !== 'normal') ||
+        (weight === undefined ? b.weight - a.weight : Math.abs(a.weight - weight) - Math.abs(b.weight - weight) || a.weight - b.weight),
+    )[0]
 const covers = (faces: LoadedFont[], ch: string) => faces.some((f) => f.has(ch))
 
 /**
@@ -163,9 +168,14 @@ export function measureText(
 ): number {
   const tracking = o.tracking ?? 0
   // As drawn (`fontFamilyFor`): one family when a single face of it draws the whole run, else the stack glyph by glyph.
+  // No weight: the family `fontFamilyFor(..., text)` picks (any face draws the run), measured with the face of it that draws the whole run
+  // nearest 400. A weight: the family whose face at that weight draws the run, measured with that face. One rule each, the same as drawn.
   const weight = o.weight ?? 400
-  const one = coveringFamily(fonts, stack, text, weight)
-  const faces = (one === null ? stack : [one]).flatMap((family) => measuringFace(fonts, family, weight) ?? [])
+  const one = coveringFamily(fonts, stack, text, o.weight)
+  const drawsAll = (f: LoadedFont) => [...text].every((ch) => f.has(ch))
+  const faces = (one === null ? stack : [one]).flatMap(
+    (family) => measuringFace(fonts, family, weight, one !== null && o.weight === undefined ? drawsAll : undefined) ?? [],
+  )
   const first = faces[0]
   if (!first) throw new Error(`payload-og-image: measureText: font family "${stack[0]}" is not registered`)
   const em = [...text].reduce((sum, ch) => sum + (faces.find((f) => f.has(ch)) ?? first).advance(ch) / 1000 + tracking, 0)
@@ -276,9 +286,11 @@ const fits = (l: Layout, size: number, box: Box, cap?: number) =>
   (cap === undefined || l.lines <= cap)
 
 /** Measures with one family, or with a stack: each character with the first family that has it (as the renderer draws it). */
-function faceOfFamily(fonts: LoadedFont[], family: string | string[], weight?: number): FaceOf {
+function faceOfFamily(fonts: LoadedFont[], family: string | string[], weight: number | undefined, text: string): FaceOf {
   if (typeof family === 'string') {
-    const face = measuringFace(fonts, family, weight)
+    // No weight: the heaviest face that draws the run (as before, whenever the heaviest one does). A weight: the face at that weight.
+    const draws = (f: LoadedFont) => [...text].every((ch) => f.has(ch))
+    const face = (weight === undefined ? measuringFace(fonts, family, undefined, draws) : undefined) ?? measuringFace(fonts, family, weight)
     if (!face) throw new Error(`payload-og-image: fitText: font family "${family}" is not registered`)
     return () => face
   }
@@ -295,7 +307,7 @@ function faceOfFamily(fonts: LoadedFont[], family: string | string[], weight?: n
  * are opt-in; a box without them measures and answers exactly as before.
  */
 export function fitText(fonts: LoadedFont[], family: string | string[], text: string, box: Box): Fitted {
-  const faceOf = faceOfFamily(fonts, family, box.weight)
+  const faceOf = faceOfFamily(fonts, family, box.weight, text)
   assertBox(box)
   const ladder = ladderOf(box)
   const smallest = ladder[ladder.length - 1] as { size: number; lines?: number }

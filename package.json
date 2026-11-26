@@ -133,6 +133,8 @@
     "provenance": true
   },
   "dependencies": {
-    "fontkit": "3.0.0"
+    "@resvg/resvg-wasm": "2.6.2",
+    "fontkit": "3.0.0",
+    "saxes": "6.0.0"
   }
 }

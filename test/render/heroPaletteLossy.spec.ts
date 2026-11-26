@@ -2,10 +2,13 @@
  * - handler.ts `colours: card.template.heroColours ?? lossyColours(card)` -> `card.template.heroColours` -> "a lossy card's hero is drawn truecolour unless palette.hero says otherwise" RED
  * - handler.ts `lossyColours` returns `undefined` for a lossy card -> same test RED
  * - resolve.ts `heroPalette: encoding.format === 'png' ? ... : (i.heroPaletteLossy ?? ...)` -> `i.heroPalette` -> "a lossy card's hero default is part of its version" RED
- * - palette.ts `heroColoursOf` ignores `lossy` -> both of the above RED */
+ * - palette.ts `heroColoursOf` ignores `lossy` -> both of the above RED
+ * - resolve.ts `heroPalette: lossy && template.heroColours === undefined ? ...` -> `lossy ? ...` -> "a template's own heroColours, or shaped-only images, keep a lossy card's version" RED
+ * - resolve.ts `imagePalette: lossy && images.some(unshaped) ? ...` -> `lossy ? ...` -> the same test RED */
 import type { Payload } from 'payload'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { DocSource, HeroLoader, Renderer } from '../../src/internal/handler.js'
+import { resolveCard } from '../../src/internal/resolve.js'
 import { buildRuntime, setTestRuntime } from '../../src/internal/runtime.js'
 import { createState } from '../../src/internal/state.js'
 import { memoryStore } from '../../src/internal/store/memory.js'
@@ -101,5 +104,65 @@ describe('palette.hero default follows the output format', () => {
     expect(byDefault).toBe(explicitFalse) // the same bytes, so the same version
     expect(explicit256).not.toBe(byDefault) // 256 colours is a different drawing
     expect(await versionOf({ palette: { hero: 256 } })).toBe(png) // PNG's default spelled out moves nothing
+  })
+})
+
+describe('the lossy palette tag follows what each image path reads', () => {
+  const t = (over: Record<string, unknown>) =>
+    defineTemplate<{ title: string }>({
+      id: 'gal',
+      revision: '1',
+      textFields: ['title'],
+      imageBoxes: { logo: { width: 80, height: 40 } },
+      render: () => ({ type: 'div', props: {} }) as never,
+      ...over,
+    })
+  const upload = { id: 5, url: '/media/5.png', filename: '5.png', updatedAt: 'u' }
+  const versionFor = async (template: ReturnType<typeof t>, o: { lossy: boolean; paletteHero?: 256 }, withHero: boolean) => {
+    const { fonts, digest } = await loadTestFonts()
+    const lossyTag = o.paletteHero ? undefined : 'false'
+    const r = await resolveCard({
+      targetName: 'posts',
+      target: defineTarget<any, any>({
+        path: o.lossy ? '/og/:kind/:slug/card.jpg' : '/og/:kind/:slug/card.png',
+        template: 'gal',
+        props: ({ doc }: any) => ({ title: doc.title }),
+        images: () => ({ logo: 5 }),
+        ...(withHero ? { hero: () => ({ id: 9, url: '/media/9.jpg', updatedAt: 'u' }) } : {}),
+      }),
+      doc: { id: 1, slug: 'a', title: 'A' },
+      site: { name: 'S' },
+      host: 'x.test',
+      serverUrl: 'https://x.test',
+      templates: new Map([['gal', template]]),
+      fonts,
+      fontsDigest: digest,
+      stacks: { default: ['Inter'] },
+      uploadCollection: 'media',
+      related: async () => upload,
+      format: o.lossy ? 'jpeg' : undefined,
+      heroPalette: undefined,
+      heroPaletteLossy: lossyTag,
+    } as never)
+    if (r.kind !== 'generated') throw new Error('expected a generated card')
+    return r.v
+  }
+
+  it("a template's own heroColours, or shaped-only images, keep a lossy card's version; an unshaped image or a hero takes the new tag", async () => {
+    const shaped = t({ imageShapes: { logo: { trim: true } } })
+    const plain = t({})
+    const own = t({ heroColours: false })
+    // Shaped-only images, no hero: nothing reads the lossy default, so the card's version is the one it always had (an explicit 256, the old no-tag value).
+    expect(await versionFor(shaped, { lossy: true }, false)).toBe(await versionFor(shaped, { lossy: true, paletteHero: 256 }, false))
+    // A hero the template gave its own palette: likewise.
+    expect(await versionFor(t({ heroColours: false, imageShapes: { logo: { trim: true } } }), { lossy: true }, true)).toBe(
+      await versionFor(t({ heroColours: false, imageShapes: { logo: { trim: true } } }), { lossy: true, paletteHero: 256 }, true),
+    )
+    // An unshaped named image, or a hero with no palette of its own, reads the default: the new tag moves the version.
+    expect(await versionFor(plain, { lossy: true }, false)).not.toBe(await versionFor(plain, { lossy: true, paletteHero: 256 }, false))
+    expect(await versionFor(plain, { lossy: true }, true)).not.toBe(await versionFor(plain, { lossy: true, paletteHero: 256 }, true))
+    expect(await versionFor(own, { lossy: true }, false)).not.toBe(await versionFor(own, { lossy: true, paletteHero: 256 }, false)) // own colours, but the unshaped logo still reads it
+    // PNG: untouched by any of it.
+    expect(await versionFor(plain, { lossy: false }, true)).toBe(await versionFor(plain, { lossy: false, paletteHero: 256 }, true))
   })
 })

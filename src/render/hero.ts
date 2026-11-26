@@ -10,7 +10,7 @@ import type { Upload } from '../internal/types.js'
 import { heroTag } from '../internal/version.js'
 import { guardedFetch, isPublicAddress, type ResolveHost, systemResolve } from './guardedFetch.js'
 import { prepareShape } from './shape.js'
-import { looksLikeSvg, rasteriseSvg } from './svg.js'
+import { looksLikeSvg, looksRaster, rasteriseSvg } from './svg.js'
 
 export type HeroLoaderOptions = {
   /**
@@ -143,7 +143,9 @@ const clamp = (n: unknown, fallback: number) => (typeof n === 'number' && Number
  * refused). `cover` is the size the picture will be drawn at.
  */
 async function decode(bytes: Buffer, cover: { width: number; height: number }, maxPixels: number): Promise<Buffer | null> {
-  return looksLikeSvg(bytes) ? rasteriseSvg(bytes, cover, maxPixels) : bytes
+  if (looksRaster(bytes)) return bytes
+  // Neither a raster image nor an SVG document: nothing is handed to a decoder (an SVG in an encoding the sanitiser cannot read included).
+  return looksLikeSvg(bytes) ? rasteriseSvg(bytes, cover, maxPixels) : null
 }
 
 /** The image cut to the box around its focal point (the centre without one), as a palette PNG data URL; null if it is no usable raster image. */
