@@ -5,7 +5,9 @@ description: Install and configure the payload-og-image plugin on a Payload CMS 
 
 # payload-og-image
 
-A Payload 3/4 plugin plus a Next 16 route that draws Open Graph cards (1200x630 by default) from your documents. The card URL carries a version derived from everything the card shows, so a changed title gives a new URL and an unchanged card is cached for a year. Source of truth: the package's `docs/` folder (`reference.md`, `templates.md`, `crawlers.md`, `operations.md`) and the working app in `dev/` of the repository (https://github.com/anatolykoptev/payload-og-image/tree/main/dev; `dev/` and `scripts/` are not in the npm package). When this file and the docs disagree, the docs and the code win.
+A Payload 3/4 plugin plus a Next 16 route that draws Open Graph cards (1200x630 by default) from your documents. The card URL carries a version derived from everything the card shows, so a changed title gives a new URL and an unchanged card is cached for a year. Source of truth: the package's `docs/` folder (`share-image-spec.md`, `reference.md`, `templates.md`, `crawlers.md`, `operations.md`) and the working app in `dev/` of the repository (https://github.com/anatolykoptev/payload-og-image/tree/main/dev; `dev/` and `scripts/` are not in the npm package). When this file and the docs disagree, the docs and the code win.
+
+**All cards must conform to `docs/share-image-spec.md`** (in the installed package, or https://github.com/anatolykoptev/payload-og-image/blob/main/docs/share-image-spec.md): per-platform image rules, the safe zone, the standard design, which image goes where, and the checklist to run before a card design ships. Read it before changing or proposing a card design, and run its checklist before you report a card done.
 
 ## Install and compatibility
 
@@ -154,7 +156,7 @@ In the plugin repository, [`scripts/probe-dev-server.mjs`](https://github.com/an
 - Cached pages keep an old `?v`: `force-dynamic` or revalidate with `ogTag` on save.
 - JPEG for photo cards; WebP is not safe on every platform.
 - The plugin boots under jsdom (start-up draws nothing), but drawing a card does not: a spec that draws (templates, `templatesRender`, `sizeBudget`, the kit's real renderer) needs `// @vitest-environment node`.
-- Google structured data wants square and 4:3 images too: use target `variants` and `ogImages()` for JSON-LD (`references/targets.md`, 0.7.0 and later), never extra `og:image` tags.
+- Google structured data wants square and 4:3 images too: use target `variants` and `ogImages()` for JSON-LD (`references/targets.md`, 0.7.0 and later), never extra `og:image` tags. The images there are clean photo crops of the hero (no text, no logo, never the branded card): `docs/share-image-spec.md`, section 4.
 
 ## References (load on demand)
 

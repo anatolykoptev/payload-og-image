@@ -129,7 +129,7 @@ export type TextLayout = {
   colW: number
   logo?: Rect
   partner?: Rect
-  /** Where the logo on the right is drawn: contained in its 480 x 480 box, centred in it. Bleeds nothing, and is not held to the safe zone. */
+  /** Where the logo on the right is drawn: contained in its `TEXT.art.size` square box, centred in it. Bleeds nothing, and is not held to the safe zone. */
   mark?: Rect
   name?: Placed<{ text: string; size: number }>
   rule?: Rect

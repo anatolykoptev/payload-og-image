@@ -7,7 +7,7 @@ import type { HeroLoader } from '../internal/handler.js'
 import { MAX_SIDE } from '../internal/limits.js'
 import { DEFAULT_HERO_COLOURS } from '../internal/palette.js'
 import type { OnEvent, Upload } from '../internal/types.js'
-import type { VerifiedUpload } from '../internal/uploads.js'
+import { collectionOf, type VerifiedUpload } from '../internal/uploads.js'
 import { heroTag } from '../internal/version.js'
 import { guardedFetch, isPublicAddress, type ResolveHost, systemResolve } from './guardedFetch.js'
 import { prepareShape } from './shape.js'
@@ -300,9 +300,9 @@ export function payloadHeroLoader(o: HeroLoaderOptions): HeroLoader {
   const fetchImpl = o.fetchImpl ?? ((url: string, init: { signal?: AbortSignal }) => guardedFetch(url, init, resolveHost))
   const background = o.background
   const colours = o.colours ?? DEFAULT_HERO_COLOURS
-  const read = async (hero: Upload, where?: { collection?: string }) =>
-    (await readLocal(hero, await o.staticDirs(where?.collection), maxBytes)) ?? (await fetchRemote(hero, { hosts, fetchImpl, maxBytes }))
-  const keyOf = (hero: VerifiedUpload, where?: { collection?: string }) => `${where?.collection ?? ''}\u0000${heroTag(hero)}`
+  const read = async (hero: VerifiedUpload) =>
+    (await readLocal(hero, await o.staticDirs(collectionOf(hero)), maxBytes)) ?? (await fetchRemote(hero, { hosts, fetchImpl, maxBytes }))
+  const keyOf = (hero: VerifiedUpload) => `${collectionOf(hero)}\u0000${heroTag(hero)}`
   const svgs = new Map<string, Buffer | null>()
   /** Uploads whose last render timed out, and until when they are not tried again. */
   const slow = new Map<string, number>()
@@ -313,8 +313,8 @@ export function payloadHeroLoader(o: HeroLoaderOptions): HeroLoader {
    * the see-through probe alike. `svg`: it was rasterised (or refused as an SVG). A drawing, or the sanitiser's refusal, is remembered in `svgs` and a
    * repeat does not read the file; a failure of this attempt (`transient`) is not.
    */
-  const rasterReady = (hero: VerifiedUpload, where: { collection?: string } | undefined): Promise<Ready> => {
-    const key = keyOf(hero, where)
+  const rasterReady = (hero: VerifiedUpload): Promise<Ready> => {
+    const key = keyOf(hero)
     if (svgs.has(key)) {
       const hit = svgs.get(key) as Buffer | null
       svgs.delete(key) // most recently used last
@@ -329,12 +329,12 @@ export function payloadHeroLoader(o: HeroLoaderOptions): HeroLoader {
     const running = inflight.get(key)
     if (running) return running
     const run = (async (): Promise<Ready> => {
-      const source = await read(hero, where)
+      const source = await read(hero)
       if (!source) return { bytes: null, svg: false, unreadable: true, transient: false }
       const d = await decode(
         source,
         maxPixels,
-        (reason) => o.onEvent?.({ name: 'svg_rejected', detail: { reason, collection: where?.collection } }),
+        (reason) => o.onEvent?.({ name: 'svg_rejected', detail: { reason, collection: collectionOf(hero) } }),
         { timeoutMs: o.svg?.timeoutMs },
       )
       if (d.remember === 'always') {
@@ -352,7 +352,7 @@ export function payloadHeroLoader(o: HeroLoaderOptions): HeroLoader {
   const load: HeroLoader = async (hero, box, where) => {
     try {
       if (![box.width, box.height].every((n) => Number.isInteger(n) && n >= 1 && n <= MAX_SIDE)) return null
-      const { bytes } = await rasterReady(hero, where)
+      const { bytes } = await rasterReady(hero)
       if (!bytes) return null
       // A shaped image (contained, tinted, screened) is its own preparation; `''` is an image its shape declines, not a failure.
       if (where?.shape) return await prepareShape(bytes, box, where.shape, maxPixels)
@@ -367,22 +367,22 @@ export function payloadHeroLoader(o: HeroLoaderOptions): HeroLoader {
     }
   }
   load.readable = remembered(
-    (hero, where) => keyOf(hero, where),
-    async (hero, where) => {
+    (hero) => keyOf(hero),
+    async (hero) => {
       try {
         // Never remembered: a file deleted or corrupted after a `true` must show as unreadable, and `readable` only serves audits and `og_card` (not the hot path).
-        return { value: (await read(hero, where)) !== null, keep: false }
+        return { value: (await read(hero)) !== null, keep: false }
       } catch {
         return { value: false, keep: false }
       }
     },
   )
   load.hasAlpha = remembered(
-    (hero, where) => keyOf(hero, where),
-    async (hero, where) => {
+    (hero) => keyOf(hero),
+    async (hero) => {
       try {
         // The same raster the card is cut from: an SVG is drawn once for both.
-        const { bytes, svg, unreadable, transient } = await rasterReady(hero, where)
+        const { bytes, svg, unreadable, transient } = await rasterReady(hero)
         // Unreadable, or an SVG that failed this time (a timeout, a limit): the card is drawn without it and never stored, so nothing is remembered.
         if (unreadable || transient) return { value: false, keep: false }
         return { value: bytes !== null && (await transparent(bytes, maxPixels, svg)), keep: true }

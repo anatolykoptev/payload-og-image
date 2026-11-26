@@ -255,7 +255,7 @@ props: async ({ doc, site, related }) => {
 },
 ```
 
-`related` is published-only and access-respecting (it is `null` for a missing, unpublished or forbidden document); an
+`related` is published-only and access-respecting (it is `null` for a missing, unpublished or forbidden document, and it rejects when the read fails: let that rejection propagate, see [templates](templates.md#related-documents-in-props)); an
 editor previewing a draft also gets the draft of a related document. `Target.depth` is gone: there is nothing to tune.
 Say which upload collection a hero lives in with `heroCollection` on the target; a hero file is read only inside that
 collection's folder. A transparent hero keeps its transparency, so the card shows through it exactly as it would through a direct `<img>`; set
@@ -337,7 +337,7 @@ the site gives neither `fonts` nor `stacks`. The licence is `fonts/OFL.txt`. The
 (`scripts/fetch-fonts.mjs` writes both from a pinned `@fontsource/inter`), never from a file path, because a bundled `import.meta.url` is not a file URL inside Next.
 A site with fonts of its own draws the presets with its own `default` stack. Text is measured with the weight and the family selection it is drawn with: given a weight, the face is the one satori picks (CSS Fonts 4 weight matching: the weight itself; 400 and 500 each other next; below 400 lighter first, above 500 heavier first), and a family must draw the whole run in that face to be chosen. A site whose faces of one family differ in the characters they draw, or whose weights match differently from "nearest", has the rule's version (`FONT_MATCH_RULE`) in its fonts digest, so its card URLs moved once with this rule; other sites' URLs did not.
 
-**Safe zone.** Text, a logo and a pill stay inside x 64 to 1136 and y 96 to 534: about 15% of a wide card is cropped top and bottom by some feeds.
+**Safe zone.** Text, a logo and a pill stay inside the `ZONE` of `src/presets/spec.ts`; the numbers, the crops they answer to and the reasons are in [share-image-spec](share-image-spec.md#2-safe-zones).
 Only the photo, the scrims, the logo on the right, the brand art and the accent strip bleed. `textLayout` and `photoLayout` are pure functions of the props and `ctx`, so the zone is tested without pixels.
 
 **Logos.** `site().logo` is trimmed of its transparent (or uniform) margin and contained, never cropped: at most 220 x 44 in the head of the text card, 150 x 36 at the end of the photo card's fact row. A logo wider than 1.5:1 stands alone (no site name beside it, no logo on the right).

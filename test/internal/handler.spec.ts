@@ -36,6 +36,7 @@ import { createGate } from '../../src/internal/gate.js'
 import { CACHE, createCardHandler } from '../../src/internal/handler.js'
 import { createMemo } from '../../src/internal/memo.js'
 import { memoryStore } from '../../src/internal/store/memory.js'
+import { collectionOf, type VerifiedUpload } from '../../src/internal/uploads.js'
 import { payloadHeroLoader } from '../../src/render/hero.js'
 import { defineTarget, defineTemplate } from '../../src/template.js'
 import { loadTestFonts, realPng, relatedUploads, uploadsFrom, verifiedUpload } from '../helpers.js'
@@ -226,7 +227,7 @@ describe('card handler', () => {
     }
     const set = setup(withGround)
     await set.h.GET(req('/og/posts/h/card.png'), ctx('h'))
-    expect((set.heroLoader.mock.calls[0] as unknown[])[2]).toEqual({ collection: 'media', background: '#336699' })
+    expect((set.heroLoader.mock.calls[0] as unknown[])[2]).toEqual({ background: '#336699' })
     const plain = setup()
     await plain.h.GET(req('/og/posts/h/card.png'), ctx('h'))
     expect(((plain.heroLoader.mock.calls[0] as unknown[])[2] as { background?: string }).background).toBeUndefined()
@@ -591,7 +592,7 @@ describe('card handler', () => {
     expect(res.filter((r) => r.status === 200)).toHaveLength(5)
     expect(names(events)).toContain('shed')
   })
-  it('32: the hero loader is told which upload collection the hero belongs to', async () => {
+  it('32: the hero loader gets a hero that carries the upload collection it belongs to', async () => {
     const targets = {
       posts: defineTarget<any, any>({
         path: '/og/:kind/:slug/card.png',
@@ -603,7 +604,7 @@ describe('card handler', () => {
     }
     const { h, heroLoader } = setup({ targets })
     await h.GET(req('/og/posts/h/card.png'), ctx('h'))
-    expect((heroLoader.mock.calls[0] as unknown[])[2]).toEqual({ collection: 'media' })
+    expect(collectionOf((heroLoader.mock.calls[0] as unknown[])[0] as VerifiedUpload)).toBe('media')
   })
   it('33: the admission slot is held until BOTH the fonts and the site read have settled (a fonts failure cannot free it while a database read goes on)', async () => {
     let release!: () => void

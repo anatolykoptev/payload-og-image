@@ -264,12 +264,12 @@ export function installTestRuntime(given: OgImagePluginOptions, docs: KitDocs, o
     }
     return url
   }
-  heroLoader.readable = async (hero, where) =>
+  heroLoader.readable = async (hero) =>
     real && isReal(hero)
-      ? (real.readable as NonNullable<HeroLoader['readable']>)(hero, where)
+      ? (real.readable as NonNullable<HeroLoader['readable']>)(hero)
       : !(typeof hero.filename === 'string' && hero.filename.startsWith('missing'))
-  heroLoader.hasAlpha = async (hero, where) =>
-    real && isReal(hero) ? (real.hasAlpha as NonNullable<HeroLoader['hasAlpha']>)(hero, where) : o.transparentHero?.(hero) === true
+  heroLoader.hasAlpha = async (hero) =>
+    real && isReal(hero) ? (real.hasAlpha as NonNullable<HeroLoader['hasAlpha']>)(hero) : o.transparentHero?.(hero) === true
 
   const build = (keepStore: boolean) => {
     state = createState(options, serverUrl)

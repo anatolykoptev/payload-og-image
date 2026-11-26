@@ -1,4 +1,4 @@
-// The values of the two built-in presets, `payload-og-image:text@2` and `payload-og-image:photo@2`. Nothing here is a plugin default: a site
+// The values of the two built-in presets, `payload-og-image:text@2` and `payload-og-image:photo@2` (`REVISION`). Nothing here is a plugin default: a site
 // that opts in gets this named spec, and every number enters the card version through the template's id and revision, so changing one is a
 // revision bump that moves only preset cards.
 import { DEFAULT_MIN_CONTRAST } from '../internal/colour.js'
@@ -16,8 +16,9 @@ export const CARD = { width: 1200, height: 630 } as const
 export const COLOURS = { ground: '#121416', ink: '#EEF0F2', muted: '#A3A9B0', accent: '#8FB4FF' } as const
 
 /**
- * Text, a logo and a pill stay inside this box. About 15% of a wide card is cropped top and bottom by some feeds (VK), and 64 px is kept
- * from the sides. Only a photo, a scrim, the brand art and the accent strip bleed.
+ * Text, a logo and a pill stay inside this box. VK documents a 510 x 228 snippet, which centre-cropped takes about 47 px off the top and bottom of a
+ * 1200 x 630 card; 96 px is about twice that, and 64 px is kept from the sides (see docs/share-image-spec.md). Only a photo, a scrim, the brand art
+ * and the accent strip bleed.
  */
 export const ZONE = { x0: 64, x1: 1136, y0: 96, y1: 534 } as const
 
