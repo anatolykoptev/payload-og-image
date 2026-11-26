@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.10.0](https://github.com/anatolykoptev/payload-og-image/compare/v0.9.0...v0.10.0) (2026-11-26)
+
+
+### ⚠ BREAKING CHANGES
+
+* a hero object that has no readable upload record in the site's upload collections (for example a remote URL handed in directly) is no longer drawn; give it a backing upload record.
+* drawing under a jsdom test environment is no longer supported; templates and the test kit's templatesRender/sizeBudget need a Node test environment (// @vitest-environment node). The start-up check no longer draws a card: a broken renderer is reported by the first render as render_error plus the degraded fallback.
+
+### Features
+
+* read SVG logos safely ([#89](https://github.com/anatolykoptev/payload-og-image/issues/89)) ([#100](https://github.com/anatolykoptev/payload-og-image/issues/100)) ([141822a](https://github.com/anatolykoptev/payload-og-image/commit/141822a082b66ad7d96bc7490135b5c903d42ec8))
+
+
+### Bug Fixes
+
+* close the exposure tech debt ([#86](https://github.com/anatolykoptev/payload-og-image/issues/86) [#91](https://github.com/anatolykoptev/payload-og-image/issues/91) [#85](https://github.com/anatolykoptev/payload-og-image/issues/85) [#73](https://github.com/anatolykoptev/payload-og-image/issues/73) [#77](https://github.com/anatolykoptev/payload-og-image/issues/77)) ([#95](https://github.com/anatolykoptev/payload-og-image/issues/95)) ([d1e1db9](https://github.com/anatolykoptev/payload-og-image/commit/d1e1db96a2b71cab39993f7264663cdd2e1b18d8))
+* jsdom self-test, store short read, missing tests, MCP followups ([#93](https://github.com/anatolykoptev/payload-og-image/issues/93)) ([70d4f2b](https://github.com/anatolykoptev/payload-og-image/commit/70d4f2bbb1adfeddec99ec8982c851ae7a092901))
+* weight-aware fonts ([#90](https://github.com/anatolykoptev/payload-og-image/issues/90)), truecolour hero for lossy cards ([#71](https://github.com/anatolykoptev/payload-og-image/issues/71)) ([#98](https://github.com/anatolykoptev/payload-og-image/issues/98)) ([0112c7c](https://github.com/anatolykoptev/payload-og-image/commit/0112c7c06b87830c1adea66329b5d300fe83c9d1))
+
+
+### Performance Improvements
+
+* free boot (no draw in onInit, lazy sharp and fontkit, realm.ts removed) ([#99](https://github.com/anatolykoptev/payload-og-image/issues/99)) ([7885550](https://github.com/anatolykoptev/payload-og-image/commit/788555054e29ad6f852b7d91f5b678cbe0535bee))
+
 ## [0.9.0](https://github.com/anatolykoptev/payload-og-image/compare/v0.8.0...v0.9.0) (2026-11-26)
 
 
