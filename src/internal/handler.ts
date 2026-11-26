@@ -60,15 +60,15 @@ export type HeroLoader = {
     hero: VerifiedUpload,
     box: Size,
     /** `keepAlpha`: flatten onto no ground at all, not even the plugin's `heroBackground` (a named image: a logo stays transparent). `shape`: prepare a named image by its `ImageShape` (the answer `''` is an image the shape declines, which is not a failure). `colours`: the template's own hero palette. */
-    o?: { collection?: string; background?: string; keepAlpha?: boolean; shape?: ImageShape; colours?: false | number },
+    o?: { background?: string; keepAlpha?: boolean; shape?: ImageShape; colours?: false | number },
   ): Promise<string | null>
   /**
    * Whether the hero has a see-through pixel. Asked only while the site has set no `heroBackground`, to give such a card a
    * new URL (its bytes changed in 0.5.0). A loader without it (a test seam) reports none.
    */
-  hasAlpha?: (hero: VerifiedUpload, o?: { collection?: string }) => Promise<boolean>
+  hasAlpha?: (hero: VerifiedUpload) => Promise<boolean>
   /** Whether the hero's file can be read at all (a read, no decode): false is why a card would be drawn without it. */
-  readable?: (hero: VerifiedUpload, o?: { collection?: string }) => Promise<boolean>
+  readable?: (hero: VerifiedUpload) => Promise<boolean>
 }
 /** `encoding` absent is PNG. */
 export type Renderer = {
@@ -239,14 +239,12 @@ export function createCardHandler(d: HandlerDeps): CardHandler {
     const jobs = card.images.flatMap(({ name, uploads }) =>
       uploads.map((upload) => ({
         name,
-        collection: collectionOf(upload),
         upload,
         box: (card.template.imageBoxes as Record<string, Size>)[name] as Size,
       })),
     )
     const loaded = await pooled(jobs, 4, (j) =>
       d.heroLoader(j.upload, j.box, {
-        collection: j.collection,
         keepAlpha: true,
         shape: card.template.imageShapes?.[j.name],
         colours: lossyColours(card),
@@ -288,7 +286,6 @@ export function createCardHandler(d: HandlerDeps): CardHandler {
     // After the store miss and inside the gate: a cache hit pays for none of this.
     const hero = card.hero
       ? await d.heroLoader(card.hero, card.template.heroBox ?? card.size, {
-          collection: collectionOf(card.hero),
           background: card.heroBackground,
           colours: card.template.heroColours ?? lossyColours(card),
         })
