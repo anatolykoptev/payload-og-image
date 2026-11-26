@@ -147,6 +147,13 @@ const BYTES: Record<string, Record<string, string>> = {
     'posts/clear/#f1f3ef': '761aabfb1fa70c153b457a2608111dc9af6269c94dcbb1013a39b481987763ba',
     'jpegs/opaque/-': '11ac48a5337f4a3622c4a70a90335c7bea1d0cc090bd7c9ea0f276217396cd64',
   },
+  'linux-arm64': {
+    'posts/plain/-': '192910090c6166c239b54acc74e7573bae826874475661b312d5d4a0fcf43660',
+    'posts/opaque/-': '22096db0f4d593b7f79296071407fa7f8487c2acaf037255219c1193c6e52498',
+    'posts/clear/-': '28628670124b5693eccaa921a14b069de6d539a6ef165d14366f5fe34b978c55',
+    'posts/clear/#f1f3ef': 'b1dd118ad47cf1d3fffef01e69cd7e27d15569326ded56caf5f3d071df9a9056',
+    'jpegs/opaque/-': '11ac48a5337f4a3622c4a70a90335c7bea1d0cc090bd7c9ea0f276217396cd64',
+  },
 }
 const platform = `${process.platform}-${process.arch}`
 
