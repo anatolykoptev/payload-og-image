@@ -17,7 +17,7 @@ import { createOgRoute } from '../../src/next/route.js'
 import { withHead } from '../../src/next/withHead.js'
 import type { OgImagePluginOptions } from '../../src/plugin/index.js'
 import { defineTarget, defineTemplate } from '../../src/template.js'
-import { loadTestFonts, realPng } from '../helpers.js'
+import { loadTestFonts, realPng, uploadsFrom } from '../helpers.js'
 
 vi.mock('payload', async (orig) => ({ ...(await orig<typeof import('payload')>()), getPayload: vi.fn() }))
 
@@ -57,6 +57,7 @@ function runtime(over: Partial<OgImagePluginOptions> = {}) {
       draft: async () => null,
       site: async () => ({ name: 'Site' }),
       related: async () => null,
+      uploads: uploadsFrom(async () => null),
     },
     store: memoryStore(),
     renderer: { render: async (el: any) => realPng(String(el?.props?.children ?? '')) },

@@ -44,7 +44,7 @@ import { guardedFetch, isPublicAddress, pinnedLookup } from '../../src/render/gu
 import { payloadHeroLoader } from '../../src/render/hero.js'
 import { nextOgRenderer } from '../../src/render/nextOg.js'
 import { defineTemplate } from '../../src/template.js'
-import { loadTestFonts } from '../helpers.js'
+import { loadTestFonts, verifiedUpload } from '../helpers.js'
 
 const tmp = () => mkdtemp(path.join(os.tmpdir(), 'og-render-'))
 const jpeg = (w = 800, h = 600) =>
@@ -52,7 +52,7 @@ const jpeg = (w = 800, h = 600) =>
     .jpeg()
     .toBuffer()
 const BOX = { width: 460, height: 630 }
-const hero = (over: Record<string, unknown> = {}) => ({ id: 1, filename: 'h.jpg', url: '/media/h.jpg', ...over })
+const hero = (over: Record<string, unknown> = {}) => verifiedUpload({ id: 1, filename: 'h.jpg', url: '/media/h.jpg', ...over })
 const meta = async (dataUrl: string) => sharp(Buffer.from(dataUrl.split(',')[1] as string, 'base64')).metadata()
 
 describe('nextOgRenderer + encodePng', () => {
@@ -224,12 +224,12 @@ describe('payloadHeroLoader (remote)', () => {
   const remote = (o: Record<string, unknown>) => payloadHeroLoader({ staticDirs: async () => [], ...o })
   it('(c) with the default allowedHosts an absolute url is never fetched', async () => {
     const fetchImpl = okFetch()
-    expect(await remote({ fetchImpl })({ id: 1, url: 'https://cdn.test/a.jpg' }, BOX)).toBeNull()
+    expect(await remote({ fetchImpl })(verifiedUpload({ id: 1, url: 'https://cdn.test/a.jpg' }), BOX)).toBeNull()
     expect(fetchImpl).not.toHaveBeenCalled()
   })
   it('(f) an allowlisted host is fetched over https with a timeout and redirect: error', async () => {
     const fetchImpl = okFetch()
-    const out = await remote({ fetchImpl, allowedHosts: ['cdn.test'] })({ id: 1, url: 'https://cdn.test/a.jpg' }, BOX)
+    const out = await remote({ fetchImpl, allowedHosts: ['cdn.test'] })(verifiedUpload({ id: 1, url: 'https://cdn.test/a.jpg' }), BOX)
     expect(out?.startsWith('data:image/png;base64,')).toBe(true)
     expect(fetchImpl).toHaveBeenCalledTimes(1)
     const [url, init] = fetchImpl.mock.calls[0] as [string, RequestInit]
@@ -248,12 +248,12 @@ describe('payloadHeroLoader (remote)', () => {
     ['garbage', 'not a url'],
   ])('is never fetched for %s', async (_, url) => {
     const fetchImpl = okFetch()
-    expect(await remote({ fetchImpl, allowedHosts: ['cdn.test'] })({ id: 1, url }, BOX)).toBeNull()
+    expect(await remote({ fetchImpl, allowedHosts: ['cdn.test'] })(verifiedUpload({ id: 1, url }), BOX)).toBeNull()
     expect(fetchImpl).not.toHaveBeenCalled()
   })
   it('a host match is case-insensitive on both sides', async () => {
     const fetchImpl = okFetch()
-    await remote({ fetchImpl, allowedHosts: ['CDN.test'] })({ id: 1, url: 'https://Cdn.Test/a.jpg' }, BOX)
+    await remote({ fetchImpl, allowedHosts: ['CDN.test'] })(verifiedUpload({ id: 1, url: 'https://Cdn.Test/a.jpg' }), BOX)
     expect(fetchImpl).toHaveBeenCalledTimes(1)
   })
   it('an error status and a redirect error are null', async () => {
@@ -261,7 +261,9 @@ describe('payloadHeroLoader (remote)', () => {
       async () => new Response('x', { status: 404 }),
       async () => Promise.reject(new TypeError('redirect mode is set to error')),
     ]) {
-      expect(await remote({ fetchImpl: vi.fn(make), allowedHosts: ['cdn.test'] })({ id: 1, url: 'https://cdn.test/a.jpg' }, BOX)).toBeNull()
+      expect(
+        await remote({ fetchImpl: vi.fn(make), allowedHosts: ['cdn.test'] })(verifiedUpload({ id: 1, url: 'https://cdn.test/a.jpg' }), BOX),
+      ).toBeNull()
     }
   })
   it('an error response has its body cancelled, not left open', async () => {
@@ -272,7 +274,9 @@ describe('payloadHeroLoader (remote)', () => {
       },
     })
     const fetchImpl = vi.fn(async () => new Response(body, { status: 500 }))
-    expect(await remote({ fetchImpl, allowedHosts: ['cdn.test'] })({ id: 1, url: 'https://cdn.test/a.jpg' }, BOX)).toBeNull()
+    expect(
+      await remote({ fetchImpl, allowedHosts: ['cdn.test'] })(verifiedUpload({ id: 1, url: 'https://cdn.test/a.jpg' }), BOX),
+    ).toBeNull()
     expect(cancelled).toBe(true)
   })
   it('a body over maxBytes is null whether it is declared or only streamed (a valid image, so only the cap can refuse it)', async () => {
@@ -287,7 +291,10 @@ describe('payloadHeroLoader (remote)', () => {
         },
       })
     const run = (fetchImpl: () => Promise<Response>, maxBytes: number) =>
-      remote({ fetchImpl: vi.fn(fetchImpl), allowedHosts: ['cdn.test'], maxBytes })({ id: 1, url: 'https://cdn.test/a.jpg' }, BOX)
+      remote({ fetchImpl: vi.fn(fetchImpl), allowedHosts: ['cdn.test'], maxBytes })(
+        verifiedUpload({ id: 1, url: 'https://cdn.test/a.jpg' }),
+        BOX,
+      )
     // streamed, no content-length: only the running total can stop it
     expect(await run(async () => new Response(stream(), { status: 200 }), cap)).toBeNull()
     // declared larger than the limit: refused before reading, even though the real body would fit
@@ -396,14 +403,14 @@ describe('SSRF guard for remote heroes', () => {
     'the default fetch is refused for an allowlisted name that resolves to %s (the resolver is asked, nothing connects)',
     async (address, family) => {
       const resolveHost = vi.fn(async () => [{ address, family }])
-      expect(await loaderFor({ resolveHost })({ id: 1, url: 'https://cdn.test/a.jpg' }, BOX)).toBeNull()
+      expect(await loaderFor({ resolveHost })(verifiedUpload({ id: 1, url: 'https://cdn.test/a.jpg' }), BOX)).toBeNull()
       expect(resolveHost).toHaveBeenCalledWith('cdn.test')
     },
   )
   it('an IP literal is refused unless allowlisted exactly, and a private one even then; only the default port is used', async () => {
     const fetchImpl = vi.fn(async () => new Response(new Uint8Array(await jpeg()), { status: 200 }))
     const run = (allowedHosts: string[], url: string) =>
-      payloadHeroLoader({ staticDirs: async () => [], allowedHosts, fetchImpl })({ id: 1, url }, BOX)
+      payloadHeroLoader({ staticDirs: async () => [], allowedHosts, fetchImpl })(verifiedUpload({ id: 1, url }), BOX)
     expect(await run(['cdn.test'], 'https://8.8.8.8/a.jpg')).toBeNull() // not allowlisted
     expect(await run(['127.0.0.1'], 'https://127.0.0.1/a.jpg')).toBeNull() // allowlisted but private
     expect(await run(['[::1]'], 'https://[::1]/a.jpg')).toBeNull()

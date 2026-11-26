@@ -22,7 +22,7 @@ import { descriptorOf, ogMetadata } from '../../src/next/metadata.js'
 import { createOgRoute } from '../../src/next/route.js'
 import type { OgImagePluginOptions } from '../../src/plugin/index.js'
 import { defineTarget, defineTemplate } from '../../src/template.js'
-import { loadTestFonts, realPng, relatedUploads } from '../helpers.js'
+import { loadTestFonts, realPng, relatedUploads, uploadsFrom } from '../helpers.js'
 
 vi.mock('payload', async (orig) => ({ ...(await orig<typeof import('payload')>()), getPayload: vi.fn() }))
 
@@ -48,6 +48,7 @@ function setup(
     draft: async () => null,
     site: async () => ({ name: 'Site' }),
     related: relatedUploads(docs),
+    uploads: uploadsFrom(relatedUploads(docs)),
   }
   const options: OgImagePluginOptions = {
     site: () => ({ name: 'Site' }),

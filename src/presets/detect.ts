@@ -4,23 +4,8 @@
 // auto-detected): not `hidden`, `admin.hidden` or `admin.disabled`, not under such an ancestor, not named `_...`, and, with an `access.read`, only
 // one that says `true` to an anonymous request when the config is built. Only scalar fields qualify: a `hasMany` text is an array.
 
-type Field = {
-  type?: string
-  name?: string
-  fields?: Field[]
-  tabs?: Array<{
-    fields?: Field[]
-    name?: string
-    hidden?: boolean
-    admin?: { hidden?: boolean; disabled?: boolean }
-    access?: { read?: unknown }
-  }>
-  relationTo?: unknown
-  hasMany?: boolean
-  hidden?: boolean
-  admin?: { hidden?: boolean; disabled?: boolean }
-  access?: { read?: unknown }
-}
+import { type Entry, type Field, singleUpload, flatFields as walk } from '../internal/fields.js'
+
 export type CollectionLike = {
   slug: string
   auth?: unknown
@@ -83,29 +68,14 @@ function blockOf(f: {
   return undefined
 }
 
-type Entry = { path: string; field: Field; blocked?: string }
-
-/** Every named leaf field with its dotted path, through groups, tabs, rows and collapsibles; `blocked` is why it cannot be drawn (its own or an ancestor's). */
-export function flatFields(fields: Field[] | undefined, prefix: string[] = [], blocked?: string): Entry[] {
-  const out: Entry[] = []
-  for (const f of fields ?? []) {
-    // Every container passes its restriction (its own, or the one it inherited) to everything inside it.
-    const own = blocked ?? blockOf(f)
-    if (f.type === 'group' && f.name) out.push(...flatFields(f.fields, [...prefix, f.name], own))
-    else if (f.type === 'tabs')
-      for (const t of f.tabs ?? []) out.push(...flatFields(t.fields, t.name ? [...prefix, t.name] : prefix, own ?? blockOf(t)))
-    else if (!f.name && f.fields) out.push(...flatFields(f.fields, prefix, own))
-    else if (f.name) out.push({ path: [...prefix, f.name].join('.'), field: f, ...(own ? { blocked: own } : {}) })
-  }
-  return out
-}
+/** The walk over the field tree (`internal/fields.ts`), with this module's reasons a field cannot be drawn on a public card. */
+const flatFields = (fields: Field[] | undefined) => walk(fields, blockOf)
 
 const fail = (msg: string): never => {
   throw new Error(`payload-og-image: ${msg}`)
 }
 
 const scalarText = (e: Entry) => (e.field.type === 'text' || e.field.type === 'textarea') && !e.field.hasMany
-const singleUpload = (e: Entry) => e.field.type === 'upload' && typeof e.field.relationTo === 'string' && !e.field.hasMany
 
 /** The entry a given path names, which must pass `kind`, and must not be blocked. */
 function given(c: CollectionLike, what: string, path: string, kind: (e: Entry) => boolean, kindName: string): Entry {

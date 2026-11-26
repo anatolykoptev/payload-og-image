@@ -11,22 +11,12 @@ const post = defineTemplate<{ title: string }>({ id: 'post', revision: '1', rend
 describe('payloadSource.listPublished', () => {
   const setup = () => {
     const finds: Array<Record<string, unknown>> = []
-    let active = 0
-    let peak = 0
     const payload = {
       config: {},
       collections: {
         notes: { config: { versions: { drafts: true }, fields: [{ type: 'upload', name: 'image', relationTo: 'media' }] } },
       },
       find: async (a: Record<string, unknown>) => {
-        if (a.collection === 'media') {
-          // An upload read by id (the same published-only read as `related()`): count how many run at once.
-          active += 1
-          peak = Math.max(peak, active)
-          await new Promise((r) => setTimeout(r, 2))
-          active -= 1
-          return { docs: [{ id: 1 }], totalDocs: 1 }
-        }
         finds.push(a)
         return { docs: Array.from({ length: 20 }, (_, i) => ({ id: i + 1, slug: `n${i}`, image: 100 + i })), totalDocs: 20 }
       },
@@ -42,14 +32,14 @@ describe('payloadSource.listPublished', () => {
       },
       'https://x.test',
     )
-    return { source: payloadSource(payload, state, async () => ({ name: 'S' })), finds, peak: () => peak }
+    return { source: payloadSource(payload, state, async () => ({ name: 'S' })), finds }
   }
-  it('reads the uploads of a page a few at a time', async () => {
+  it('lists a page in one read and reads no upload: uploads are read per card, by the request reader', async () => {
     const s = setup()
     const r = await (s.source.listPublished as NonNullable<typeof s.source.listPublished>)('notes', { page: 1, limit: 20 })
     expect(r.docs).toHaveLength(20)
-    expect(s.peak()).toBeLessThanOrEqual(4)
-    expect(s.peak()).toBeGreaterThan(1) // it does overlap: the pool is not a serial loop
+    expect(s.finds).toHaveLength(1)
+    expect(r.docs[0]?.image).toBe(100) // a bare id, as stored
   })
   it('reads published documents as the public', async () => {
     const s = setup()

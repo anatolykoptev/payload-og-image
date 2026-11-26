@@ -18,7 +18,7 @@ import { ogImages, ogMetadata } from '../../src/next/metadata.js'
 import { createOgRoute } from '../../src/next/route.js'
 import { type OgImagePluginOptions, ogImagePlugin } from '../../src/plugin/index.js'
 import { defineTarget, defineTemplate } from '../../src/template.js'
-import { loadTestFonts } from '../helpers.js'
+import { loadTestFonts, uploadsFrom } from '../helpers.js'
 
 const draw = (id: string, size?: { width: number; height: number }) =>
   defineTemplate<{ title: string }>({
@@ -45,6 +45,7 @@ const source: DocSource = {
   draft: async () => null,
   site: async () => ({ name: 'Site' }),
   related: async () => null,
+  uploads: uploadsFrom(async () => null),
 }
 const posts = defineTarget<any, any>({
   path: '/og/:kind/:slug/card.png',

@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
-import type { CardKey, Upload, VersionInput } from './types.js'
+import type { CardKey, VersionInput } from './types.js'
+import { collectionOf, type VerifiedUpload } from './uploads.js'
 
 export const VERSION_FORMAT = 1
 
@@ -78,7 +79,7 @@ export function normalizeProps(value: unknown, path = 'props', seen: object[] = 
 }
 
 /** `id:updatedAt`. The id makes a replaced or deleted upload change the version, which `updatedAt` alone misses. */
-export const heroTag = (h: Upload) => `${String(h.id)}:${h.updatedAt ?? ''}`
+export const heroTag = (h: VerifiedUpload) => `${String(h.id)}:${h.updatedAt ?? ''}`
 
 const imagePaletteOf = (i: VersionInput) => ('imagePalette' in i ? i.imagePalette : i.heroPalette)
 
@@ -90,8 +91,16 @@ function imageTail(i: VersionInput): string | undefined {
   const named = (i.images ?? []).filter((e) => e.uploads.length > 0)
   if (named.length === 0) return undefined
   const sorted = [...named].sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
-  // The collection is in it: ids are only unique within one collection.
-  return `img:${canonicalJson(sorted.map((e) => [e.name, e.collection, e.uploads.map(heroTag)]))}${imagePaletteOf(i) ? `|hp:${imagePaletteOf(i)}` : ''}`
+  // The collection is in it: ids are only unique within one collection. One name can mix collections: its entry then lists each upload's own
+  // (an image whose uploads all share the first one's collection hashes exactly as it always did).
+  const entry = (e: (typeof sorted)[number]) => {
+    const collections = e.uploads.map(collectionOf)
+    const first = collections[0] as string
+    return collections.every((c) => c === first)
+      ? [e.name, first, e.uploads.map(heroTag)]
+      : [e.name, first, e.uploads.map(heroTag), collections]
+  }
+  return `img:${canonicalJson(sorted.map(entry))}${imagePaletteOf(i) ? `|hp:${imagePaletteOf(i)}` : ''}`
 }
 
 // Slots 8-9 (locale, variant) are constants in 0.1 (`''`, `og`); the variant slot carries a JPEG card's encoding (0.6), and the default hashes identically. Slot 10 is the nonce: 0 or absent is the 0.1 value.

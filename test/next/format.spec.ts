@@ -18,7 +18,7 @@ import { descriptorOf } from '../../src/next/metadata.js'
 import { createOgRoute } from '../../src/next/route.js'
 import type { OgImagePluginOptions } from '../../src/plugin/index.js'
 import { defineTarget, defineTemplate } from '../../src/template.js'
-import { loadTestFonts, realCard, relatedUploads } from '../helpers.js'
+import { loadTestFonts, realCard, relatedUploads, uploadsFrom } from '../helpers.js'
 
 const post = defineTemplate<{ title: string; label: string }>({
   id: 'post',
@@ -39,6 +39,7 @@ function setup(over: Partial<OgImagePluginOptions> = {}, o: { fail?: boolean; he
     draft: async () => null,
     site: async () => ({ name: 'Site' }),
     related: relatedUploads(docs),
+    uploads: uploadsFrom(relatedUploads(docs)),
   }
   const options: OgImagePluginOptions = {
     site: () => ({ name: 'Site' }),

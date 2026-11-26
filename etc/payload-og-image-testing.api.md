@@ -461,6 +461,7 @@ export type Target<D = any, P = any> = {
     hero?: (a: ResolverArgs<D>) => Upload | ImageRef | null | undefined;
     heroCollection?: string;
     images?: (a: ResolverArgs<D>) => Record<string, ImageRef | readonly ImageRef[] | null | undefined>;
+    uploadFields?: readonly string[];
     imageCollections?: Record<string, string>;
     seoImage?: {
         path: string;

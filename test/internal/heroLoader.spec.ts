@@ -3,6 +3,7 @@
  * - runtime.ts:70 `background: o.heroBackground` removed -> "a transparent hero is flattened onto heroBackground" RED
  * - hero.ts `keepAlpha` ignored (a named image flattened onto the site's ground) -> "a named image keeps its alpha on a site that sets heroBackground" RED
  * - index.ts:124 `heroBackground` never validated -> plugin.spec "a css injection as the hero background" RED */
+
 import { mkdtemp, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
@@ -10,6 +11,7 @@ import type { Payload } from 'payload'
 import sharp from 'sharp'
 import { describe, expect, it } from 'vitest'
 import { heroLoaderFor } from '../../src/internal/runtime.js'
+import { verifiedUpload } from '../helpers.js'
 
 const pixel = async (dataUrl: string) => {
   const { data } = await sharp(Buffer.from(dataUrl.split(',')[1] as string, 'base64'))
@@ -29,7 +31,7 @@ describe('heroLoaderFor', () => {
         .toBuffer(),
     )
     const payload = { collections: { media: { config: { upload: { staticDir: dir } } } } } as unknown as Payload
-    const hero = { id: 1, filename: 't.png', url: '/m/t.png', updatedAt: 'u' }
+    const hero = verifiedUpload({ id: 1, filename: 't.png', url: '/m/t.png', updatedAt: 'u' })
     const px = async (c: string) =>
       pixel((await heroLoaderFor(payload, { heroBackground: c })(hero, { width: 20, height: 20 }, { collection: 'media' })) as string)
     expect(await px('#369')).toEqual([51, 102, 153, 255])
@@ -44,7 +46,7 @@ describe('heroLoaderFor', () => {
         .toBuffer(),
     )
     const payload = { collections: { media: { config: { upload: { staticDir: dir } } } } } as unknown as Payload
-    const hero = { id: 1, filename: 't.png', url: '/m/t.png', updatedAt: 'u' }
+    const hero = verifiedUpload({ id: 1, filename: 't.png', url: '/m/t.png', updatedAt: 'u' })
     const box = { width: 20, height: 20 }
     expect(
       await pixel((await heroLoaderFor(payload, { heroBackground: '#f1f3ef' })(hero, box, { collection: 'media' })) as string),
@@ -61,7 +63,7 @@ describe('heroLoaderFor', () => {
         .toBuffer(),
     )
     const payload = { collections: { media: { config: { upload: { staticDir: dir } } } } } as unknown as Payload
-    const logo = { id: 1, filename: 'logo.png', url: '/m/logo.png', updatedAt: 'u' }
+    const logo = verifiedUpload({ id: 1, filename: 'logo.png', url: '/m/logo.png', updatedAt: 'u' })
     const box = { width: 20, height: 20 }
     const load = heroLoaderFor(payload, { heroBackground: '#f1f3ef' })
     expect(await pixel((await load(logo, box, { collection: 'media' })) as string)).toEqual([241, 243, 239, 255]) // the hero: flattened

@@ -16,7 +16,7 @@ import { memoryStore } from '../../src/internal/store/memory.js'
 import { createOgRoute } from '../../src/next/route.js'
 import type { OgImagePluginOptions } from '../../src/plugin/index.js'
 import { defineTarget, defineTemplate } from '../../src/template.js'
-import { loadTestFonts } from '../helpers.js'
+import { loadTestFonts, uploadsFrom, verifiedUpload } from '../helpers.js'
 
 afterEach(() => setTestRuntime(null))
 
@@ -42,6 +42,7 @@ async function cardBytes(over: Partial<OgImagePluginOptions>): Promise<Uint8Arra
     draft: async () => null,
     site: async () => ({ name: 'Site' }),
     related: async () => null,
+    uploads: uploadsFrom(async () => null),
   }
   const options: OgImagePluginOptions = {
     site: () => ({ name: 'Site' }),
@@ -104,7 +105,7 @@ describe('palette.hero', () => {
         .toBuffer(),
     )
     const payload = { collections: { media: { config: { upload: { staticDir: dir } } } } } as unknown as Payload
-    const hero = { id: 1, filename: 'h.png', url: '/m/h.png', updatedAt: 'u' }
+    const hero = verifiedUpload({ id: 1, filename: 'h.png', url: '/m/h.png', updatedAt: 'u' })
     const load = async (palette?: OgImagePluginOptions['palette']) => {
       const url = (await heroLoaderFor(payload, { palette })(hero, { width: 100, height: 100 }, { collection: 'media' })) as string
       const png = Buffer.from(url.split(',')[1] as string, 'base64')

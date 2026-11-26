@@ -15,7 +15,7 @@ import { memoryStore } from '../../src/internal/store/memory.js'
 import { createOgRoute } from '../../src/next/route.js'
 import type { OgImagePluginOptions } from '../../src/plugin/index.js'
 import { defineTarget, defineTemplate } from '../../src/template.js'
-import { loadTestFonts, realCard } from '../helpers.js'
+import { loadTestFonts, realCard, uploadReaderOf, uploadsFrom } from '../helpers.js'
 
 afterEach(() => setTestRuntime(null))
 
@@ -34,6 +34,7 @@ function setup(over: Partial<OgImagePluginOptions>, path = '/og/:kind/:slug/card
     draft: async () => null,
     site: async () => ({ name: 'Site' }),
     related: async () => doc.heroImage, // the public read of the hero upload
+    uploads: uploadsFrom(async () => doc.heroImage),
   }
   const options: OgImagePluginOptions = {
     site: () => ({ name: 'Site' }),
@@ -140,7 +141,7 @@ describe('the lossy palette tag follows what each image path reads', () => {
       fontsDigest: digest,
       stacks: { default: ['Inter'] },
       uploadCollection: 'media',
-      related: async () => upload,
+      uploads: uploadReaderOf(async () => upload),
       format: o.lossy ? 'jpeg' : undefined,
       heroPalette: undefined,
       heroPaletteLossy: lossyTag,

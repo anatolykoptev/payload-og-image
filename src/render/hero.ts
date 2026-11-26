@@ -7,6 +7,7 @@ import type { HeroLoader } from '../internal/handler.js'
 import { MAX_SIDE } from '../internal/limits.js'
 import { DEFAULT_HERO_COLOURS } from '../internal/palette.js'
 import type { OnEvent, Upload } from '../internal/types.js'
+import type { VerifiedUpload } from '../internal/uploads.js'
 import { heroTag } from '../internal/version.js'
 import { guardedFetch, isPublicAddress, type ResolveHost, systemResolve } from './guardedFetch.js'
 import { prepareShape } from './shape.js'
@@ -301,7 +302,7 @@ export function payloadHeroLoader(o: HeroLoaderOptions): HeroLoader {
   const colours = o.colours ?? DEFAULT_HERO_COLOURS
   const read = async (hero: Upload, where?: { collection?: string }) =>
     (await readLocal(hero, await o.staticDirs(where?.collection), maxBytes)) ?? (await fetchRemote(hero, { hosts, fetchImpl, maxBytes }))
-  const keyOf = (hero: Upload, where?: { collection?: string }) => `${where?.collection ?? ''}\u0000${heroTag(hero)}`
+  const keyOf = (hero: VerifiedUpload, where?: { collection?: string }) => `${where?.collection ?? ''}\u0000${heroTag(hero)}`
   const svgs = new Map<string, Buffer | null>()
   /** Uploads whose last render timed out, and until when they are not tried again. */
   const slow = new Map<string, number>()
@@ -312,7 +313,7 @@ export function payloadHeroLoader(o: HeroLoaderOptions): HeroLoader {
    * the see-through probe alike. `svg`: it was rasterised (or refused as an SVG). A drawing, or the sanitiser's refusal, is remembered in `svgs` and a
    * repeat does not read the file; a failure of this attempt (`transient`) is not.
    */
-  const rasterReady = (hero: Upload, where: { collection?: string } | undefined): Promise<Ready> => {
+  const rasterReady = (hero: VerifiedUpload, where: { collection?: string } | undefined): Promise<Ready> => {
     const key = keyOf(hero, where)
     if (svgs.has(key)) {
       const hit = svgs.get(key) as Buffer | null

@@ -26,7 +26,7 @@ import { textPreset } from '../../src/presets/templates.js'
 import { payloadHeroLoader } from '../../src/render/hero.js'
 import { nextOgRenderer } from '../../src/render/nextOg.js'
 import { defineTemplate, type TemplateContext } from '../../src/template.js'
-import { loadTestFonts } from '../helpers.js'
+import { loadTestFonts, verifiedUpload } from '../helpers.js'
 import { configOf, presetHarness, upload } from './harness.js'
 
 const sha = (b: Uint8Array | string) => createHash('sha256').update(b).digest('hex')
@@ -790,7 +790,7 @@ describe('logos are contained, trimmed and tinted, never cropped', () => {
   const shaped = async (file: string, shape: 'logo' | 'mark', box: { width: number; height: number }) => {
     const h = await presetHarness({ docs: {} })
     const loader = payloadHeroLoader({ staticDirs: async () => [h.dir] })
-    return loader({ id: 1, filename: file, updatedAt: 'u' }, box, { keepAlpha: true, shape: TEXT_SHAPES[shape] })
+    return loader(verifiedUpload({ id: 1, filename: file, updatedAt: 'u' }), box, { keepAlpha: true, shape: TEXT_SHAPES[shape] })
   }
   it('a 12:1 black wordmark keeps its whole width at its aspect and is drawn in the ink: not a square cut, not black on dark', async () => {
     const url = (await shaped('wordmark.png', 'logo', IMAGE_BOXES.logo)) as string
