@@ -19,16 +19,13 @@ Sources are the package docs (`docs/reference.md`, `docs/crawlers.md`, `docs/ope
 
 Cause (Next docs, `generateMetadata` "Streaming metadata" and `htmlLimitedBots`): Next sends the page without waiting for `generateMetadata` and appends the metadata tags to `<body>`. Crawlers that do not run JavaScript need them in `<head>`, so Next detects HTML-limited bots by user agent and blocks until metadata resolves. The plugin docs do not mention this; the rule is Next's.
 
-In Next 16.4.6 the default list (`dist/shared/lib/router/utils/html-bots.js`) names, among others, facebookexternalhit, Twitterbot, LinkedInBot, Slackbot, Discordbot, WhatsApp, applebot, Bingbot and Google crawlers, and it does not name Telegram. Two ways a card still goes missing:
+In Next 16.4.6 the default list (`dist/shared/lib/router/utils/html-bots.js`) names, among others, facebookexternalhit, Twitterbot, LinkedInBot, Slackbot, Discordbot, WhatsApp, applebot, Bingbot and Google crawlers, and it does not name Telegram. A preview bot that is not on the list gets the metadata in `<body>` and shows no card. A custom `htmlLimitedBots` value **replaces** the default list.
 
-1. A preview bot that is not on the list (check each platform the site cares about with `curl -s -A '<UA>' <page>`).
-2. A site that sets `htmlLimitedBots` itself: a value **replaces** the default list.
-
-Fix: leave `htmlLimitedBots` unset when it is, or set a regex that includes every default bot and the missing one; `htmlLimitedBots: /.*/` disables streaming metadata for every request (the Next docs warn of longer responses). Verify: for each crawler UA the `og:image` tag is inside `<head>`. Read the Next version's own docs for the exact list; it changes between releases.
+Fix, the simple safe choice: in `next.config`, `htmlLimitedBots: /.*/`. The Next docs (`generateMetadata` "Streaming metadata" and `htmlLimitedBots` "Disabling") give this as the way to fully disable streaming metadata, so every request gets metadata in `<head>`; the cost is that the response starts after `generateMetadata` resolves (Next warns of longer response times and says streaming metadata only helps TTFB and LCP). Verify: `curl -s -A 'TelegramBot' <page>` has the `og:image` inside `<head>`. Read the installed Next version's own docs: the list changes between releases.
 
 ## `og:image` must stay a single tag
 
-`ogMetadata` returns one image in `openGraph.images` and one in `twitter.images`. A second image (a manual `openGraph.images`, a file-convention `opengraph-image`) leads to several tags, and platforms differ in which one they use. The plugin emits one image on purpose, so X and every other unfurler agree (comment on `descriptorOf`, `src/next/metadata.ts`). Rules:
+`ogMetadata` returns one image in `openGraph.images` and one in `twitter.images`. A second `og:image` tag (a manual `openGraph.images`, a file-convention `opengraph-image`, a size variant) buys nothing and breaks Discord. Almost every crawler takes the first `og:image` and ignores the rest, and Discord turns two or more `og:image` tags into a gallery of all of them, which breaks the single preview (`docs/reference.md`, "Why `og:image` stays a single wide image"). `ogMetadata` never lists a variant and has no option to. Rules:
 
 - Do not add images next to `ogMetadata`. A default in the layout is fine because mode `off` or a missing card returns `{}` and lets it apply.
 - Next merges metadata **shallowly**: a page returning `openGraph` replaces the layout's whole `openGraph` (title, siteName, locale). Spread the layout's values into the page's `openGraph` if the page must keep them: `const og = await ogMetadata(...); return { openGraph: { ...base, ...og.openGraph }, twitter: { ...baseTwitter, ...og.twitter } }`.

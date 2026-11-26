@@ -64,6 +64,35 @@ static: {
 
 Page side: `ogMetadata({ config, static: 'home' })`: the argument is the key in the plugin's `static` map. The card route serves it at the path with `:kind` = `pages` and `:slug` = `home`.
 
+## Size variants (0.7.0 and later)
+
+For the schema.org `image` of a page, not for `og:image`. Google asks for Article images in three ratios (16:9, 4:3, 1:1); the page's `og:image` stays one wide image. Source: `docs/reference.md` "Size variants".
+
+```ts
+posts: defineTarget({
+  path: '/og/:kind/:slug/card.png',
+  template: 'post', // 1200x630
+  props: ({ doc }) => ({ title: doc.title }),
+  variants: {
+    square: { path: '/og/:kind/:slug/square.png', template: 'post-square' }, // a template with size 1080x1080
+    '4x3': { path: '/og/:kind/:slug/4x3.png', template: 'post-4x3' },
+  },
+})
+```
+
+- A variant has its own `path` and `template` (the template sets the size). It shares the target's collection, `props()`, hero, format and slug field, and is served as a hidden target `posts~square` of kind `posts-square`, with its own URL, version and etag. Names are `[a-z0-9-]+`; a taken kind or target name, a bad path or an unknown template is refused at start-up.
+- **Add a route file for each variant path**, like the target's own. Or pin a route to the hidden target: `createOgRoute({ config, target: 'posts~square' })` takes no `:kind` in its params. `kit.routesMatchPaths` wants a route file for each variant path.
+- A variant always draws its template: an editor's own share image (`seoImage`, `share`, mode `custom`) is never used for it. `og.mode: off` hides every size.
+- `ogImages({ config, target, doc, variants? })` from `payload-og-image/next` returns `{ url, width, height, variant }[]`: the wide image first (`variant: null`), then the variants in declaration order (or in the order of `variants: ['square']`). A blank size is left out; an undeclared name throws (production: an event and `[]`).
+
+```tsx
+const images = await ogImages({ config, target: 'posts', doc })
+const jsonLd = { '@context': 'https://schema.org', '@type': 'Article', headline: doc.title, image: images.map((i) => i.url) }
+// <script type="application/ld+json">{JSON.stringify(jsonLd).replace(/</g, '\\u003c')}</script>
+```
+
+Keep `ogMetadata` as it is. **`og:image` stays a single tag**: almost every crawler takes the first `og:image` and ignores the rest, and Discord turns two or more into a gallery, which breaks the single preview. Variants live in JSON-LD only.
+
 ## Store, gate, cache
 
 - `store: { dir, maxFiles?, maxBytes? }` (defaults 2000 files, 100 MiB) or `{ memory: true }`. `dir` is absolute, owned by the app, a volume that survives container recreate, listed in `.dockerignore`. Not a symlink. Edge and serverless runtimes are unsupported (use `memory: true`, untested).

@@ -115,16 +115,16 @@ If the site can run `node scripts/probe-dev-server.mjs` (in the plugin repositor
 
 - No route file, or a route folder that does not match `path`: pages advertise a URL that 404s. `kit.routesMatchPaths` catches it.
 - Payload REST answers 404 to HEAD: add `export const HEAD = withHead(GET)` in `app/(payload)/api/[...slug]/route.ts`. Not on the card route.
-- Next 16 streams `generateMetadata` output into `<body>` for crawlers that are not on its HTML-limited list; check `htmlLimitedBots`.
+- Next 16 streams `generateMetadata` output into `<body>` for crawlers not on its HTML-limited list (Telegram is not): set `htmlLimitedBots: /.*/` in `next.config` (see `references/pitfalls.md`).
 - `og:image` must remain a single image. Do not add a second image in a layout or page; a page's `openGraph` replaces the layout's whole `openGraph` (shallow merge).
 - Cached pages keep an old `?v`: `force-dynamic` or revalidate with `ogTag` on save.
 - JPEG for photo cards; WebP is not safe on every platform.
 - Specs that boot Payload under jsdom fail at the start-up self-test: use a Node environment for them.
-- Size variants (square, 4:3) are coming in 0.7.0; not in 0.6.0.
+- Google structured data wants square and 4:3 images too: use target `variants` and `ogImages()` for JSON-LD (`references/targets.md`, 0.7.0 and later), never extra `og:image` tags.
 
 ## References (load on demand)
 
-- `references/targets.md`: target options, hero, format, static cards, `share`, `related`, store and gate options.
+- `references/targets.md`: target options, hero, format, static cards, size variants and `ogImages`, store and gate options.
 - `references/templates.md`: writing a template, props, `ctx.fit`, fonts and stacks, the CSS subset.
 - `references/fields-and-mcp.md`: the `og` group, `mode` table, migration, admin preview, MCP tools.
 - `references/testing.md`: the kit, every check, the specs that boot Payload.
