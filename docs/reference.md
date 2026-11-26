@@ -267,6 +267,7 @@ const gallery = defineTemplate({
   in the order given. A name the template does not declare, a name that is not a plain word (`[A-Za-z][A-Za-z0-9_-]*`, at
   most 32 characters), or a name with no collection to read from (several upload collections, none named) is a site bug and
   throws when the card is resolved. A missing or forbidden upload is not: it is left out.
+- A size variant shares its target's `images`, so the variant's template declares the same names in `imageBoxes`.
 - At most 8 images in all, across every name, in the order given; the rest are left out.
 - They are never flattened: a transparent logo stays transparent whatever `heroBackground` is. `palette.hero` applies to
   them as it does to the hero.
