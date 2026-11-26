@@ -1,6 +1,6 @@
 import type { Payload } from 'payload'
 import type { DocSource } from '../internal/handler.js'
-import { uploadNeeds } from '../internal/needs.js'
+import { uploadNeeds, uploadSource } from '../internal/needs.js'
 import { pooled } from '../internal/pool.js'
 import type { OgState } from '../internal/state.js'
 import type { SiteInfo } from '../internal/types.js'
@@ -165,7 +165,9 @@ export async function populateUploads<T extends Record<string, any> | null>(
       holder[field] = id // not drawn by this target: never read, and never an object nobody verified
       continue
     }
-    holder[field] = await readRelated(payload, relationTo, id, user)
+    const read = await readRelated(payload, relationTo, id, user)
+    if (read) uploadSource.set(read, relationTo)
+    holder[field] = read
   }
   return doc
 }

@@ -74,9 +74,16 @@ export type TestRuntimeOptions = {
    * other hero stays the small stand-in image; a `missing...` filename is still unreadable.
    */
   heroDir?: string
+  /**
+   * The site's upload collections, by slug then id, for a kit whose documents hold bare ids or whose uploads must differ by collection. A
+   * `_status: 'draft'` entry is a draft-only upload: a public read never sees it. Without this, the stand-in upload objects inside the documents are used.
+   */
+  uploads?: Record<string, Record<string | number, Record<string, unknown>>>
 }
 
 const EDITOR_AUTH = 'JWT kit-editor'
+/** The stand-in upload collection of a kit with no modelled `uploads`: not a name a site would pick. */
+const KIT_UPLOADS = 'og-kit-uploads'
 
 /**
  * Installs a runtime built exactly like production's (same handler, resolver, gate, memo, and the same `payloadSource`:
@@ -130,23 +137,30 @@ export function installTestRuntime(given: OgImagePluginOptions, docs: KitDocs, o
   }
 
   /**
-   * An upload the fixtures hold: any object with an `id` and a `url`, at any depth of any document. The production source reads a hero or a named
-   * image again by id, so the kit answers that read from the fixture's own stand-in upload, in whatever upload collection the target names.
+   * The uploads the fixtures hold, read the way Payload reads them. `o.uploads` is modelled by collection and id (a `_status: 'draft'` entry is a
+   * draft-only upload). Without it, the stand-in uploads inside the documents are used, found by id in whichever upload collection is asked, since
+   * a fixture document does not say which collection its upload is in. A public read (`draft` not set) sees published documents and uploads
+   * only; a draft read sees the drafts first, then the published ones.
    */
-  const uploadOf = (id: unknown): Record<string, any> | null => {
+  const uploadOf = (collection: string, id: unknown, draftRead: boolean): Record<string, any> | null => {
+    const modelled = o.uploads?.[collection]
+    if (modelled !== undefined) {
+      const hit = Object.hasOwn(modelled, String(id)) ? (modelled[String(id)] as Record<string, any>) : undefined
+      return hit && (draftRead || hit._status !== 'draft') ? hit : null
+    }
     const seen = new Set<unknown>()
     const find = (v: unknown): Record<string, any> | null => {
       if (v === null || typeof v !== 'object' || seen.has(v)) return null
       seen.add(v)
-      const o = v as Record<string, any>
-      if (o.id !== undefined && typeof o.url === 'string' && String(o.id) === String(id)) return o
-      for (const c of Object.values(o)) {
+      const u = v as Record<string, any>
+      if (u.id !== undefined && typeof u.url === 'string' && String(u.id) === String(id)) return u
+      for (const c of Object.values(u)) {
         const hit = find(c)
         if (hit) return hit
       }
       return null
     }
-    return find([docs.published, docs.drafts])
+    return (draftRead ? find(docs.drafts) : null) ?? find(docs.published)
   }
   const isTargetCollection = (collection: string) =>
     Object.entries(options.targets).some(([name, t]) => (t.collection ?? name) === collection)
@@ -160,7 +174,9 @@ export function installTestRuntime(given: OgImagePluginOptions, docs: KitDocs, o
         Object.entries(options.targets).map(([name, t]) => [t.collection ?? name, { config: { versions: { drafts: true } } }]),
       ),
       // The site's only upload collection, so a target that names no `heroCollection` still reads its hero (stand-ins have no folder to load from).
-      uploads: { config: { upload: { staticDir: '' } } },
+      // Never over a target's own collection of that name, and not at all when `uploads` models the site's collections itself.
+      ...(o.uploads === undefined && !isTargetCollection(KIT_UPLOADS) ? { [KIT_UPLOADS]: { config: { upload: { staticDir: '' } } } } : {}),
+      ...Object.fromEntries(Object.keys(o.uploads ?? {}).map((slug) => [slug, { config: { upload: { staticDir: '' } } }])),
     },
     findGlobal: async ({ slug }: { slug: string }) => structuredClone(docs.globals?.[slug] ?? {}),
     auth: async ({ headers }: { headers: Headers }) => ({
@@ -169,7 +185,7 @@ export function installTestRuntime(given: OgImagePluginOptions, docs: KitDocs, o
     find: async (args: { collection: string; where?: unknown; draft?: boolean; page?: number; limit?: number; sort?: string }) => {
       if (!isTargetCollection(args.collection)) {
         const id = (args.where as { and?: unknown[] } | undefined)?.and?.[0] ?? args.where
-        const upload = uploadOf((id as { id?: { equals?: unknown } } | undefined)?.id?.equals)
+        const upload = uploadOf(args.collection, (id as { id?: { equals?: unknown } } | undefined)?.id?.equals, args.draft === true)
         return { docs: upload ? [structuredClone(upload)] : [], totalDocs: upload ? 1 : 0 }
       }
       const name = targetOfCollection(args.collection)

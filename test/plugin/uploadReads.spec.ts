@@ -1,10 +1,12 @@
 /** Mutation table (production line -> the test that goes RED). Silent-failure surface: a draft-only upload, or an upload nobody draws, reaching a card.
  * - payloadSource.ts `readRelated` without the `_status: published` predicate -> "a draft-only upload never reaches the hero resolver" RED
+ * - payloadSource.ts `uploadSource.set` removed -> "an upload it reads is remembered with the collection it came from" RED
  * - payloadSource.ts `populateUploads` reading with `overrideAccess: true` -> "an upload is read with the caller's access, never as the server" RED
  * - payloadSource.ts `withUploads` without `uploadNeeds` (every field read) -> "a collection that forces the text preset reads no hero record" RED
  * - presets/target.ts `uploadNeeds.set` leaving the hero path out for 'auto' -> "an auto collection still reads its hero" RED */
 import type { Payload } from 'payload'
 import { describe, expect, it } from 'vitest'
+import { uploadSource } from '../../src/internal/needs.js'
 import { createState } from '../../src/internal/state.js'
 import type { OgImagePluginInput } from '../../src/plugin/index.js'
 import { payloadSource, populateUploads } from '../../src/plugin/payloadSource.js'
@@ -67,6 +69,12 @@ describe('uploads read behind a card', () => {
     const doc = { id: 10, heroImage: { id: 2, url: '/media/draft.jpg' } }
     await populateUploads(payload, 'posts', doc)
     expect(doc.heroImage).toBeNull()
+  })
+  it('an upload it reads is remembered with the collection it came from, a copy is not', async () => {
+    const { source } = setup({ collections: ['posts'] })
+    const hero = (await source.published('posts', 'a'))?.heroImage as object
+    expect(uploadSource.get(hero)).toBe('media')
+    expect(uploadSource.get({ ...hero })).toBeUndefined()
   })
   it('a collection that forces the text preset reads no hero record', async () => {
     const { source, reads } = setup({ collections: { posts: { preset: 'text' } } })

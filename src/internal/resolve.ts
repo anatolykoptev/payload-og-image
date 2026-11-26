@@ -15,6 +15,7 @@ import {
   type WebpOptions,
 } from './format.js'
 import { IMAGE_NAME, MAX_CARD_IMAGES } from './limits.js'
+import { uploadSource } from './needs.js'
 import { pooled } from './pool.js'
 import type { CardEncoding, CardKey, CardMime, SiteInfo, Size, Upload } from './types.js'
 import { canonicalJson, cardVersion, normalizeProps, pageId } from './version.js'
@@ -138,13 +139,15 @@ async function readUpload(related: RelatedFn, collection: string, id: string): P
 
 /**
  * The card's hero: the id the target's `hero` resolver names (a bare id, or an upload object, of which only the id is taken), read again by id
- * with the caller's access (`related`: published only, the editor's draft view in a preview), from `heroCollection` or the site's only upload
+ * with the caller's access (`related`: published only, the editor's draft view in a preview), from `heroCollection`, else the collection `populateUploads` read the object from, else the site's only upload
  * collection, exactly as a named image is. The object the target handed over is never drawn as it is: whatever filled it (a populated field, a custom
  * field, a hand-built value) is not proof that the public may read that upload. With no collection to name, or nothing readable, there is no hero.
  */
 async function heroOf(i: ResolveInput, args: ResolverArgs<any>, raw: unknown): Promise<Upload | null> {
   const id = uploadId(raw)
-  const collection = i.target.heroCollection ?? i.uploadCollection
+  // The target's collection, else the one `populateUploads` read this very object from, else the site's only upload collection.
+  const collection =
+    i.target.heroCollection ?? (raw !== null && typeof raw === 'object' ? uploadSource.get(raw) : undefined) ?? i.uploadCollection
   return id === undefined || collection === undefined ? null : readUpload(args.related, collection, id)
 }
 

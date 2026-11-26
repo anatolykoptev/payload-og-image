@@ -2,7 +2,8 @@
  * - plugin/index.ts:212 `targets: expandVariants(options.targets ?? {})` -> `options.targets` -> "the route serves the variant at its template's size", "ogImages lists the wide image, then each variant ...", "the plugin expands ..." RED
  * - resolve.ts `i.variant === true` dropped from `own` -> "a variant ignores the editor's own share image ..." RED
  * - variants.ts kind `${kind}-${variant}` -> `kind` -> "a variant's kind collides ..." and the route test RED
- * - variants.ts `builtFrom(have, target)` -> kind/path/template compare only -> "a hand-written lookalike of a variant sibling is a start-up error" RED
+ * - variants.ts `generated.has(have)` -> a shape comparison (kind/path/template, or every field) -> the same test RED (the original: kind/path/template; an exact copy: every field)
+ * - (was) variants.ts `builtFrom(have, target)` -> kind/path/template compare only -> "a hand-written lookalike of a variant sibling is a start-up error" RED
  * - next/metadata.ts ogImages: variants skipped -> "ogImages lists ..." RED */
 import { readFile } from 'node:fs/promises'
 import type { Config, Payload } from 'payload'
@@ -276,6 +277,11 @@ describe('size variants: validation', () => {
       template: posts.variants?.square?.template as string,
     })
     expect(() => apply(options({ targets: { posts, 'posts~square': lookalike } }))).toThrow(/collides with the target "posts~square"/)
+    // Even an exact copy of what the expansion builds is a hand-written target, not a generated sibling.
+    const built = expandVariants({ posts })['posts~square'] as never
+    expect(() => apply(options({ targets: { posts, 'posts~square': { ...(built as object) } as never } }))).toThrow(
+      /collides with the target "posts~square"/,
+    )
     const once = expandVariants({ posts })
     expect(expandVariants(once)).toEqual(once)
   })

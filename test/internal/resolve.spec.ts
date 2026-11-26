@@ -10,6 +10,7 @@
  * - resolve.ts:149  skip `template.required` -> "9: a blank title advertises nothing" RED
  * - resolve.ts:198  never ask `heroHasAlpha`, or ask it for a flattened hero -> "a transparent hero nobody flattens has its own version, asked in its upload collection" RED
  * - resolve.ts `heroOf` drawing the object the target handed over (`usableHero(raw)` first) -> "a hero object is only an id: it is read again with the caller's access" RED
+ * - resolve.ts `uploadSource.get(raw)` dropped from heroOf -> "a populated hero is read again from the collection populateUploads read it from ..." RED
  * - resolve.ts:114  hash the raw hero object -> "a hero without a file is no part of the version" RED
  * - resolve.ts:160  leave `host` out of the version -> "the host is part of the version" RED
  * - resolve.ts:159  leave the stacks out of the version -> "reordering a font stack is a new version" RED
@@ -32,6 +33,7 @@
  * - fonts.ts:113  `missingGlyphs` judges against the stack's first family only (or one covering family) -> "(#38) a stack of two single-script faces strips only what neither draws" RED */
 import { describe, expect, it, vi } from 'vitest'
 import type { LoadedFont } from '../../src/internal/fonts.js'
+import { uploadSource } from '../../src/internal/needs.js'
 import { buildKindIndex, cardPath, resolveCard } from '../../src/internal/resolve.js'
 import { defineTarget, defineTemplate } from '../../src/template.js'
 import { loadTestFonts, relatedUploads } from '../helpers.js'
@@ -321,6 +323,21 @@ describe('resolveCard', () => {
     expect((await generated({ doc, related: async () => handed })).v).toBe((await generated({ doc })).v)
     // No collection to read it from: not drawn either.
     expect((await generated({ doc, uploadCollection: undefined, related: async () => handed })).hero).toBeNull()
+  })
+  it('a populated hero is read again from the collection populateUploads read it from, with no heroCollection and several upload collections', async () => {
+    const populated = { id: 9, url: '/m/h.jpg', updatedAt: 'u1' }
+    uploadSource.set(populated, 'photos')
+    const read = vi.fn(async () => populated)
+    const doc = { id: 1, slug: 'a', title: 'A', heroImage: populated }
+    const r = await generated({ doc, uploadCollection: undefined, related: read })
+    expect(read).toHaveBeenCalledWith('photos', '9')
+    expect(r.hero).toEqual(populated)
+    // A copy of it, or an object nobody populated, has no provenance: with no collection to name it is no hero.
+    expect((await generated({ doc: { ...doc, heroImage: { ...populated } }, uploadCollection: undefined, related: read })).hero).toBeNull()
+    // The target's own heroCollection still wins over it.
+    const own = defineTarget<any, any>({ ...posts, heroCollection: 'media' })
+    await generated({ doc, target: own, uploadCollection: undefined, related: read })
+    expect(read).toHaveBeenLastCalledWith('media', '9')
   })
   it('a transparent hero nobody flattens has its own version, asked in its upload collection', async () => {
     const real = { id: 9, url: '/m/h.png', updatedAt: 'u1' }

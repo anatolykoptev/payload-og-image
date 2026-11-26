@@ -331,22 +331,37 @@ export function ogImagePlugin(options: OgImagePluginInput): (config: Config) => 
  * that upload from the memo and the store. A purge failure is an event, never an error for the editor saving the upload. Existing hooks run first.
  */
 function withUploadPurge(c: CollectionConfig, state: ReturnType<typeof createState>): CollectionConfig {
-  const purge = async (id: unknown) => {
+  const purge = async (id: unknown, change?: { updatedAt?: string | null; deleted?: boolean }) => {
     if (typeof id !== 'string' && typeof id !== 'number') return
     try {
-      await state.uploads.purge(c.slug, id)
+      await state.uploads.purge(c.slug, id, change)
     } catch (error) {
       state.events.emit({ name: 'render_error', detail: { message: `purge: ${String((error as Error)?.message ?? error)}` } })
     }
   }
+  const idOf = (...docs: unknown[]) =>
+    docs.map((d) => (d as { id?: unknown } | null | undefined)?.id).find((id) => id !== undefined && id !== null)
   return {
     ...c,
     hooks: {
       ...c.hooks,
-      afterChange: [...(c.hooks?.afterChange ?? []), async ({ doc }) => void (await purge((doc as { id?: unknown } | undefined)?.id))],
+      afterChange: [
+        ...(c.hooks?.afterChange ?? []),
+        // `doc` is what the hooks before this one returned (a site may project it, `id` included); `previousDoc` is Payload's own, so the id survives.
+        async ({ doc, previousDoc }) => {
+          const saved = doc as { id?: unknown; updatedAt?: string | null; _status?: string } | undefined
+          // A draft save is no change the public can see: it purges, but sets no floor (the published version keeps its older `updatedAt`).
+          await purge(
+            idOf(doc, previousDoc),
+            saved?.id !== undefined && saved._status !== 'draft' ? { updatedAt: saved.updatedAt } : undefined,
+          )
+        },
+      ],
       afterDelete: [
         ...(c.hooks?.afterDelete ?? []),
-        async ({ id, doc }) => void (await purge(id ?? (doc as { id?: unknown } | undefined)?.id)),
+        async ({ id, doc }) => {
+          await purge(idOf({ id }, doc), { deleted: true })
+        },
       ],
     },
   }

@@ -10,14 +10,15 @@ const fail = (msg: string): never => {
   throw new Error(`payload-og-image: ${msg}`)
 }
 
-/** True when `have` is exactly what expanding the parent would build: the same keys with the same values (functions by identity), so a hand-written lookalike with other props or collection is not taken for it. */
-const builtFrom = (have: Target, built: Target): boolean => {
-  const a = Object.entries(have)
-  return (
-    a.length === Object.keys(built).length &&
-    a.every(([k, val]) => Object.hasOwn(built, k) && (built as Record<string, unknown>)[k] === val)
-  )
-}
+/**
+ * The siblings this module generated. Provenance, not shape: an existing `<name>~<variant>` entry is kept only if it is one of these, so a hand-written
+ * target of that name is refused however closely it copies the generated one. Held on `globalThis` so that every copy of this module (Next may load the
+ * package twice) agrees on what was generated; a WeakSet, so no target is kept alive.
+ */
+const GENERATED = Symbol.for('payload-og-image.variantSiblings')
+const shared = globalThis as Record<symbol, unknown>
+if (shared[GENERATED] === undefined) shared[GENERATED] = new WeakSet<object>()
+const generated = shared[GENERATED] as WeakSet<object>
 
 /**
  * Each declared variant becomes a hidden sibling target `<name>~<variant>` with kind `<kind>-<variant>`: the same collection, `props()`,
@@ -46,13 +47,14 @@ export function expandVariants(targets: Record<string, Target>): Record<string, 
       const kind = `${t.kind ?? name}-${variant}`
       const have = Object.hasOwn(targets, sibling) ? targets[sibling] : undefined
       const target: Target = { ...parent, collection: t.collection ?? name, path: v.path, kind, template: v.template }
-      if (have !== undefined && builtFrom(have, target)) {
+      if (have !== undefined && generated.has(have)) {
         out.set(sibling, have) // already expanded from this very declaration
         continue
       }
       if (have !== undefined || out.has(sibling)) fail(`target "${name}" variant "${variant}" collides with the target "${sibling}"`)
       if (kinds.has(kind)) fail(`target "${name}" variant "${variant}" has the kind "${kind}", which another target already uses`)
       kinds.add(kind)
+      generated.add(target)
       out.set(sibling, target)
     }
   }

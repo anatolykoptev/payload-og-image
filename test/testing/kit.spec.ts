@@ -26,6 +26,8 @@
  * - kit.ts:43  a static card's params from the URL only -> "the kit fetches a static card at a literal path of its own" RED
  * - kit.ts:121  wave a versioned URL at an unowned path through as an editor image -> "everyRouteHasOwnCard: a versioned URL at a path no card route owns" RED
  * - kit.ts:303  accept any positive shed count -> "queueSheds exact admission" RED
+ * - runtime.ts `uploadOf` ignoring `_status: 'draft'` of a modelled upload on a public read -> "the test runtime uploads: modelled by collection and id ..." RED
+ * - runtime.ts `KIT_UPLOADS = 'uploads'` (a collection a target may own) -> "... a target's own collection named `uploads` keeps its draft rules" RED
  * - runtime.ts:164  bypass the cached site() in the test runtime -> "the test runtime serves the CACHED site()" RED
  * - kit.ts:278  (requestVersionNeverStored probes run cold: covered by the dev spec's `request v never stored`, which goes RED when the handler stores under the request's ?v)
  * - kit.ts:238  an editor in draft mode gets the published card -> dev spec "draft never cached" RED (mutation: draft() returns nothing)
@@ -295,6 +297,58 @@ describe('the test runtime hero', () => {
     const opaque = await url({})
     expect(await url({ transparentHero: () => true })).not.toBe(opaque)
     expect(await url({ transparentHero: () => true }, { heroBackground: '#336699' })).toBe(await url({}, { heroBackground: '#336699' }))
+  })
+})
+
+describe('the test runtime uploads', () => {
+  const hero = (collection: string) => ({ id: 9, url: `/m/${collection}.jpg`, filename: 'h.jpg', updatedAt: 'u1' })
+  const withId = (id: number) => ({
+    published: {
+      posts: [
+        { id: 1, slug: 'a', title: 'A' },
+        { id: 2, slug: 'b', title: 'B', heroImage: id },
+      ],
+    },
+    drafts: {},
+    globals: { 'site-settings': { name: 'Site' } },
+  })
+  const url = async (id: number, o: Parameters<typeof installTestRuntime>[2]) => {
+    const opts = options()
+    installTestRuntime(
+      { ...opts, targets: { posts: defineTarget<any, any>({ ...opts.targets?.posts, heroCollection: 'media' }) } },
+      withId(id),
+      o,
+    )
+    return ((await ogMetadata({ config: {} as never, target: 'posts', doc: { id: 2 } })).openGraph as any).images[0].url as string
+  }
+  it('modelled by collection and id: a draft-only upload never reaches a public read, and the same id in another collection is another upload', async () => {
+    const uploads = {
+      media: { 9: hero('media'), 10: { ...hero('media'), id: 10, _status: 'draft' } },
+      other: { 9: { ...hero('other'), updatedAt: 'u2' } },
+    }
+    const none = await url(404, { uploads })
+    expect(await url(10, { uploads })).toBe(none) // draft-only: not drawn
+    expect(await url(9, { uploads })).not.toBe(none)
+    const same = await url(9, { uploads })
+    expect(await url(9, { uploads: { media: { 9: { ...hero('media'), updatedAt: 'u3' } } } })).not.toBe(same) // the media upload decides, not `other`'s
+  })
+  it("a target's own collection named `uploads` keeps its draft rules", async () => {
+    const opts = options()
+    const rt = installTestRuntime(
+      {
+        ...opts,
+        targets: { ...opts.targets, uploads: defineTarget<any, any>({ ...opts.targets?.posts, kind: 'uploads', hero: undefined }) },
+      },
+      {
+        published: { uploads: [{ id: 1, slug: 'u', title: 'U' }] },
+        drafts: { uploads: [{ id: 2, slug: 'd', title: 'D' }] },
+        globals: { 'site-settings': { name: 'Site' } },
+      },
+    )
+    expect(rt.rendererKind).toBe('stub')
+    const meta = (id: number) => ogMetadata({ config: {} as never, target: 'uploads', doc: { id } })
+    expect(((await meta(1)).openGraph as any)?.images?.[0]?.url).toMatch(/\/og\/uploads\/u\//)
+    expect((await meta(2)).openGraph).toBeUndefined() // never published: not even its draft collection's rule was overwritten
   })
 })
 

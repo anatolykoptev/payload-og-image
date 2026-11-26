@@ -43,9 +43,13 @@ the origin answers it with the current card and the one-hour header, never with 
 
 The plugin also drops stored copies. Every upload collection of the config gets an `afterChange` and an `afterDelete` hook
 (after the hooks it already has): when an upload is saved, in any way, or deleted, every card this process drew with it is removed
-from the memo and from the store. The record of which card drew which upload lives in the process that served the card, and is
-bounded (20,000 uploads, 64 cards each); a card drawn before a restart, or by another process, is left to the store's own
-pruning (the newest two versions of a page are kept). A change that happens outside a document save (an `access` function that
+from the memo and from the store. A card still being drawn when the upload changes is not stored, and neither is one drawn from the
+old upload in the moment before Payload commits the change (the hook records the saved `updatedAt`, and a card drawn from an older
+one is refused). A draft save purges but sets no such floor, since the published version keeps its older `updatedAt`. The record of which card drew which upload lives in
+the process that served the card, and is bounded (20,000 uploads, 64 cards each, least recently drawn first); a card past the bound, one
+drawn before a restart, or one drawn by another process is outside the guarantee and is left to the store's own pruning (the newest two
+versions of a page are kept). A delete that fails (an I/O error, not a missing file) is logged as a `render_error` and retried on the
+next save of that upload. A change that happens outside a document save (an `access` function that
 starts answering differently) fires no hook: save the upload, or delete the stored files.
 
 What no hook reaches is a copy somebody else already holds: a browser or CDN that fetched the old `?v=` URL (one year,
@@ -258,7 +262,11 @@ id counts: the card's hero is always read again by that id with the visitor's ac
 a preview) from `heroCollection`, or from the site's only upload collection, exactly as a named image is. An upload object
 from a custom field, or one a resolver built by hand, is therefore never drawn as it is, and an upload the public may not read
 (draft-only, private, deleted) is no hero. `hero: ({ doc }) => doc.photos?.[0]` draws the first photo. With more than one upload
-collection and no `heroCollection`, the id cannot be placed, and the card has no hero: name the collection.
+collection and no `heroCollection`, the id cannot be placed, and the card has no hero: name the collection. The one exception is the
+upload object the plugin itself filled in from a single upload field: it is read again from the collection of that field. A remote
+hero (a resolver returning an absolute URL on an `allowedImageHosts` host) is drawn only when its id names an upload record the public may
+read: a hero with no readable record is not drawn. Before this change such an object was drawn as given; give it a backing upload record (the
+cloud-storage plugins do) or return the id.
 
 The upload fields of a document are filled in with the same published-only, access-respecting read (`related()`'s), so a draft-only
 upload never reaches `hero`, `share` or the editor's share-image selection. A preset collection reads only the upload fields its
