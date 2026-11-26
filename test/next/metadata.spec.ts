@@ -9,8 +9,10 @@
  * - palette.ts `effectiveColours` removed (raw count hashed) -> same test RED
  * - metadata.ts:17  never set `secureUrl` -> "1: a generated card", "2: the editor image is advertised as it is" RED; set it for an http URL too -> "43: an http image gets no secureUrl" RED
  * - metadata.ts:38  always throw -> "a failure throws in development and test, and is an event with {} in production" RED
+ * - metadata.ts `else logNoRuntime(...)` removed (back to `rt?.emit`) -> "is one console error per process in production, never a silent {}" RED
  * - metadata.ts:11  advertise a card that would be blank -> "3: a card that would be blank advertises nothing" RED */
 import type { Payload } from 'payload'
+import { getPayload } from 'payload'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { DocSource, HeroLoader } from '../../src/internal/handler.js'
 import { buildRuntime, setTestRuntime } from '../../src/internal/runtime.js'
@@ -21,6 +23,8 @@ import { createOgRoute } from '../../src/next/route.js'
 import type { OgImagePluginOptions } from '../../src/plugin/index.js'
 import { defineTarget, defineTemplate } from '../../src/template.js'
 import { loadTestFonts, realPng } from '../helpers.js'
+
+vi.mock('payload', async (orig) => ({ ...(await orig<typeof import('payload')>()), getPayload: vi.fn() }))
 
 const post = defineTemplate<{ title: string; label: string }>({
   id: 'post',
@@ -85,6 +89,35 @@ function setup(
   return { rt, publishedById, config: {} as never }
 }
 afterEach(() => setTestRuntime(null))
+
+describe('ogMetadata without the plugin in the config', () => {
+  const missing = () => {
+    setTestRuntime(null)
+    vi.mocked(getPayload).mockResolvedValue({ config: { custom: {} } } as never)
+  }
+  afterEach(() => {
+    vi.mocked(getPayload).mockReset()
+    vi.unstubAllEnvs()
+  })
+  it('throws in development and test, naming what to add', async () => {
+    missing()
+    await expect(ogMetadata({ config: {} as never, static: 'index/blog' })).rejects.toThrow(/add ogImagePlugin/)
+  })
+  it('is one console error per process in production, never a silent {}', async () => {
+    missing()
+    vi.stubEnv('NODE_ENV', 'production')
+    const err = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    try {
+      const cfg = { missing: 1 } as never
+      expect(await ogMetadata({ config: cfg, target: 'posts', doc: { id: 1 } })).toEqual({})
+      expect(await ogMetadata({ config: cfg, target: 'posts', doc: { id: 2 } })).toEqual({})
+      expect(err).toHaveBeenCalledTimes(1)
+      expect(err.mock.calls[0]?.[0]).toMatch(/event=render_error.*metadata: .*add ogImagePlugin/)
+    } finally {
+      err.mockRestore()
+    }
+  })
+})
 
 describe('ogMetadata', () => {
   it('1: a generated card -> openGraph image {url,width,height,type,alt} and the summary_large_image twitter pair', async () => {
