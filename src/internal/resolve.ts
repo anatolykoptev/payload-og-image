@@ -73,6 +73,8 @@ export type ResolveInput = {
   /** Effective card / hero palette tags when not the default (see `paletteTags`). */
   cardPalette?: string
   heroPalette?: string
+  /** `heroPalette` for a JPEG or WebP card (an unset `palette.hero` is truecolour there); unset: `heroPalette`. */
+  heroPaletteLossy?: string
   /** The plugin's card format and JPEG settings; a target's own win. */
   format?: CardFormat
   jpeg?: JpegOptions
@@ -369,7 +371,7 @@ export async function resolveCard(i: ResolveInput): Promise<ResolvedCard> {
     heroBackground: background === undefined ? i.heroBackground : background === DEFAULT_HERO_BACKGROUND ? undefined : background,
     heroTransparent,
     cardPalette: i.cardPalette,
-    heroPalette: i.heroPalette,
+    heroPalette: encoding.format === 'png' ? i.heroPalette : (i.heroPaletteLossy ?? i.heroPalette),
     variant: variantOf(encoding),
     fontsDigest: fontsKey(i.fontsDigest, i.stacks),
     host: i.host,
