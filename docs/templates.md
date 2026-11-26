@@ -125,7 +125,7 @@ Swapping a font file changes every card URL (the face bytes are part of the vers
 ## Using the built-in presets in your own target
 
 `presets.text` and `presets.photo` (from `payload-og-image`) are ordinary templates. Register them in `templates`, then point a target at them with props
-`{ title, subtitle?, label?, site, byline?, artOpacity?, pill?, pill2?, badge?, caption?, meta? }`; the text preset takes the images `logo`, `partner`, `mark` and `art`, the photo preset `logo` and `partner` (the zero-config targets feed them from `site()`; see [reference](reference.md#zero-config-presets)).
+`{ title, subtitle?, label?, accent?, site, byline?, artOpacity?, pill?, pill2?, badge?, caption?, meta? }`; the text preset takes the images `logo`, `partner`, `mark` and `art`, the photo preset `logo` and `partner` (the zero-config targets feed them from `site()`; see [reference](reference.md#zero-config-presets)).
 `ctx.fitRow(items, width, gap?)` is available to any template: it lays a row out and drops whole items, the highest `priority` first, never cutting one (priority 0 stays). A template may set
 `format` (`'png' | 'jpeg' | 'webp'`); a target's own `format` wins, and a path with `:ext` takes its extension from the result.
 

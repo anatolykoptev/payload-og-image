@@ -75,7 +75,7 @@ URL, not the cached page that links to it, so a crawler reading the page finds t
 Next 16.4.6: a dynamic-segment page without `generateStaticParams` is rendered on every request and has no such problem).
 Two ways out:
 
-- **Render on every request**: `export const dynamic = 'force-dynamic'` on the page, as the dev app's `posts/[slug]` does (not with `cacheComponents: true`, where it fails the build: tag the page instead).
+- **Render on every request**: `export const dynamic = 'force-dynamic'` on the page, as the dev app's `posts/[slug]` does (not with `cacheComponents: true`, where the export fails the build).
 - **Revalidate on save**: tag what the page reads and expire the tag from an `afterChange` hook. `ogTag(collection, key)` and
   `OG_SITE_TAG` from `payload-og-image/next` only name the tags, so the page and the hook agree (`key` is anything both
   know: the slug, the id; a tag over Next's 256-character limit (`unstable_cache` drops it with a console warning, `revalidateTag` silently matches
@@ -161,10 +161,12 @@ defineTarget({
 Because they go through `props`, they are part of the version like any other prop, and a document with a
 headline gets its own URL. A target that sets `select` keeps `og` selected without listing it.
 
-`label` (at most 40 characters) and `accent` (`#rgb` or `#rrggbb`) are the two per-document settings of the
+`label` (at most 30 characters) and `accent` (`#rgb` or `#rrggbb`) are the two per-document settings of the
 [presets](../README.md#zero-config-the-built-in-presets). The preset's card draws a document's `label` instead of the
 collection's (`label` in the collection's options, else `labels.plural`), and its `accent` instead of the preset's
-on the strip, the badge and the accent pill; a document without them draws what the collection says. They reach
+on the strip, the badge and the accent pill; a document without them draws what the collection says. The label is
+drawn beside the site name only when it fits, as the collection's label is (a long site name leaves room for fewer
+characters). The accent shows on the text card only: a photo card draws none, so there it changes the URL and not the picture. They reach
 `overrides` as `overrides?.label` and `overrides?.accent` (`#rrggbb`, lowercase; a stored value that is not a hex
 colour is left out), so a target of your own wires them the way it wires the headline. The admin refuses an `accent`
 that is not a hex colour and saves a `#rgb` one as `#rrggbb`. An accent that contrasts less than 3:1 with the
@@ -172,7 +174,8 @@ preset's ground is drawn in the preset's ink, the rule a logo that would vanish 
 are part of the version, and a draft value is drawn only in an editor's preview, like every other `og` field.
 
 **Migration.** The new fields are columns. After enabling `fields` (or placing `ogFields()`), each site runs
-`payload migrate:create` and ships the migration with the plugin bump; the plugin does not migrate for you.
+`payload migrate:create` and ships the migration with the plugin bump; the plugin does not migrate for you. A site
+that already has the group runs it again when it takes the version that adds `label` and `accent`: two new text columns.
 Postgres limits an enum name to 63 characters; the select's is `enum_<collection>_og_mode`, so for a long collection
 slug set `dbName` on the `mode` field of the group you place (or shorten the slug).
 

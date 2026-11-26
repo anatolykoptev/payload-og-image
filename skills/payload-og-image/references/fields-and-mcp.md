@@ -24,7 +24,7 @@ To place it yourself: `import { ogFields } from 'payload-og-image'`, put `ogFiel
 
 ## The migration (the site's job)
 
-The fields are columns. After enabling `fields` or placing `ogFields()`: `payload migrate:create`, review, commit the migration with the plugin bump, run it on deploy. Postgres limits an enum name to 63 characters; the select's is `enum_<collection>_og_mode`, so for a long collection slug set `dbName` on the `mode` field of the group you place (or shorten the slug). Payload 4 also adds authorship columns to every collection; that migration is the site's too.
+The fields are columns. After enabling `fields` or placing `ogFields()`: `payload migrate:create`, review, commit the migration with the plugin bump, run it on deploy. A site that already has the group runs it again for the version that adds `label` and `accent` (two text columns). Postgres limits an enum name to 63 characters; the select's is `enum_<collection>_og_mode`, so for a long collection slug set `dbName` on the `mode` field of the group you place (or shorten the slug). Payload 4 also adds authorship columns to every collection; that migration is the site's too.
 
 Then `payload generate:importmap` so the admin finds `payload-og-image/client#OgPreviewField` (needs `@payloadcms/ui`, an optional peer at your Payload's version; on Payload 4 the map is per major).
 

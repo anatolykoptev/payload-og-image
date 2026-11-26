@@ -58,7 +58,7 @@ describe('ogFields()', () => {
     expect(mode.options.map((o: { value: string }) => o.value)).toEqual(['inherit', 'generated', 'custom', 'off'])
     expect(headline).toMatchObject({ name: 'headline', type: 'text' })
     expect(subtitle).toMatchObject({ name: 'subtitle', type: 'text' })
-    expect(label).toMatchObject({ name: 'label', type: 'text', maxLength: 40 })
+    expect(label).toMatchObject({ name: 'label', type: 'text', maxLength: 30 })
     expect(accent).toMatchObject({ name: 'accent', type: 'text' })
   })
   it('og.accent is a #rgb or #rrggbb colour: anything else is refused by name, empty is fine, and a saved value is lowercase #rrggbb', async () => {

@@ -54,14 +54,20 @@ const group = (position: 'sidebar' | undefined): Field =>
         name: 'label',
         type: 'text',
         label: 'Card label',
-        maxLength: 40,
-        admin: { description: 'The short category line of the generated card. Leave empty to use the collection’s label.' },
+        maxLength: 30,
+        admin: {
+          description:
+            'The short category line of the generated card, drawn beside the site name only when it fits (about 30 characters). Leave empty to use the collection’s label.',
+        },
       },
       {
         name: 'accent',
         type: 'text',
         label: 'Card accent colour',
-        admin: { description: 'A hex colour such as #3366ff for the strip and pills of this card. Leave empty for the preset’s accent.' },
+        admin: {
+          description:
+            'A hex colour such as #3366ff for the strip and pills of this card. Shown on the text card only; a photo card draws no accent. Leave empty for the preset’s accent.',
+        },
         // Saved as lowercase `#rrggbb`; the same reader (`hexColour`) is what the card draws from, so a stored value cannot disagree.
         hooks: { beforeValidate: [normaliseAccent] },
         validate: validateAccent,
