@@ -7,15 +7,6 @@ import { memoryStore } from '../../../src/internal/store/memory.js'
 const bytes = (n: number) => new Uint8Array(n)
 
 describe('memoryStore', () => {
-  it('drop removes one card and frees its bytes', async () => {
-    const s = memoryStore({ maxBytes: 100 })
-    await s.put('p', 'a', bytes(60))
-    await s.drop?.('p', 'a')
-    expect(await s.get('p', 'a')).toBeNull()
-    await s.put('p', 'b', bytes(60))
-    await s.put('p', 'c', bytes(40)) // fits only if the dropped card's 60 bytes were given back
-    expect(await s.get('p', 'b')).not.toBeNull()
-  })
   it('round-trips and keeps versions of a page apart', async () => {
     const s = memoryStore()
     await s.put('p', 'v1', bytes(3))

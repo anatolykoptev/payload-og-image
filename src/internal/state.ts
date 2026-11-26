@@ -7,7 +7,6 @@ import type { cachedSite } from './site.js'
 import { diskStore } from './store/disk.js'
 import { memoryStore } from './store/memory.js'
 import type { CardStore } from './types.js'
-import { createUploadIndex, type UploadIndex } from './uploadIndex.js'
 import { withVariants } from './variants.js'
 
 export const CUSTOM_KEY = 'payload-og-image'
@@ -31,14 +30,11 @@ export type OgState = {
   siteCache: ReturnType<typeof cachedSite> | undefined
   /** Called by the `afterChange` hook of every site global. */
   invalidateSite(): void
-  /** Which cards drew which upload; the `afterChange` and `afterDelete` hooks of every upload collection purge from it. */
-  readonly uploads: UploadIndex
 }
 
 export function createState(given: OgImagePluginOptions, serverUrl: string): OgState {
   const options = withVariants(given) // a safety net: the plugin and the test kit expand first (they need the siblings earlier), and expanding twice changes nothing
   const events = createEventSink(options.onEvent)
-  const memo = createMemo(options.memo)
   let fontsPromise: ReturnType<typeof loadFonts> | undefined
   let store: (CardStore & { readonly enabled?: boolean }) | undefined
   const state: OgState = {
@@ -47,7 +43,7 @@ export function createState(given: OgImagePluginOptions, serverUrl: string): OgS
     events,
     gate: createGate(options.gate),
     admission: createGate(options.admission ?? { concurrency: 16, queue: 128 }),
-    memo,
+    memo: createMemo(options.memo),
     fonts() {
       fontsPromise ??= loadFonts(options.fonts as FontSpec[])
       fontsPromise.catch(() => {
@@ -63,11 +59,6 @@ export function createState(given: OgImagePluginOptions, serverUrl: string): OgS
       return store
     },
     siteCache: undefined,
-    uploads: createUploadIndex({
-      store: () => state.store(),
-      memo,
-      onError: (message) => events.emit({ name: 'render_error', detail: { message: `purge: ${message}` } }),
-    }),
     invalidateSite() {
       state.siteCache?.invalidate()
     },

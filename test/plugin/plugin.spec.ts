@@ -10,8 +10,6 @@
  * - index.ts:83  accept an unknown template -> "2: a target naming an unknown template throws" RED
  * - index.ts:85  skip the duplicate-kind check -> "4: two targets with the same kind throw" RED
  * - index.ts:137  drop the existing afterChange hooks -> "5: siteGlobals get an afterChange hook ... after the existing hooks" RED
- * - index.ts `withUploadPurge` not applied to an upload collection (or hooks not chained after the existing ones) -> "an upload collection purges the cards that drew an upload on change and on delete" RED
- * - index.ts `idOf(doc, previousDoc)` -> `doc.id` only -> "... a hook before ours may return a projection with no id" part of the same test RED
  * - index.ts:142  add a field to a collection -> "6: the plugin is schema-neutral" RED
  * - index.ts:161  skip the glyph self-test -> "throws outside production when a stack cannot draw the sample" RED
  * - index.ts:170  always throw, even in production -> "in production it logs through the event sink instead of throwing" RED
@@ -140,35 +138,6 @@ describe('ogImagePlugin: config transform', () => {
     expect(Object.keys(after).sort()).toEqual([...Object.keys(before), 'custom', 'endpoints', 'onInit'].sort())
     expect((after.endpoints ?? []).map((e) => `${e.method} ${e.path}`)).toEqual(['get /payload-og-image/stats']) // the one admin-only read endpoint
     expect(after.jobs).toBeUndefined()
-  })
-  it('an upload collection purges the cards that drew an upload on change and on delete, after its own hooks; other collections are untouched', async () => {
-    const mine = vi.fn()
-    const base = baseConfig()
-    base.collections = [...(base.collections ?? []), { slug: 'media', upload: true, fields: [], hooks: { afterChange: [mine] } }] as never
-    const c = apply(options(), base)
-    expect(c.collections?.[0]).toBe(base.collections?.[0])
-    const purge = vi.spyOn(stateOf(c).uploads, 'purge').mockResolvedValue(1)
-    const hooks = c.collections?.[1]?.hooks
-    const change = (hooks?.afterChange ?? []) as Array<(a: unknown) => unknown>
-    expect(change).toHaveLength(2)
-    expect(change[0]).toBe(mine)
-    await change[1]?.({ doc: { id: 9, updatedAt: '2026-02-01T00:00:00.000Z' }, previousDoc: { id: 9 } })
-    await ((hooks?.afterDelete ?? []) as Array<(a: unknown) => unknown>)[0]?.({ id: 7, doc: { id: 7 } })
-    expect(purge.mock.calls).toEqual([
-      ['media', 9, { updatedAt: '2026-02-01T00:00:00.000Z' }],
-      ['media', 7, { deleted: true }],
-    ])
-    // A draft save purges but sets no floor: the published version keeps its older updatedAt.
-    purge.mockClear()
-    await change[1]?.({ doc: { id: 9, _status: 'draft', updatedAt: '2026-03-01T00:00:00.000Z' }, previousDoc: { id: 9 } })
-    expect(purge.mock.calls).toEqual([['media', 9, undefined]])
-    // A hook before ours may return a projection with no id: Payload's own previousDoc still names the upload.
-    purge.mockClear()
-    await change[1]?.({ doc: { title: 'projected' }, previousDoc: { id: 9 } })
-    expect(purge.mock.calls).toEqual([['media', 9, undefined]])
-    // A failing purge never fails the editor's save: it is an event.
-    purge.mockRejectedValue(new Error('disk gone'))
-    await expect(change[1]?.({ doc: { id: 9 } })).resolves.toBeUndefined()
   })
   it('7: disabled keeps the config valid and runs no start-up checks', async () => {
     const c = apply(options({ disabled: true, fonts: [{ family: 'Inter', data: async () => new Uint8Array(8) }] }))

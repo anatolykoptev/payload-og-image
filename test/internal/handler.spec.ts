@@ -5,7 +5,7 @@
  * - handler.ts:225  immutable without the `current` check -> "3" RED
  * - handler.ts:235  decide the downgrade inside the memo closure (store and memoise it) -> "17" RED
  * - hero.ts `known.set` removed (the probe forgets) -> "a store hit in the steady state reads no hero file" RED
- * - handler.ts `stamp.current()` checks before and after `store.put` removed -> "an upload that changes while its card is being drawn ...", "a card read from the old upload after the hook ...", "a deleted upload ..." RED
+ * - resolve.ts `heroCollection` returned as `i.target.heroCollection` -> "is drawn from its own collection's folder" RED
  * - handler.ts:229  call heroLoader before store.get -> "4: a store hit renders nothing and loads no hero" RED
  * - handler.ts:276  fail open when the draft check throws -> "20" RED
  * - handler.ts:154  memoise the fallback in draft mode -> "21" RED
@@ -34,8 +34,8 @@ import { describe, expect, it, vi } from 'vitest'
 import { createGate } from '../../src/internal/gate.js'
 import { CACHE, createCardHandler } from '../../src/internal/handler.js'
 import { createMemo } from '../../src/internal/memo.js'
+import { uploadSource } from '../../src/internal/needs.js'
 import { memoryStore } from '../../src/internal/store/memory.js'
-import { createUploadIndex } from '../../src/internal/uploadIndex.js'
 import { payloadHeroLoader } from '../../src/render/hero.js'
 import { defineTarget, defineTemplate } from '../../src/template.js'
 import { loadTestFonts, realPng, relatedUploads } from '../helpers.js'
@@ -112,95 +112,29 @@ const vOf = (r: Response) => (r.headers.get('etag') as string).replaceAll('"', '
 const DRAFT = { 'x-test-draft-mode': '1', 'x-test-editor': '1' }
 const names = (events: { emit: ReturnType<typeof vi.fn> }) => events.emit.mock.calls.map(([e]) => e.name)
 
-describe('card handler: purging the cards an upload drew', () => {
-  it('a served card is remembered per upload, and purging the upload removes it from the memo and the store', async () => {
-    const store = memoryStore()
-    const memo = createMemo()
-    const uploads = createUploadIndex({ store: () => store, memo })
-    const put = vi.spyOn(store, 'put')
-    const { h, renderer } = setup({ store, memo, uploads })
-    const first = await h.GET(req('/og/posts/h/card.png'), ctx('h'))
-    expect(first.headers.get('x-og-cache')).toBe('render')
-    const [pageId, v] = put.mock.calls[0] as unknown as [string, string]
-    expect(await store.get(pageId, v)).not.toBeNull()
-    // An unrelated upload changing leaves it alone; the hero (id 9, in the sole upload collection) takes it away.
-    expect(await uploads.purge('media', 1234)).toBe(0)
-    expect(await store.get(pageId, v)).not.toBeNull()
-    expect(await uploads.purge('media', 9)).toBe(1)
-    expect(await store.get(pageId, v)).toBeNull()
-    // Nothing is left in the memo either: the next request draws the card again.
-    const again = await h.GET(req('/og/posts/h/card.png'), ctx('h'))
-    expect(again.headers.get('x-og-cache')).toBe('render')
-    expect(renderer.render).toHaveBeenCalledTimes(2)
-  })
-})
-
-describe('card handler: a purge is not undone by a write in flight', () => {
-  const hero = (updatedAt: string) => ({ id: 9, url: '/media/h.jpg', updatedAt, filename: 'h.jpg' })
-  const fixture = (updatedAt = '2026-01-01T00:00:00.000Z') => {
-    const h = hero(updatedAt)
-    const doc = { id: 2, slug: 'h', title: 'Hero', heroImage: h }
-    const store = memoryStore()
-    const memo = createMemo()
-    const uploads = createUploadIndex({ store: () => store, memo })
-    const realPut = store.put.bind(store)
-    const put = vi.spyOn(store, 'put')
+describe('card handler: a populated hero on a site with several upload collections', () => {
+  it("is drawn from its own collection's folder, with no heroCollection on the target", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), 'og-photos-'))
+    await writeFile(
+      path.join(dir, 'h.jpg'),
+      await sharp({ create: { width: 600, height: 400, channels: 3, background: '#336699' } })
+        .jpeg()
+        .toBuffer(),
+    )
+    const populated = { id: 9, url: '/media/h.jpg', updatedAt: 'u1', filename: 'h.jpg' }
+    uploadSource.set(populated, 'photos')
     const source = {
-      published: async () => doc,
+      published: async () => ({ id: 2, slug: 'h', title: 'Hero', heroImage: populated }),
       publishedById: async () => null,
       draft: async () => null,
       site: async () => ({ name: 'Site' }),
-      related: relatedUploads(doc),
+      related: async (collection: string) => (collection === 'photos' ? populated : null),
     }
-    return { store, memo, uploads, put, realPut, source }
-  }
-  it('an upload that changes while its card is being drawn: the old bytes are not stored', async () => {
-    const f = fixture()
-    let release!: () => void
-    const held = new Promise<void>((r) => {
-      release = r
-    })
-    const render = vi.fn(async (el: any) => {
-      await held
-      return realPng(String(el?.props?.children ?? ''))
-    })
-    const { h } = setup({ ...f, renderer: { render } })
-    const inflight = h.GET(req('/og/posts/h/card.png'), ctx('h'))
-    while (render.mock.calls.length === 0) await tick()
-    await f.uploads.purge('media', 9) // the hook ran while the render was in flight
-    release()
-    expect((await inflight).status).toBe(200)
-    expect(f.put).not.toHaveBeenCalled()
-    expect(f.memo.size).toBe(0)
-  })
-  it('an upload that changes while the card is being written: a file that lands after the purge is removed', async () => {
-    const f = fixture()
-    const real = f.realPut
-    f.put.mockImplementation(async (...a: Parameters<typeof real>) => {
-      await f.uploads.purge('media', 9) // the hook ran after the write was checked and found nothing yet to remove...
-      await real(...a) // ...and the file lands after it
-    })
-    const { h } = setup({ ...f })
-    await h.GET(req('/og/posts/h/card.png'), ctx('h'))
-    const [pageId, v] = f.put.mock.calls[0] as unknown as [string, string]
-    expect(await f.store.get(pageId, v)).toBeNull()
-  })
-  it('a card read from the old upload after the hook but before the change commits is not stored; a newer or equal one is', async () => {
-    const stale = fixture('2026-01-01T00:00:00.000Z')
-    await stale.uploads.purge('media', 9, { updatedAt: '2026-06-01T00:00:00.000Z' }) // the hook's floor: the saved upload is newer than what a read still returns
-    const a = await setup({ ...stale }).h.GET(req('/og/posts/h/card.png'), ctx('h'))
-    expect(a.status).toBe(200)
-    expect(stale.put).not.toHaveBeenCalled()
-    const fresh = fixture('2026-06-01T00:00:00.000Z')
-    await fresh.uploads.purge('media', 9, { updatedAt: '2026-06-01T00:00:00.000Z' })
-    await setup({ ...fresh }).h.GET(req('/og/posts/h/card.png'), ctx('h'))
-    expect(fresh.put).toHaveBeenCalledTimes(1)
-  })
-  it('a deleted upload: nothing drawn from it is stored again', async () => {
-    const f = fixture()
-    await f.uploads.purge('media', 9, { deleted: true })
-    await setup({ ...f }).h.GET(req('/og/posts/h/card.png'), ctx('h'))
-    expect(f.put).not.toHaveBeenCalled()
+    // Two upload collections: only `photos` has the file, and the loader finds a folder only for a collection it is told.
+    const heroLoader = payloadHeroLoader({ staticDirs: async (collection) => (collection === 'photos' ? [dir] : []) })
+    const { h } = setup({ source, uploadCollection: undefined, heroLoader })
+    const r = await h.GET(req('/og/posts/h/card.png'), ctx('h'))
+    expect([r.status, r.headers.get('x-og-cache')]).toEqual([200, 'render']) // 'downgraded' would mean no hero was found
   })
 })
 

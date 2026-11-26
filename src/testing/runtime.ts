@@ -76,7 +76,8 @@ export type TestRuntimeOptions = {
   heroDir?: string
   /**
    * The site's upload collections, by slug then id, for a kit whose documents hold bare ids or whose uploads must differ by collection. A
-   * `_status: 'draft'` entry is a draft-only upload: a public read never sees it. Without this, the stand-in upload objects inside the documents are used.
+   * `_status: 'draft'` entry is a draft-only upload: a public read never sees it. A collection not listed holds nothing; without this option the stand-in upload objects inside the documents are used.
+   * Naming a target's collection, or an entry whose `id` is not its key, throws; an entry with no `id` takes its key.
    */
   uploads?: Record<string, Record<string | number, Record<string, unknown>>>
 }
@@ -137,16 +138,17 @@ export function installTestRuntime(given: OgImagePluginOptions, docs: KitDocs, o
   }
 
   /**
-   * The uploads the fixtures hold, read the way Payload reads them. `o.uploads` is modelled by collection and id (a `_status: 'draft'` entry is a
-   * draft-only upload). Without it, the stand-in uploads inside the documents are used, found by id in whichever upload collection is asked, since
-   * a fixture document does not say which collection its upload is in. A public read (`draft` not set) sees published documents and uploads
+   * The uploads the fixtures hold, read the way Payload reads them. With `o.uploads` they are modelled by collection and id (a `_status: 'draft'` entry
+   * is a draft-only upload), and a collection it does not list holds nothing. Without it, the stand-in uploads inside the documents are used, found by
+   * id in whichever upload collection is asked, since a fixture document does not say which collection its upload is in. A public read (`draft` not set) sees published documents and uploads
    * only; a draft read sees the drafts first, then the published ones.
    */
   const uploadOf = (collection: string, id: unknown, draftRead: boolean): Record<string, any> | null => {
-    const modelled = o.uploads?.[collection]
-    if (modelled !== undefined) {
-      const hit = Object.hasOwn(modelled, String(id)) ? (modelled[String(id)] as Record<string, any>) : undefined
-      return hit && (draftRead || hit._status !== 'draft') ? hit : null
+    if (o.uploads !== undefined) {
+      const modelled = Object.hasOwn(o.uploads, collection) ? o.uploads[collection] : undefined
+      const hit = modelled && Object.hasOwn(modelled, String(id)) ? (modelled[String(id)] as Record<string, any>) : undefined
+      // The key is the id: an entry that omits its own `id` is that upload under it.
+      return hit && (draftRead || hit._status !== 'draft') ? { ...hit, id: hit.id ?? id } : null
     }
     const seen = new Set<unknown>()
     const find = (v: unknown): Record<string, any> | null => {
@@ -164,6 +166,15 @@ export function installTestRuntime(given: OgImagePluginOptions, docs: KitDocs, o
   }
   const isTargetCollection = (collection: string) =>
     Object.entries(options.targets).some(([name, t]) => (t.collection ?? name) === collection)
+  for (const [slug, byId] of Object.entries(o.uploads ?? {})) {
+    if (isTargetCollection(slug))
+      throw new Error(
+        `payload-og-image test runtime: uploads names "${slug}", which is a target's collection (its documents are fixtures in \`docs\`, not uploads)`,
+      )
+    for (const [key, upload] of Object.entries(byId))
+      if (upload.id !== undefined && String(upload.id) !== key)
+        throw new Error(`payload-og-image test runtime: uploads.${slug}["${key}"] has id ${JSON.stringify(upload.id)}: the key is the id`)
+  }
 
   // The parts of Payload the production source touches: auth, find (the table above), collections, findGlobal.
   const fakePayload = {

@@ -1,5 +1,5 @@
 import path from 'node:path'
-import type { CollectionConfig, Config, Payload } from 'payload'
+import type { Config, Payload } from 'payload'
 import { normaliseHeroBackground } from '../internal/colour.js'
 import { type FontSpec, missingGlyphs, type Stacks } from '../internal/fonts.js'
 import {
@@ -309,11 +309,8 @@ export function ogImagePlugin(options: OgImagePluginInput): (config: Config) => 
     const withFields = withOgFields(config, o.targets, o.fields)
     // The preview endpoint rides with the `og` group: wherever a target collection carries it, however it got there.
     const withEndpoint = withEndpoints(withFields, state, targetsCarryOg(withFields, o.targets))
-    // Every upload collection purges the stored cards that drew an upload when it changes or goes (see `UploadIndex`). Others are returned as they are.
-    const collections = (withEndpoint.collections ?? []).map((c) => (c.upload ? withUploadPurge(c, state) : c))
     return {
       ...withEndpoint,
-      ...(withEndpoint.collections ? { collections } : {}),
       ...(config.globals ? { globals } : {}),
       custom: { ...config.custom, [CUSTOM_KEY]: state },
       onInit: async (payload) => {
@@ -323,47 +320,6 @@ export function ogImagePlugin(options: OgImagePluginInput): (config: Config) => 
         await selfTest(state)
       },
     }
-  }
-}
-
-/**
- * `afterChange` and `afterDelete` on an upload collection: a change (the file, its alt, its access, a draft saved) or a delete drops the cards that drew
- * that upload from the memo and the store. A purge failure is an event, never an error for the editor saving the upload. Existing hooks run first.
- */
-function withUploadPurge(c: CollectionConfig, state: ReturnType<typeof createState>): CollectionConfig {
-  const purge = async (id: unknown, change?: { updatedAt?: string | null; deleted?: boolean }) => {
-    if (typeof id !== 'string' && typeof id !== 'number') return
-    try {
-      await state.uploads.purge(c.slug, id, change)
-    } catch (error) {
-      state.events.emit({ name: 'render_error', detail: { message: `purge: ${String((error as Error)?.message ?? error)}` } })
-    }
-  }
-  const idOf = (...docs: unknown[]) =>
-    docs.map((d) => (d as { id?: unknown } | null | undefined)?.id).find((id) => id !== undefined && id !== null)
-  return {
-    ...c,
-    hooks: {
-      ...c.hooks,
-      afterChange: [
-        ...(c.hooks?.afterChange ?? []),
-        // `doc` is what the hooks before this one returned (a site may project it, `id` included); `previousDoc` is Payload's own, so the id survives.
-        async ({ doc, previousDoc }) => {
-          const saved = doc as { id?: unknown; updatedAt?: string | null; _status?: string } | undefined
-          // A draft save is no change the public can see: it purges, but sets no floor (the published version keeps its older `updatedAt`).
-          await purge(
-            idOf(doc, previousDoc),
-            saved?.id !== undefined && saved._status !== 'draft' ? { updatedAt: saved.updatedAt } : undefined,
-          )
-        },
-      ],
-      afterDelete: [
-        ...(c.hooks?.afterDelete ?? []),
-        async ({ id, doc }) => {
-          await purge(idOf({ id }, doc), { deleted: true })
-        },
-      ],
-    },
   }
 }
 

@@ -18,7 +18,6 @@ import {
   resolveCard,
 } from './resolve.js'
 import type { CardEncoding, CardFormat, CardMime, CardStore, OnEvent, SiteInfo, Size, Upload } from './types.js'
-import type { UploadIndex } from './uploadIndex.js'
 import { isVariantName } from './variants.js'
 
 export type DocSource = {
@@ -85,8 +84,6 @@ export type HandlerDeps = {
   serverUrl: string
   source: DocSource
   store: CardStore
-  /** Told which uploads each served card drew, so a change to one can purge it and refuse a stale write (the plugin's hooks). Absent: nothing is remembered. */
-  uploads?: Pick<UploadIndex, 'stamp'>
   renderer: Renderer
   heroLoader: HeroLoader
   /** The site's only upload collection, when it has exactly one (see `ResolveInput.uploadCollection`). */
@@ -491,7 +488,6 @@ export function createCardHandler(d: HandlerDeps): CardHandler {
         const { bytes } = await d.gate.run(() => draw(card, fonts))
         return respond(200, CACHE.none, { ...type, 'x-og-cache': 'draft' }, bytes)
       }
-      const stamp = d.uploads?.stamp(card, d.uploadCollection)
       const requested = new URL(request.url).searchParams.get('v') // only picks the cache header, never a key
       const current = requested === card.v
       const cache = current ? CACHE.immutable : CACHE.short
@@ -506,16 +502,7 @@ export function createCardHandler(d: HandlerDeps): CardHandler {
           const out = await d.gate.run(() => draw(card, fonts))
           if (out.downgraded) throw new Downgraded(out.bytes) // the memo forgets it; every joiner gets this rejection
           served.source = 'render'
-          // An upload this card drew changed while it was being drawn (or before the change committed): these bytes are not kept anywhere.
-          if (stamp && !stamp.current()) {
-            d.memo.delete(`${card.pageId}|${card.v}`)
-            return out.bytes
-          }
           await d.store.put(card.pageId, card.v, out.bytes, card.encoding.format)
-          if (stamp && !stamp.current()) {
-            d.memo.delete(`${card.pageId}|${card.v}`)
-            await d.store.drop?.(card.pageId, card.v, card.encoding.format).catch(() => undefined) // landed just as the purge ran
-          }
           return out.bytes
         })
         .catch((e) => {

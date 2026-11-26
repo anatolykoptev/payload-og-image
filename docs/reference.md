@@ -36,23 +36,15 @@ would hand one answer to every `?v`.
 
 ### When an upload is made private or deleted
 
-A card is a public copy of what the public could read when it was drawn. The origin keeps it correct from then on: the
-version is derived from the uploads the card draws, so when one becomes unreadable (made private, unpublished, deleted) or
-changes, the next request computes a new `v` and draws the card without it. The contract for an obsolete `v` is the one above:
-the origin answers it with the current card and the one-hour header, never with old pixels.
+A card is a public copy of what the public could read when it was drawn. The origin keeps itself correct: the version is derived
+from the uploads the card draws, and every request reads them again with the visitor's access. When one becomes unreadable (made
+private, unpublished, deleted) or changes, the next request computes a new `v` and draws the card without it. A stored file is
+looked up under that current `v` only, so a stored card is never served for a version whose inputs no longer resolve the same; the
+old files are pruned by the store's own retention (the newest two versions of a page). The contract for an obsolete `v` is the one
+above: the origin answers it with the current card and the one-hour header, never with old pixels. The plugin adds no hook and
+keeps no index for this.
 
-The plugin also drops stored copies. Every upload collection of the config gets an `afterChange` and an `afterDelete` hook
-(after the hooks it already has): when an upload is saved, in any way, or deleted, every card this process drew with it is removed
-from the memo and from the store. A card still being drawn when the upload changes is not stored, and neither is one drawn from the
-old upload in the moment before Payload commits the change (the hook records the saved `updatedAt`, and a card drawn from an older
-one is refused). A draft save purges but sets no such floor, since the published version keeps its older `updatedAt`. The record of which card drew which upload lives in
-the process that served the card, and is bounded (20,000 uploads, 64 cards each, least recently drawn first); a card past the bound, one
-drawn before a restart, or one drawn by another process is outside the guarantee and is left to the store's own pruning (the newest two
-versions of a page are kept). A delete that fails (an I/O error, not a missing file) is logged as a `render_error` and retried on the
-next save of that upload. A change that happens outside a document save (an `access` function that
-starts answering differently) fires no hook: save the upload, or delete the stored files.
-
-What no hook reaches is a copy somebody else already holds: a browser or CDN that fetched the old `?v=` URL (one year,
+What the origin cannot reach is a copy somebody else already holds: a browser or CDN that fetched the old `?v=` URL (one year,
 `immutable`), a messenger's or a crawler's preview cache. Treat a card as public once its page is: revoking access to an upload
 does not recall the card, and a CDN needs its own purge for the old URL. If the image must never appear on a card, keep it out
 of every upload the card can draw.

@@ -27,6 +27,9 @@
  * - kit.ts:121  wave a versioned URL at an unowned path through as an editor image -> "everyRouteHasOwnCard: a versioned URL at a path no card route owns" RED
  * - kit.ts:303  accept any positive shed count -> "queueSheds exact admission" RED
  * - runtime.ts `uploadOf` ignoring `_status: 'draft'` of a modelled upload on a public read -> "the test runtime uploads: modelled by collection and id ..." RED
+ * - runtime.ts `uploadOf` falling back to the embedded fixtures when `uploads` is given -> "a collection `uploads` does not list holds nothing" RED
+ * - runtime.ts the isTargetCollection / id-key validation removed -> "uploads naming a target collection, or an entry whose id is not its key, is a named error" RED
+ * - runtime.ts `id: hit.id ?? id` -> `hit` -> "an entry takes its key as its id" RED
  * - runtime.ts `KIT_UPLOADS = 'uploads'` (a collection a target may own) -> "... a target's own collection named `uploads` keeps its draft rules" RED
  * - runtime.ts:164  bypass the cached site() in the test runtime -> "the test runtime serves the CACHED site()" RED
  * - kit.ts:278  (requestVersionNeverStored probes run cold: covered by the dev spec's `request v never stored`, which goes RED when the handler stores under the request's ?v)
@@ -331,6 +334,33 @@ describe('the test runtime uploads', () => {
     expect(await url(9, { uploads })).not.toBe(none)
     const same = await url(9, { uploads })
     expect(await url(9, { uploads: { media: { 9: { ...hero('media'), updatedAt: 'u3' } } } })).not.toBe(same) // the media upload decides, not `other`'s
+  })
+  it('an entry takes its key as its id; a collection `uploads` does not list holds nothing, whatever the documents embed', async () => {
+    const noId = { url: '/m/h.jpg', filename: 'h.jpg', updatedAt: 'u1' }
+    const none = await url(404, { uploads: { media: {} } })
+    expect(await url(9, { uploads: { media: { 9: noId } } })).not.toBe(none) // read, with its key as its id
+    // A hero embedded in a document is no fallback once `uploads` is given: `media` is not listed.
+    const opts = options()
+    installTestRuntime(
+      { ...opts, targets: { posts: defineTarget<any, any>({ ...opts.targets?.posts, heroCollection: 'media' }) } },
+      docs(),
+      { uploads: { other: {} } },
+    )
+    const embedded = ((await ogMetadata({ config: {} as never, target: 'posts', doc: { id: 3 } })).openGraph as any).images[0].url as string
+    installTestRuntime(
+      { ...opts, targets: { posts: defineTarget<any, any>({ ...opts.targets?.posts, heroCollection: 'media' }) } },
+      docs(),
+      { uploads: { media: { 9: { id: 9, url: '/m/h.jpg', filename: 'h.jpg', updatedAt: 'u1' } } } },
+    )
+    expect(((await ogMetadata({ config: {} as never, target: 'posts', doc: { id: 3 } })).openGraph as any).images[0].url).not.toBe(embedded)
+  })
+  it('uploads naming a target collection, or an entry whose id is not its key, is a named error', () => {
+    expect(() => installTestRuntime(options(), docs(), { uploads: { posts: {} } })).toThrow(
+      /uploads names "posts", which is a target's collection/,
+    )
+    expect(() => installTestRuntime(options(), docs(), { uploads: { media: { 9: { id: 10, url: '/x' } } } })).toThrow(
+      /uploads\.media\["9"\] has id 10: the key is the id/,
+    )
   })
   it("a target's own collection named `uploads` keeps its draft rules", async () => {
     const opts = options()

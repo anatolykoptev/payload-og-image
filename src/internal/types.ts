@@ -106,9 +106,4 @@ export interface CardStore {
    */
   stat(pageId: string, v: string, format?: CardFormat): Promise<{ bytes: number } | null>
   put(pageId: string, v: string, bytes: Uint8Array, format?: CardFormat): Promise<void>
-  /**
-   * Removes one card, if kept: an upload it drew changed or was deleted, and the old pixels must not stay at rest. Absent for a store that
-   * cannot (the card is then left to pruning). Never throws for a card that is not there.
-   */
-  drop?(pageId: string, v: string, format?: CardFormat): Promise<void>
 }

@@ -10,6 +10,7 @@
  * - resolve.ts:149  skip `template.required` -> "9: a blank title advertises nothing" RED
  * - resolve.ts:198  never ask `heroHasAlpha`, or ask it for a flattened hero -> "a transparent hero nobody flattens has its own version, asked in its upload collection" RED
  * - resolve.ts `heroOf` drawing the object the target handed over (`usableHero(raw)` first) -> "a hero object is only an id: it is read again with the caller's access" RED
+ * - resolve.ts card `heroCollection` / alpha probe given `i.target.heroCollection` instead of the resolved one -> same test RED
  * - resolve.ts `uploadSource.get(raw)` dropped from heroOf -> "a populated hero is read again from the collection populateUploads read it from ..." RED
  * - resolve.ts:114  hash the raw hero object -> "a hero without a file is no part of the version" RED
  * - resolve.ts:160  leave `host` out of the version -> "the host is part of the version" RED
@@ -332,6 +333,10 @@ describe('resolveCard', () => {
     const r = await generated({ doc, uploadCollection: undefined, related: read })
     expect(read).toHaveBeenCalledWith('photos', '9')
     expect(r.hero).toEqual(populated)
+    expect(r.heroCollection).toBe('photos') // the loader and the alpha probe look there too
+    const heroHasAlpha = vi.fn(async () => false)
+    await generated({ doc, uploadCollection: undefined, related: read, heroHasAlpha })
+    expect(heroHasAlpha).toHaveBeenCalledWith(populated, { collection: 'photos' })
     // A copy of it, or an object nobody populated, has no provenance: with no collection to name it is no hero.
     expect((await generated({ doc: { ...doc, heroImage: { ...populated } }, uploadCollection: undefined, related: read })).hero).toBeNull()
     // The target's own heroCollection still wins over it.

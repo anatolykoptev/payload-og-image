@@ -20,8 +20,6 @@
  * - disk.ts:239  drop hex validation in put -> "a non-hex page id or version never becomes a file name" RED
  * - disk.ts:97  drop the free-space check -> "warns once at boot when the cap exceeds free space" RED
  * - disk.ts:240  put(): drop the isCompletePng check -> "put refuses bytes that are not a whole PNG" RED
- * - disk.ts `drop` removing nothing -> "drop removes one card file and leaves the others, a symlink and a bad name alone" RED
- * - disk.ts `drop` swallowing a non-ENOENT unlink error -> "drop reports an I/O failure and treats a missing file as done" RED
  * - disk.ts:183  (no test) stale-observation recheck before unlink: out of the threat model, see README */
 import { execFileSync } from 'node:child_process'
 import { readdirSync } from 'node:fs'
@@ -381,39 +379,4 @@ describe('diskStore', () => {
     expect(ev.list.filter((e) => e.detail?.reason === 'low_free_space')).toHaveLength(1)
     expect(s.enabled).toBe(true)
   })
-
-  it('drop removes one card file and leaves the others, a symlink and a bad name alone', async () => {
-    const dir = await tmp()
-    const s = diskStore({ dir })
-    await s.put(P, V('a'), await png())
-    await s.put(P, V('b'), await png())
-    await s.drop?.(P, V('a'))
-    expect(await s.get(P, V('a'))).toBeNull()
-    expect(await s.get(P, V('b'))).not.toBeNull()
-    await s.drop?.(P, V('a')) // already gone: not an error
-    await s.drop?.('../x', V('b')) // never a file name
-    const outside = path.join(await tmp(), 'secret')
-    await writeFile(outside, 'keep')
-    await symlink(outside, path.join(dir, `${P}-${V('c')}.png`))
-    await s.drop?.(P, V('c'))
-    expect((await lstat(path.join(dir, `${P}-${V('c')}.png`))).isSymbolicLink()).toBe(true)
-    expect(await s.get(P, V('b'))).not.toBeNull()
-  })
-
-  it.skipIf(process.platform === 'win32' || process.getuid?.() === 0)(
-    'drop reports an I/O failure and treats a missing file as done',
-    async () => {
-      const dir = await tmp()
-      const s = diskStore({ dir })
-      await s.put(P, V('a'), await png())
-      await expect(s.drop?.(P, V('b'))).resolves.toBeUndefined() // never stored: nothing to remove
-      await chmod(dir, 0o500) // the file is there but cannot be unlinked
-      try {
-        await expect(s.drop?.(P, V('a'))).rejects.toThrow(/EACCES|EPERM/)
-      } finally {
-        await chmod(dir, 0o700)
-      }
-      expect(await s.get(P, V('a'))).not.toBeNull()
-    },
-  )
 })
