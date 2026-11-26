@@ -309,18 +309,18 @@ describe('named images: drawing', () => {
       revision: '1',
       textFields: ['title'],
       imageBoxes: { constructor: { width: 10, height: 10 }, toString: { width: 10, height: 10 } },
-      render: (p, ctx) =>
-        ({
+      render: (p, ctx) => {
+        // Typed as lists, prototype names included: this line is the type test.
+        const lists: Array<readonly string[] | undefined> = [ctx.images.constructor, ctx.images.toString]
+        void lists
+        return {
           type: 'div',
           props: {
             children: [p.title, ...Object.values(ctx.images).flatMap((list) => list ?? [])],
           },
-        }) as never,
+        } as never
+      },
     })
-    const s = setup(async (u: { id: number }) => `data:image/png;base64,I${u.id}`, table, {
-      images: () => ({ constructor: [1], toString: [2] }),
-    })
-    ;(s as never as { h: unknown }).h = undefined
     const rendered: string[] = []
     const h = createCardHandler({
       targets: { posts: target({ images: () => ({ constructor: [1], toString: [2] }) }) },

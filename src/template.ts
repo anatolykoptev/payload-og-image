@@ -33,6 +33,21 @@ export type Normalized<T> = T extends Date
 /** An upload named by a target: its id, or an object carrying one. It is always reduced to the id and read again with the visitor's access, so nothing else on it is trusted. */
 export type ImageRef = string | number | { id: string | number }
 
+/**
+ * The prepared images by name. Every key is a list or absent, the names `Object` gives every value included (`constructor`, `toString`...):
+ * the dictionary has no prototype, and the type says so by listing those names itself.
+ */
+export interface ImageLists {
+  readonly [name: string]: readonly string[] | undefined
+  readonly constructor?: readonly string[] | undefined
+  readonly toString?: readonly string[] | undefined
+  readonly toLocaleString?: readonly string[] | undefined
+  readonly valueOf?: readonly string[] | undefined
+  readonly hasOwnProperty?: readonly string[] | undefined
+  readonly isPrototypeOf?: readonly string[] | undefined
+  readonly propertyIsEnumerable?: readonly string[] | undefined
+}
+
 /** What a template's `render` gets besides its props. Site data reaches a template only through props, so it is part of the version. */
 export type TemplateContext = {
   host: string
@@ -44,7 +59,7 @@ export type TemplateContext = {
    * file could not be prepared is served briefly and never stored, like a hero that failed). Unlike the hero, they are never flattened
    * onto a ground: a transparent logo stays transparent. A name the target did not give is absent.
    */
-  images: Readonly<Partial<Record<string, readonly string[]>>>
+  images: ImageLists
   /**
    * The largest size at which `text` fits `box` in `stack`. By default every second size from `box.maxSize` down; a box can opt in to a
    * ladder of its own (`sizes`), letter spacing (`tracking`), room for descenders (`descent`), a calmer line count (`fewerLines`) and

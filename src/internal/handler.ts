@@ -1,5 +1,5 @@
 import type { ReactElement } from 'react'
-import type { StaticCard, Target, Template, TemplateContext } from '../template.js'
+import type { ImageLists, StaticCard, Target, Template, TemplateContext } from '../template.js'
 import { drawElement, templateContext } from './draw.js'
 import { type LoadedFont, type Stacks, stripMissing } from './fonts.js'
 import { encodingKey, type JpegOptions, type WebpOptions } from './format.js'
@@ -198,17 +198,14 @@ export function createCardHandler(d: HandlerDeps): CardHandler {
   }
   const unavailable = () => respond(503, CACHE.none, { 'retry-after': '5' })
 
-  const ctxFor = (
-    fonts: LoadedFont[],
-    hero: string | null,
-    images?: Readonly<Partial<Record<string, readonly string[]>>>,
-  ): TemplateContext => templateContext({ host, fonts, stacks: d.stacks, hero, images })
+  const ctxFor = (fonts: LoadedFont[], hero: string | null, images?: ImageLists): TemplateContext =>
+    templateContext({ host, fonts, stacks: d.stacks, hero, images })
 
   /**
    * The card's named images, prepared at the template's box for each name and never flattened (a logo stays transparent), each from its own
    * upload collection's folder. An upload whose file cannot be prepared is left out of its list and counted in `failed`.
    */
-  async function loadImages(card: GeneratedCard): Promise<{ images: Record<string, string[]>; failed: number }> {
+  async function loadImages(card: GeneratedCard): Promise<{ images: ImageLists; failed: number }> {
     const jobs = card.images.flatMap(({ name, collection, uploads }) =>
       uploads.map((upload) => ({ name, collection, upload, box: (card.template.imageBoxes as Record<string, Size>)[name] as Size })),
     )
@@ -220,7 +217,7 @@ export function createCardHandler(d: HandlerDeps): CardHandler {
       if (url === null || url === undefined) failed += 1
       else images[j.name] = [...(Object.hasOwn(images, j.name) ? (images[j.name] as string[]) : []), url]
     })
-    return { images, failed }
+    return { images: images as unknown as ImageLists, failed }
   }
 
   function staticTarget(card: StaticCard): Target {

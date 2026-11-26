@@ -5,7 +5,7 @@
  * - internal/colour.ts:8  accept a colour name -> "a named hero background" RED
  * - index.ts:71  ignore `options.serverURL` (use the config's only) -> "ogImagePlugin: serverURL option > builds card URLs on options.serverURL" RED
  * - index.ts:64  no `default` stack required -> "refuses no default stack" RED
- * - index.ts `uploads.has(slug)` check removed (heroCollection / imageCollections accepted unchecked) -> "3b: heroCollection and imageCollections must name upload collections of this config" RED
+ * - index.ts `assertUploadCollections` not called from onInit (or checking `config.collections` at apply time instead of the registry) -> "3b: heroCollection and imageCollections must name upload collections of the FINAL config, checked at init" RED
  * - index.ts:82  accept a target on a missing collection -> "3: a target whose collection does not exist throws" RED
  * - index.ts:83  accept an unknown template -> "2: a target naming an unknown template throws" RED
  * - index.ts:85  skip the duplicate-kind check -> "4: two targets with the same kind throw" RED
@@ -69,20 +69,29 @@ describe('ogImagePlugin: config transform', () => {
     )
     expect(() => apply(options({ targets: { x: defineTarget<any, any>({ ...posts, collection: 'nope' }) } }))).toThrow(/collection "nope"/)
   })
-  it('3b: heroCollection and imageCollections must name upload collections of this config', () => {
-    const c = {
-      ...baseConfig(),
-      collections: [...(baseConfig().collections ?? []), { slug: 'media', upload: true, fields: [] }, { slug: 'authors', fields: [] }],
-    } as Config
+  it('3b: heroCollection and imageCollections must name upload collections of the FINAL config, checked at init', async () => {
     const withTarget = (over: Record<string, unknown>) => options({ targets: { posts: defineTarget<any, any>({ ...posts, ...over }) } })
-    expect(() => apply(withTarget({ heroCollection: 'media', imageCollections: { logo: 'media' } }), c)).not.toThrow()
-    expect(() => apply(withTarget({ heroCollection: 'authors' }), c)).toThrow(
+    // What Payload hands onInit: every collection of the final, sanitized config.
+    const init = (c: Config) =>
+      c.onInit?.({ collections: Object.fromEntries((c.collections ?? []).map((x) => [x.slug, { config: x }])) } as never)
+    const laterPlugin = (c: Config): Config => ({
+      ...c,
+      collections: [...(c.collections ?? []), { slug: 'media', upload: true, fields: [] }, { slug: 'authors', fields: [] }],
+    })
+    // A later plugin adds the upload collection: applying ours does not refuse, and init passes.
+    const ok = laterPlugin(apply(withTarget({ heroCollection: 'media', imageCollections: { logo: 'media' } })))
+    await expect(init(ok)).resolves.toBeUndefined()
+    // A slug that is not an upload collection in the final config fails, named.
+    await expect(init(laterPlugin(apply(withTarget({ heroCollection: 'authors' }))))).rejects.toThrow(
       /target "posts" heroCollection "authors" is not an upload collection/,
     )
-    expect(() => apply(withTarget({ heroCollection: 'ghost' }), c)).toThrow(/heroCollection "ghost" is not an upload collection/)
-    expect(() => apply(withTarget({ imageCollections: { logo: 'authors' } }), c)).toThrow(
+    await expect(init(laterPlugin(apply(withTarget({ heroCollection: 'ghost' }))))).rejects.toThrow(
+      /heroCollection "ghost" is not an upload/,
+    )
+    await expect(init(laterPlugin(apply(withTarget({ imageCollections: { logo: 'authors' } }))))).rejects.toThrow(
       /imageCollections\.logo "authors" is not an upload collection/,
     )
+    await expect(init(laterPlugin(apply(withTarget({ imageCollections: { logo: 'constructor' } }))))).rejects.toThrow(/"constructor"/)
   })
   it('4: two targets with the same kind throw', () => {
     const c = { ...baseConfig(), collections: [...(baseConfig().collections ?? []), { slug: 'pages', fields: [] }] } as Config

@@ -131,18 +131,10 @@ function validate(o: OgImagePluginOptions, config: Config): string {
     templates.set(t.id, t)
   }
   const collections = new Set((config.collections ?? []).map((c) => c.slug))
-  const uploads = new Set((config.collections ?? []).filter((c) => c.upload).map((c) => c.slug))
   for (const [name, t] of Object.entries(o.targets ?? {})) {
     if (!SEGMENT.test(name)) fail(`target name "${name}" must be one URL-safe segment`)
     const collection = t.collection ?? name
     if (!collections.has(collection)) fail(`target "${name}" names the collection "${collection}", which does not exist`)
-    const named = [
-      ...(t.heroCollection === undefined ? [] : [['heroCollection', t.heroCollection] as const]),
-      ...Object.entries(t.imageCollections ?? {}).map(([n, c]) => [`imageCollections.${n}`, c] as const),
-    ]
-    for (const [option, slug] of named) {
-      if (!uploads.has(slug)) fail(`target "${name}" ${option} "${slug}" is not an upload collection of this config`)
-    }
     if (typeof t.template === 'string' && !templates.has(t.template)) fail(`target "${name}" names the unknown template "${t.template}"`)
   }
   const kinds = buildKindIndex(o.targets ?? {}) // throws on a duplicate kind
@@ -235,8 +227,27 @@ export function ogImagePlugin(options: OgImagePluginOptions): (config: Config) =
       onInit: async (payload) => {
         await previousOnInit?.(payload)
         if (o.disabled) return
+        assertUploadCollections(payload, o)
         await selfTest(state)
       },
+    }
+  }
+}
+
+/**
+ * `heroCollection` and every `imageCollections` value must be an upload collection. Checked against the final registry (at init), not
+ * while plugins are still being applied: a later plugin may add the collection or turn its uploads on.
+ */
+function assertUploadCollections(payload: Payload, o: OgImagePluginOptions): void {
+  const known = (payload.collections ?? {}) as unknown as Record<string, { config?: { upload?: unknown } } | undefined>
+  for (const [name, t] of Object.entries(o.targets ?? {})) {
+    const named = [
+      ...(t.heroCollection === undefined ? [] : [['heroCollection', t.heroCollection] as const]),
+      ...Object.entries(t.imageCollections ?? {}).map(([n, c]) => [`imageCollections.${n}`, c] as const),
+    ]
+    for (const [option, slug] of named) {
+      if (!Object.hasOwn(known, slug) || !known[slug]?.config?.upload)
+        throw new Error(`payload-og-image: target "${name}" ${option} "${slug}" is not an upload collection of this config`)
     }
   }
 }

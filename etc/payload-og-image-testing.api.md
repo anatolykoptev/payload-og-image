@@ -51,6 +51,26 @@ export type FontSpec = {
 };
 
 // @public
+export interface ImageLists {
+    // (undocumented)
+    readonly [name: string]: readonly string[] | undefined;
+    // (undocumented)
+    readonly constructor?: readonly string[] | undefined;
+    // (undocumented)
+    readonly hasOwnProperty?: readonly string[] | undefined;
+    // (undocumented)
+    readonly isPrototypeOf?: readonly string[] | undefined;
+    // (undocumented)
+    readonly propertyIsEnumerable?: readonly string[] | undefined;
+    // (undocumented)
+    readonly toLocaleString?: readonly string[] | undefined;
+    // (undocumented)
+    readonly toString?: readonly string[] | undefined;
+    // (undocumented)
+    readonly valueOf?: readonly string[] | undefined;
+}
+
+// @public
 export type ImageRef = string | number | {
     id: string | number;
 };
@@ -386,7 +406,7 @@ export type Template<P extends PropsModel> = {
 export type TemplateContext = {
     host: string;
     hero: string | null;
-    images: Readonly<Partial<Record<string, readonly string[]>>>;
+    images: ImageLists;
     fit(text: string, box: Box, stack: string): {
         size: number;
         lines: number;

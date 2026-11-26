@@ -1,4 +1,4 @@
-import type { TemplateContext } from '../template.js'
+import type { ImageLists, TemplateContext } from '../template.js'
 import { coveringFamily, fitText, fontFamilyFor, type LoadedFont, type Stacks } from './fonts.js'
 import type { Renderer } from './handler.js'
 import { stripUndrawable } from './sanitize.js'
@@ -11,7 +11,7 @@ export function templateContext(a: {
   stacks: Stacks
   hero: string | null
   /** The prepared named images; none when absent. */
-  images?: Readonly<Partial<Record<string, readonly string[]>>>
+  images?: ImageLists
 }): TemplateContext {
   /** The same rule `resolveCard` uses to strip: the named stack, else the explicit `default`. */
   const stackOf = (name: string): string[] => {
