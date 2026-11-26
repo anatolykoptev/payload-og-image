@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.12.0](https://github.com/anatolykoptev/payload-og-image/compare/v0.11.0...v0.12.0) (2026-11-26)
+
+
+### Features
+
+* photo set for structured data and Discover (clean hero crops) ([#115](https://github.com/anatolykoptev/payload-og-image/issues/115)) ([505c15d](https://github.com/anatolykoptev/payload-og-image/commit/505c15d55950bbdb9d8631e47591d070c277a6a7))
+
 ## [0.11.0](https://github.com/anatolykoptev/payload-og-image/compare/v0.10.1...v0.11.0) (2026-11-26)
 
 
