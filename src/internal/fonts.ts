@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import * as fontkit from 'fontkit'
+import { loadFontkit } from './deps.js'
 
 export type FontSpec = { family: string; weight?: number; style?: 'normal' | 'italic'; data: () => Promise<ArrayBuffer | Uint8Array> }
 export type LoadedFont = {
@@ -57,6 +57,7 @@ async function loadOne(spec: FontSpec): Promise<LoadedFont & { hash: string }> {
   if (WOFF2.every((b, i) => bytes[i] === b)) {
     throw new Error(`payload-og-image: font "${spec.family}" is WOFF2; satori cannot read WOFF2. Ship WOFF/TTF/OTF.`)
   }
+  const fontkit = await loadFontkit()
   let parsed: ReturnType<typeof fontkit.create>
   try {
     parsed = fontkit.create(Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength))

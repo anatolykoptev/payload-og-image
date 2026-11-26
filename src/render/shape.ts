@@ -1,7 +1,7 @@
 // Prepares a named image by its `ImageShape`: contained and trimmed, tinted when it would vanish on its ground, declined when its shape is no mark.
 // Everything is a pure function of the image's bytes and the template's shape, so the result is covered by the upload's identity (the version's
 // image tail) and the template's revision. Nothing here is random.
-import sharp from 'sharp'
+import { DepLoadError, loadSharp } from '../internal/deps.js'
 import type { ImageShape } from '../template.js'
 
 const RASTER = new Set(['jpeg', 'png', 'webp', 'gif', 'avif', 'tiff', 'heif'])
@@ -25,6 +25,7 @@ const luminance = ([r, g, b]: number[]) => 0.2126 * linear(r as number) + 0.7152
 const contrast = (a: number, b: number) => (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05)
 
 async function upright(bytes: Buffer, maxPixels: number): Promise<Raw | null> {
+  const sharp = await loadSharp()
   const input = { limitInputPixels: maxPixels, failOn: 'error' as const }
   const meta = await sharp(bytes, input).metadata()
   if (!meta.format || !RASTER.has(meta.format)) return null
@@ -91,8 +92,8 @@ function bounds(mask: Float32Array, w: number, h: number) {
   return x1 < 0 ? undefined : { x: x0, y: y0, w: x1 - x0 + 1, h: y1 - y0 + 1 }
 }
 
-const png = (r: Raw) =>
-  sharp(r.data, { raw: { width: r.width, height: r.height, channels: 4 } })
+const png = async (r: Raw) =>
+  (await loadSharp())(r.data, { raw: { width: r.width, height: r.height, channels: 4 } })
     .png()
     .toBuffer()
 const url = (b: Buffer) => `data:image/png;base64,${b.toString('base64')}`
@@ -140,7 +141,7 @@ async function contained(
   if (b && opaque && mask) keyed = crop(r, mask)
   if (shape.key && keyed) src = keyed
   const fit = async (from: Raw): Promise<Raw> => {
-    const { data, info } = await sharp(await png(from))
+    const { data, info } = await (await loadSharp())(await png(from))
       .resize(box.width, box.height, { fit: 'inside' })
       .raw()
       .toBuffer({ resolveWithObject: true })
@@ -180,7 +181,8 @@ export async function prepareShape(
 ): Promise<string | null> {
   try {
     return await contained(bytes, box, shape, maxPixels)
-  } catch {
+  } catch (error) {
+    if (error instanceof DepLoadError) throw error // sharp itself is broken: loud, not a silently dropped image
     return null
   }
 }
