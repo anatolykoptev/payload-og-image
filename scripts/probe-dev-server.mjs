@@ -7,7 +7,7 @@
 // - dev/app/(payload)/api/[...slug]/route.ts:17  `HEAD = GET` instead of `withHead(GET)` -> "HEAD an uploaded file: 200"
 // - src/internal/handler.ts:383  `CACHE.immutable` for every version -> "GET a stale ?v: one hour"
 // - dev/payload.config.ts:22  no `revalidateDeletedPost` hook -> "the cached page of a deleted post is gone"
-// - src/client/OgPreviewField.tsx  `fields` left out of the effect's dependencies (dist is what the dev app loads) -> "admin: exactly one preview POST after ..." (scripts/admin-editor-smoke.mjs)
+// - src/client/OgPreviewField.tsx  `fields` left out of the effect's dependencies (dist is what the dev app loads) -> "admin: timed out waiting for the preview request after the edit" (scripts/admin-editor-smoke.mjs)
 // - dev/payload.config.ts:22  no `revalidatePost` hook, or `'max'` instead of `{ expire: 0 }` in dev/src/og/revalidate.ts:15 -> "the cached page advertises a new card after the edit"
 import { spawn, spawnSync } from 'node:child_process'
 import { mkdtempSync, readdirSync, rmSync } from 'node:fs'
