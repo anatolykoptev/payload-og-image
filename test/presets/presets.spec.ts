@@ -5,6 +5,7 @@
  * - target.ts `eligibleHero` ignores HERO_MIN -> "the preset follows the hero" RED
  * - target.ts `choosePreset` ignores `preset: 'text'` -> "the preset follows the hero" RED
  * - fonts.ts one face registration removed (a subset missing) -> "the bundled faces draw ..." RED
+ * - layout.ts the `weight` argument of `ctx.font` dropped at a call site (title, name or foot, either layout) -> "a family whose bold face lacks Cyrillic is not the family of a bold preset run" RED
  * - draw.ts `fitRow` drops the lowest priority number instead of the highest -> "fitRow drops whole items" RED */
 import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
@@ -720,6 +721,35 @@ describe('what is measured is what is drawn', () => {
     const measured = measureText(fonts, stack, text, size, { weight: 800 })
     expect(measured).toBeGreaterThanOrEqual(right * 0.98)
     expect(measured).toBeLessThanOrEqual(right * 1.06)
+  })
+  it('a family whose bold face lacks Cyrillic is not the family of a bold preset run (titles, the name, the foot), but is of a regular one', async () => {
+    // Family F: its regular face (Inter) draws Cyrillic, its bold face (Archivo) does not. Inter is the next family of the stack.
+    const { fonts: base } = await loadTestFonts()
+    const archivo = base.find((f) => f.family === 'Archivo') as (typeof base)[number]
+    const inter = base.find((f) => f.family === 'Inter') as (typeof base)[number]
+    const fonts = [...base, { ...inter, family: 'F', weight: 400 }, { ...archivo, family: 'F', weight: 700 }]
+    const ctx = templateContext({ host: 'example.test', fonts, stacks: { default: ['F', 'Inter'] }, hero: null })
+    const ru = 'Привет мир'
+    const p: PresetProps = { title: ru, site: ru, label: ru, subtitle: ru, meta: ru }
+    const text = textLayout(p, ctx)
+    expect(text.title.family).toBe('Inter') // bold: F's bold face cannot draw it
+    expect(text.name?.family).toBe('Inter') // 700
+    expect(text.label?.family).toBe('F') // 400
+    expect(text.sub?.family).toBe('F') // 400
+    const photo = photoLayout(p, ctx)
+    expect(photo.title.family).toBe('Inter') // bold
+    const feet = [...text.foot, ...photo.facts]
+    expect(feet.filter((f) => /[А-я]/.test(f.text)).length).toBeGreaterThan(0)
+    for (const f of feet.filter((f) => /[А-я]/.test(f.text))) expect(f.family, f.text).toBe(f.weight === 700 ? 'Inter' : 'F') // a Latin run (the domain) is drawn by either
+    // And the other way: family G has Cyrillic only in its bold face, so a regular run (sub line, label, foot text) goes to the next family.
+    const other = [...base, { ...archivo, family: 'G', weight: 400 }, { ...inter, family: 'G', weight: 700 }]
+    const ctxG = templateContext({ host: 'example.test', fonts: other, stacks: { default: ['G', 'Inter'] }, hero: null })
+    const g = textLayout(p, ctxG)
+    expect(g.title.family).toBe('G')
+    expect(g.label?.family).toBe('Inter')
+    expect(g.sub?.family).toBe('Inter')
+    for (const f of [...g.foot, ...photoLayout(p, ctxG).facts].filter((f) => /[А-я]/.test(f.text)))
+      expect(f.family, f.text).toBe(f.weight === 700 ? 'G' : 'Inter')
   })
   it('a title set in custom faces whose regular and bold widths differ stays in its box on the drawn card', async () => {
     const { fonts } = await loadTestFonts()

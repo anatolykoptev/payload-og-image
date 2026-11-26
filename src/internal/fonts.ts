@@ -49,7 +49,7 @@ const MAX_FONT_SIZE = 2048
 const sha = (b: Uint8Array | string) => createHash('sha256').update(b).digest('hex')
 const asBytes = (d: ArrayBuffer | Uint8Array) => (d instanceof Uint8Array ? d : new Uint8Array(d))
 
-async function loadOne(spec: FontSpec): Promise<LoadedFont & { hash: string }> {
+async function loadOne(spec: FontSpec): Promise<LoadedFont & { hash: string; cover: string }> {
   // A family is named in a CSS `font-family` list (`ctx.font` joins a stack with commas), so it cannot hold a list separator or a quote.
   if (/[,"']/.test(spec.family))
     throw new Error(`payload-og-image: font family ${JSON.stringify(spec.family)} must not contain a comma or a quote`)
@@ -79,6 +79,8 @@ async function loadOne(spec: FontSpec): Promise<LoadedFont & { hash: string }> {
     has: (ch) => font.hasGlyphForCodePoint(ch.codePointAt(0) ?? 0),
     advance: (ch) => (glyphOf(ch).advanceWidth / font.unitsPerEm) * 1000,
     hash: sha(bytes),
+    // Which characters the face draws (the version digest asks whether the faces of one family differ in it).
+    cover: sha(font.characterSet.join(',')),
   }
 }
 
@@ -94,34 +96,91 @@ export async function loadFonts(specs: FontSpec[]): Promise<{ fonts: LoadedFont[
     if (seen.has(id)) throw new Error(`payload-og-image: font face "${f.family}" ${f.weight} ${f.style} is registered twice`)
     seen.add(id)
   }
+  // The matching rule decides what is drawn only in a family whose faces are not interchangeable: they draw different characters, or the
+  // face chosen for some weight differs from the nearest weight (the rule before `FONT_MATCH_RULE`). Only such a site's URLs depend on it.
+  const byFamily = new Map<string, typeof loaded>()
+  for (const f of loaded) byFamily.set(f.family, [...(byFamily.get(f.family) ?? []), f])
+  const ruleMatters = [...byFamily.values()].some(
+    (faces) =>
+      faces.length > 1 &&
+      (new Set(faces.map((f) => f.cover)).size > 1 ||
+        [100, 200, 300, 400, 500, 600, 700, 800, 900].some((w) => {
+          const nearest = [...faces].sort(
+            (a, b) => Number(a.style !== 'normal') - Number(b.style !== 'normal') || Math.abs(a.weight - w) - Math.abs(b.weight - w),
+          )[0]
+          return matchFace(faces, faces[0]?.family as string, w) !== nearest
+        })),
+  )
   const digest = sha(
-    loaded
-      .map((f) => `${f.family}|${f.weight}|${f.style}|${f.hash}`)
-      .sort()
-      .join('\n'),
+    [
+      ...loaded.map((f) => `${f.family}|${f.weight}|${f.style}|${f.hash}`).sort(),
+      ...(ruleMatters ? [`match:${FONT_MATCH_RULE}`] : []),
+    ].join('\n'),
   )
   return { fonts: loaded.map(({ hash: _hash, ...f }) => f), digest }
 }
 
 const facesOf = (fonts: LoadedFont[], family: string) => fonts.filter((f) => f.family === family)
 
-/** The face a family is measured with: upright before italic, then the heaviest. Independent of registration order. */
-const measuringFace = (fonts: LoadedFont[], family: string, weight?: number): LoadedFont | undefined =>
-  facesOf(fonts, family).sort(
-    (a, b) =>
-      Number(a.style !== 'normal') - Number(b.style !== 'normal') ||
-      (weight === undefined ? b.weight - a.weight : Math.abs(a.weight - weight) - Math.abs(b.weight - weight)),
-  )[0]
+/**
+ * Which of two faces the renderer prefers for text drawn at `want` (negative: `a`), copied from satori's own comparator (`ec2` in
+ * `next/dist/compiled/@vercel/og`), which is CSS Fonts 4 weight matching: the requested weight itself; for 400 and 500 each other next; below
+ * 400 the lighter faces nearest first, then the heavier; above 500 the heavier faces nearest first, then the lighter. At the same weight the
+ * upright face, else the first registered. `FONT_MATCH_RULE` below is the version of this rule; the face-matching spec renders probes through
+ * satori and checks every choice against what it really drew.
+ */
+function preferred(want: number, a: LoadedFont, b: LoadedFont): number {
+  const t = a.weight
+  const n = b.weight
+  if (t !== n) {
+    if (t === want) return -1
+    if (n === want) return 1
+    if ((want === 400 && t === 500) || (want === 500 && t === 400)) return -1
+    if ((want === 400 && n === 500) || (want === 500 && n === 400)) return 1
+    if (want < 400) return t < want && n < want ? n - t : t < want ? -1 : n < want ? 1 : t - n
+    return want < t && want < n ? t - n : want < t ? -1 : want < n ? 1 : n - t
+  }
+  if (a.style !== b.style) {
+    if (a.style === 'normal') return -1
+    if (b.style === 'normal') return 1
+  }
+  return -1
+}
+
+/** Bumped when `preferred` (or what is measured with it) changes what a card draws: it is part of the fonts digest of a site with a family of several faces. */
+export const FONT_MATCH_RULE = 'css4-satori-1'
+
+/**
+ * The face of a family that draws and measures at `weight`: the one satori picks (`preferred`, applied in registration order as satori does).
+ * With no weight (the legacy rule): upright before italic, then the heaviest. `only`: the faces to choose among (default all of them).
+ */
+export const matchFace = (
+  fonts: LoadedFont[],
+  family: string,
+  weight?: number,
+  only?: (f: LoadedFont) => boolean,
+): LoadedFont | undefined => {
+  const faces = facesOf(fonts, family).filter((f) => only?.(f) ?? true)
+  if (weight !== undefined)
+    return faces.reduce<LoadedFont | undefined>((best, f) => (best === undefined || preferred(weight, best, f) > 0 ? f : best), undefined)
+  return faces.sort((a, b) => Number(a.style !== 'normal') - Number(b.style !== 'normal') || b.weight - a.weight)[0]
+}
+const measuringFace = matchFace
 const covers = (faces: LoadedFont[], ch: string) => faces.some((f) => f.has(ch))
 
 /**
  * The first family of the stack with ONE face that draws every character of the run: a whole-run swap, never
  * per-glyph mixing, and never a family whose faces only cover the run between them (a renderer picks one face).
+ * With a `weight` the face that must cover it is the one the text is drawn and measured with (the nearest weight, upright before
+ * italic), so a family whose bold face lacks a glyph is not chosen for a bold run just because its regular face has it.
+ * Without one, any face of the family may cover it.
  */
-export function coveringFamily(fonts: LoadedFont[], stack: string[], text: string): string | null {
+export function coveringFamily(fonts: LoadedFont[], stack: string[], text: string, weight?: number): string | null {
   const chars = [...text]
   for (const family of stack) {
-    if (facesOf(fonts, family).some((face) => chars.every((ch) => face.has(ch)))) return family
+    const face = weight === undefined ? undefined : measuringFace(fonts, family, weight)
+    const candidates = weight === undefined ? facesOf(fonts, family) : face ? [face] : []
+    if (candidates.some((f) => chars.every((ch) => f.has(ch)))) return family
   }
   return null
 }
@@ -130,9 +189,10 @@ export function coveringFamily(fonts: LoadedFont[], stack: string[], text: strin
  * The `font-family` value for a run of text. One family when a single face of it draws every character (a whole-run swap);
  * otherwise the stack's registered families in order, which the renderer resolves glyph by glyph (the first family that has the
  * glyph draws it). Characters no family draws are not this function's business: they are removed before drawing.
+ * `weight`: the weight the text is drawn at (see `coveringFamily`).
  */
-export function fontFamilyFor(fonts: LoadedFont[], stack: string[], text: string): string {
-  const one = coveringFamily(fonts, stack, text)
+export function fontFamilyFor(fonts: LoadedFont[], stack: string[], text: string, weight?: number): string {
+  const one = coveringFamily(fonts, stack, text, weight)
   if (one !== null) return one
   const present = stack.filter((family) => facesOf(fonts, family).length > 0)
   return present.length > 0 ? present.join(', ') : (stack[0] as string)
@@ -158,8 +218,14 @@ export function measureText(
 ): number {
   const tracking = o.tracking ?? 0
   // As drawn (`fontFamilyFor`): one family when a single face of it draws the whole run, else the stack glyph by glyph.
-  const one = coveringFamily(fonts, stack, text)
-  const faces = (one === null ? stack : [one]).flatMap((family) => measuringFace(fonts, family, o.weight ?? 400) ?? [])
+  // No weight: the family `fontFamilyFor(..., text)` picks (any face draws the run), measured with the face of it that draws the whole run
+  // nearest 400. A weight: the family whose face at that weight draws the run, measured with that face. One rule each, the same as drawn.
+  const weight = o.weight ?? 400
+  const one = coveringFamily(fonts, stack, text, o.weight)
+  const drawsAll = (f: LoadedFont) => [...text].every((ch) => f.has(ch))
+  const faces = (one === null ? stack : [one]).flatMap(
+    (family) => measuringFace(fonts, family, weight, one !== null && o.weight === undefined ? drawsAll : undefined) ?? [],
+  )
   const first = faces[0]
   if (!first) throw new Error(`payload-og-image: measureText: font family "${stack[0]}" is not registered`)
   const em = [...text].reduce((sum, ch) => sum + (faces.find((f) => f.has(ch)) ?? first).advance(ch) / 1000 + tracking, 0)
@@ -270,9 +336,11 @@ const fits = (l: Layout, size: number, box: Box, cap?: number) =>
   (cap === undefined || l.lines <= cap)
 
 /** Measures with one family, or with a stack: each character with the first family that has it (as the renderer draws it). */
-function faceOfFamily(fonts: LoadedFont[], family: string | string[], weight?: number): FaceOf {
+function faceOfFamily(fonts: LoadedFont[], family: string | string[], weight: number | undefined, text: string): FaceOf {
   if (typeof family === 'string') {
-    const face = measuringFace(fonts, family, weight)
+    // No weight: the heaviest face that draws the run (as before, whenever the heaviest one does). A weight: the face at that weight.
+    const draws = (f: LoadedFont) => [...text].every((ch) => f.has(ch))
+    const face = (weight === undefined ? measuringFace(fonts, family, undefined, draws) : undefined) ?? measuringFace(fonts, family, weight)
     if (!face) throw new Error(`payload-og-image: fitText: font family "${family}" is not registered`)
     return () => face
   }
@@ -289,7 +357,7 @@ function faceOfFamily(fonts: LoadedFont[], family: string | string[], weight?: n
  * are opt-in; a box without them measures and answers exactly as before.
  */
 export function fitText(fonts: LoadedFont[], family: string | string[], text: string, box: Box): Fitted {
-  const faceOf = faceOfFamily(fonts, family, box.weight)
+  const faceOf = faceOfFamily(fonts, family, box.weight, text)
   assertBox(box)
   const ladder = ladderOf(box)
   const smallest = ladder[ladder.length - 1] as { size: number; lines?: number }

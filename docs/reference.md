@@ -311,7 +311,7 @@ that moves only preset cards. Prepared images (the contained logo, its tint) are
 **Fonts.** Inter 400 and 700, each in latin, latin-ext and cyrillic (families `Inter`, `Inter Ext`, `Inter Cyrillic`, stack `default`), are registered only when
 the site gives neither `fonts` nor `stacks`. The licence is `fonts/OFL.txt`. The faces are read from an embedded copy of `fonts/*.woff`
 (`scripts/fetch-fonts.mjs` writes both from a pinned `@fontsource/inter`), never from a file path, because a bundled `import.meta.url` is not a file URL inside Next.
-A site with fonts of its own draws the presets with its own `default` stack. Text is measured with the weight and the family selection it is drawn with.
+A site with fonts of its own draws the presets with its own `default` stack. Text is measured with the weight and the family selection it is drawn with: given a weight, the face is the one satori picks (CSS Fonts 4 weight matching: the weight itself; 400 and 500 each other next; below 400 lighter first, above 500 heavier first), and a family must draw the whole run in that face to be chosen. A site whose faces of one family differ in the characters they draw, or whose weights match differently from "nearest", has the rule's version (`FONT_MATCH_RULE`) in its fonts digest, so its card URLs moved once with this rule; other sites' URLs did not.
 
 **Safe zone.** Text, a logo and a pill stay inside x 64 to 1136 and y 96 to 534: about 15% of a wide card is cropped top and bottom by some feeds.
 Only the photo, the scrims, the logo on the right, the brand art and the accent strip bleed. `textLayout` and `photoLayout` are pure functions of the props and `ctx`, so the zone is tested without pixels.
@@ -383,7 +383,9 @@ ogImagePlugin({
 })
 ```
 
-Unset keeps today's behaviour exactly: no existing card URL or bytes change. A value other than the default is part of
+Unset keeps today's behaviour exactly for PNG cards: no existing card URL or bytes change. A JPEG or WebP card is re-encoded lossy anyway, so
+there an unset `palette.hero` means truecolour (a 256-colour cut would only add banding); set `hero` to a number to cut it anyway. Cards
+of those formats moved to new URLs once when this default changed. A value other than the default is part of
 the card version (`card` for every card, `hero` for a card with a hero), so flipping it gives new URLs and never serves
 a stored card of the other encoding. A number is a ceiling: the encoder rounds it up to 2, 4, 16 or 256 colours, so
 17 to 256 all give the 256-colour palette (the default `card` of 128 and a `hero` of 256 are the same bytes at the sizes below).

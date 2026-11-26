@@ -52,9 +52,8 @@ export function loadTypescript(...locations: Load[]): Ts {
         continue
       }
       if (typeof (found as Partial<Ts> | undefined)?.createSourceFile === 'function') return found as Ts
-      notes.push(
-        `${id} ${String((found as { version?: unknown } | undefined)?.version ?? '')}`.trim() + ' has no compiler API (TypeScript 7)',
-      )
+      const named = `${id} ${String((found as { version?: unknown } | undefined)?.version ?? '')}`.trim()
+      notes.push(`${named} has no compiler API (TypeScript 7)`)
     }
   }
   throw new Error(

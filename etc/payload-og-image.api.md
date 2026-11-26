@@ -393,7 +393,7 @@ export type TemplateContext = {
         text: string;
         width?: number;
     };
-    font(stack: string, text: string): string;
+    font(stack: string, text: string, weight?: number): string;
     fitRow?(items: RowItem[], width: number, gap?: number): RowFit[];
 };
 

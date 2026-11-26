@@ -29,17 +29,20 @@ export const cardPaletteOf = (o?: PaletteOption): Palette | false =>
       ? false
       : { ...DEFAULT_PALETTE, colours: effectiveColours(o.card) }
 
-/** The hero's effective colour count (`false` = truecolour). */
-export const heroColoursOf = (o?: PaletteOption): false | number =>
-  o?.hero === undefined || o.hero === false ? (o?.hero ?? DEFAULT_HERO_COLOURS) : effectiveColours(o.hero)
+/**
+ * The hero's effective colour count (`false` = truecolour). For a lossy card (`lossy`) an unset `hero` is truecolour: the card is re-encoded
+ * lossy anyway, so a 256-colour cut only adds banding. An explicit value always wins.
+ */
+export const heroColoursOf = (o?: PaletteOption, lossy = false): false | number =>
+  o?.hero === undefined ? (lossy ? false : DEFAULT_HERO_COLOURS) : o.hero === false ? false : effectiveColours(o.hero)
 
 /**
  * What the card version must mention: nothing while a setting encodes like its default (so existing cards keep their URLs),
  * else the effective depth: values sharp rounds to the same depth give the same bytes and so the same URL.
  */
-export function paletteTags(o?: PaletteOption): { card?: string; hero?: string } {
+export function paletteTags(o?: PaletteOption, lossy = false): { card?: string; hero?: string } {
   const card = cardPaletteOf(o)
-  const hero = heroColoursOf(o)
+  const hero = heroColoursOf(o, lossy)
   return {
     card: card !== false && card === DEFAULT_PALETTE ? undefined : String(card === false ? false : card.colours),
     hero: hero === DEFAULT_HERO_COLOURS ? undefined : String(hero),
