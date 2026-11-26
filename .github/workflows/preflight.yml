@@ -66,7 +66,7 @@ jobs:
   # Payload 4 support, a gate like `preflight`: the type check, the suite, the public surface and the dev-app HTTP probe against two Payload 4 betas:
   # the floor the peer range claims (`^4.0.0-beta.N`) and the newest one every @payloadcms/* package has cleared the release-age cooldown on
   # (the same version while the floor is the newest). Nothing from this job ships or is committed back.
-  payload-beta:
+  payload-beta-run:
     if: ${{ !github.event.repository.private || github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
     runs-on: ${{ github.event.repository.private && fromJSON('["self-hosted","linux","arm64"]') || 'ubuntu-24.04-arm' }}
     timeout-minutes: 25
@@ -109,3 +109,14 @@ jobs:
       # The committed import map is Payload 3's output (`@payloadcms/next/rsc` is gone in 4): regenerate it before the app is built.
       - run: node_modules/.bin/payload generate:importmap
       - run: node scripts/probe-dev-server.mjs
+
+  # The required status check is named `payload-beta`: this job keeps that one stable name over the matrix above, so adding or
+  # renaming a matrix leg never leaves branch protection waiting on a check that no longer exists.
+  payload-beta:
+    if: ${{ always() }}
+    needs: payload-beta-run
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 2
+    steps:
+      - name: Every Payload beta leg passed
+        run: test "${{ needs.payload-beta-run.result }}" = success
