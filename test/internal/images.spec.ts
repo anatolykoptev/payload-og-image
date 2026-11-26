@@ -9,6 +9,11 @@
  * - handler.ts `loadImages` uses `card.heroCollection` -> same test RED
  * - handler.ts `ctxFor` drops `images` -> "ctx.images carries the prepared images" RED
  * - handler.ts `downgraded` ignores `failed` -> "an image whose file cannot be prepared is left out and the card is served degraded, never stored" RED
+ * - version tail without the collection (resolve.ts/version.ts `imageTail`) -> "the same id and updatedAt in another collection is another card" RED
+ * - resolve.ts `namedImages` result not sorted by name -> "the order the target lists names in changes neither v nor the drawing" RED
+ * - handler.ts `loadImages` accumulates into `{}` -> "a list named like an Object.prototype member is a list" RED
+ * - resolve.ts `namedImages` maps whole arrays before the budget -> "a huge list is read only up to the budget" RED
+ * - draw.ts empty `images` is `{}` -> "has no inherited members" RED
  * - hero.ts `keepAlpha` ignored -> heroLoader.spec "a named image keeps its alpha on a site that sets heroBackground" RED */
 import { describe, expect, it, vi } from 'vitest'
 import { createGate } from '../../src/internal/gate.js'
@@ -36,7 +41,8 @@ const gallery = defineTemplate<{ title: string }>({
     ({
       type: 'div',
       props: {
-        children: [p.title, ...(ctx.images.stack ?? []).map((src) => ({ type: 'img', props: { src } })), ...(ctx.images.logo ?? [])],
+        // Drawn in the dictionary's own order: a template can observe it.
+        children: [p.title, ...Object.values(ctx.images).flatMap((list) => list ?? [])],
       },
     }) as never,
 })
@@ -101,8 +107,8 @@ describe('named images: resolving', () => {
     const t = target({ images: () => ({ stack: [1], logo: 1 }), imageCollections: { logo: 'logos' } })
     const r = await run({ target: t, doc: doc([]), related })
     expect(r.images.map((i) => [i.name, i.collection, i.uploads[0]?.filename])).toEqual([
+      ['logo', 'logos', 'logo.png'], // canonical order: by name
       ['stack', 'media', '1.png'],
-      ['logo', 'logos', 'logo.png'],
     ])
     const viaHero = await run({ target: target({ heroCollection: 'logos' }), doc: doc([1]), related })
     expect(viaHero.images[0]?.collection).toBe('logos')
@@ -120,9 +126,9 @@ describe('named images: resolving', () => {
     const related = relatedOf({ media: all })
     const t = target({ images: () => ({ stack: [1, 2, 3, 4, 5], logo: [6, 7, 8, 9, 10] }) })
     const r = await run({ target: t, doc: doc([]), related })
-    expect(r.images.map((i) => i.uploads.map((u) => u.id))).toEqual([
-      [1, 2, 3, 4, 5],
-      [6, 7, 8],
+    expect(r.images.map((i) => [i.name, i.uploads.map((u) => u.id)])).toEqual([
+      ['logo', [6, 7, 8]], // canonical order: by name; the budget was spent in the order given
+      ['stack', [1, 2, 3, 4, 5]],
     ])
   })
   it('a hero that is a bare id (a hasMany upload field at depth 0) is read by id, from heroCollection or the only upload collection', async () => {
@@ -169,6 +175,40 @@ describe('named images: the version', () => {
     const stack = await run({ target: target({ images: () => ({ stack: [1] }) }), doc: doc([]), related })
     const logo = await run({ target: target({ images: () => ({ logo: [1] }) }), doc: doc([]), related })
     expect(logo.v).not.toBe(stack.v)
+  })
+})
+
+describe('named images: canonical order, provenance, budget', () => {
+  it('the same id and updatedAt in another collection is another card', async () => {
+    const related = relatedOf({ media: { 1: upload(1) }, logos: { 1: upload(1) } })
+    const a = await run({ target: target({ images: () => ({ stack: [1] }) }), doc: doc([]), related })
+    const b = await run({ target: target({ images: () => ({ stack: [1] }), imageCollections: { stack: 'logos' } }), doc: doc([]), related })
+    expect(b.v).not.toBe(a.v)
+  })
+  it('a huge list is read only up to the budget', async () => {
+    const related = relatedOf({ media: Object.fromEntries(Array.from({ length: 20 }, (_, n) => [String(n), upload(n)])) })
+    let reads = 0
+    const huge = new Proxy(
+      Array.from({ length: 100_000 }, (_, n) => n % 20),
+      {
+        get(t, k, r) {
+          if (typeof k === 'string' && /^\d+$/.test(k)) reads += 1
+          return Reflect.get(t, k, r)
+        },
+      },
+    )
+    const r = await run({ target: target({ images: () => ({ stack: huge, logo: huge }) }), doc: doc([]), related })
+    expect(r.images.flatMap((i) => i.uploads)).toHaveLength(8)
+    expect(reads).toBeLessThanOrEqual(10)
+  })
+})
+
+describe('the template context', () => {
+  it('has no inherited members: an empty images dictionary answers nothing for `constructor`', async () => {
+    const { templateContext } = await import('../../src/internal/draw.js')
+    const ctx = templateContext({ host: 'x.test', fonts: [], stacks: {}, hero: null })
+    expect(Object.getPrototypeOf(ctx.images)).toBeNull()
+    expect((ctx.images as Record<string, unknown>).constructor).toBeUndefined()
   })
 })
 
@@ -249,6 +289,72 @@ describe('named images: drawing', () => {
     expect(put).not.toHaveBeenCalled()
     expect(rendered[0]).toContain('base64,I1')
     expect(rendered[0]).not.toContain('base64,I2')
+  })
+  it('the order the target lists names in changes neither v nor the drawing', async () => {
+    const order = (keys: string[]) => {
+      const t = { images: () => Object.fromEntries(keys.map((k) => [k, k === 'logo' ? [5] : [1, 2]])) }
+      return setup(async (u: { id: number }) => `data:image/png;base64,I${u.id}`, table, t)
+    }
+    const a = order(['stack', 'logo'])
+    const b = order(['logo', 'stack'])
+    const ra = await get(a.h)
+    const rb = await get(b.h)
+    expect(ra.headers.get('etag')).toBe(rb.headers.get('etag'))
+    expect(b.rendered[0]).toBe(a.rendered[0])
+    expect(a.rendered[0]?.indexOf('base64,I5')).toBeLessThan(a.rendered[0]?.indexOf('base64,I1') as number) // canonical: logo before stack
+  })
+  it('a list named like an Object.prototype member is a list', async () => {
+    const odd = defineTemplate<{ title: string }>({
+      id: 'gallery',
+      revision: '1',
+      textFields: ['title'],
+      imageBoxes: { constructor: { width: 10, height: 10 }, toString: { width: 10, height: 10 } },
+      render: (p, ctx) =>
+        ({
+          type: 'div',
+          props: {
+            children: [p.title, ...Object.values(ctx.images).flatMap((list) => list ?? [])],
+          },
+        }) as never,
+    })
+    const s = setup(async (u: { id: number }) => `data:image/png;base64,I${u.id}`, table, {
+      images: () => ({ constructor: [1], toString: [2] }),
+    })
+    ;(s as never as { h: unknown }).h = undefined
+    const rendered: string[] = []
+    const h = createCardHandler({
+      targets: { posts: target({ images: () => ({ constructor: [1], toString: [2] }) }) },
+      statics: {},
+      templates: new Map([['gallery', odd]]),
+      fonts: loadTestFonts,
+      stacks: { title: ['Inter'] },
+      serverUrl: 'https://x.test',
+      source: {
+        published: async () => ({ id: 1, slug: 'a', title: 'A' }),
+        publishedById: async () => null,
+        draft: async () => null,
+        site: async () => ({ name: 'S' }),
+        related: relatedOf({ media: { 1: upload(1), 2: upload(2) } }),
+      },
+      store: memoryStore(),
+      renderer: {
+        render: async (el: unknown) => {
+          rendered.push(JSON.stringify(el))
+          return realPng('x')
+        },
+      },
+      heroLoader: async (u: { id: number }) => `data:image/png;base64,I${u.id}`,
+      uploadCollection: 'media',
+      gate: createGate(),
+      memo: createMemo(),
+      events: { emit: vi.fn() },
+      isDraftRequest: async () => false,
+      fallback,
+    } as never)
+    const r = await get(h)
+    expect([r.status, r.headers.get('x-og-cache')]).toEqual([200, 'render'])
+    expect(rendered[0]).toContain('base64,I1')
+    expect(rendered[0]).toContain('base64,I2')
   })
   it('a card with no named image calls the loader for none', async () => {
     const { h, heroLoader } = setup(async () => 'data:image/png;base64,AAAA', table, { images: undefined })

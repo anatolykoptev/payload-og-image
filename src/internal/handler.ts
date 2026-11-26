@@ -198,8 +198,11 @@ export function createCardHandler(d: HandlerDeps): CardHandler {
   }
   const unavailable = () => respond(503, CACHE.none, { 'retry-after': '5' })
 
-  const ctxFor = (fonts: LoadedFont[], hero: string | null, images?: Record<string, string[]>): TemplateContext =>
-    templateContext({ host, fonts, stacks: d.stacks, hero, images })
+  const ctxFor = (
+    fonts: LoadedFont[],
+    hero: string | null,
+    images?: Readonly<Partial<Record<string, readonly string[]>>>,
+  ): TemplateContext => templateContext({ host, fonts, stacks: d.stacks, hero, images })
 
   /**
    * The card's named images, prepared at the template's box for each name and never flattened (a logo stays transparent), each from its own
@@ -210,12 +213,12 @@ export function createCardHandler(d: HandlerDeps): CardHandler {
       uploads.map((upload) => ({ name, collection, upload, box: (card.template.imageBoxes as Record<string, Size>)[name] as Size })),
     )
     const loaded = await pooled(jobs, 4, (j) => d.heroLoader(j.upload, j.box, { collection: j.collection, keepAlpha: true }))
-    const images: Record<string, string[]> = {}
+    const images: Record<string, string[]> = Object.create(null)
     let failed = 0
     jobs.forEach((j, n) => {
       const url = loaded[n]
       if (url === null || url === undefined) failed += 1
-      else images[j.name] = [...(images[j.name] ?? []), url]
+      else images[j.name] = [...(Object.hasOwn(images, j.name) ? (images[j.name] as string[]) : []), url]
     })
     return { images, failed }
   }

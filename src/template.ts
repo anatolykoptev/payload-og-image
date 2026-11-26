@@ -44,7 +44,7 @@ export type TemplateContext = {
    * file could not be prepared is served briefly and never stored, like a hero that failed). Unlike the hero, they are never flattened
    * onto a ground: a transparent logo stays transparent. A name the target did not give is absent.
    */
-  images: Record<string, string[]>
+  images: Readonly<Partial<Record<string, readonly string[]>>>
   /**
    * The largest size at which `text` fits `box` in `stack`. By default every second size from `box.maxSize` down; a box can opt in to a
    * ladder of its own (`sizes`), letter spacing (`tracking`), room for descenders (`descent`), a calmer line count (`fewerLines`) and
@@ -126,7 +126,7 @@ export type Target<D = any, P = any> = {
   slugField?: string
   template: string | ((a: ResolverArgs<D>) => string)
   props: (a: ResolverArgs<D>) => P | Promise<P>
-  hero?: (a: ResolverArgs<D>) => Upload | null | undefined
+  hero?: (a: ResolverArgs<D>) => Upload | ImageRef | null | undefined
   /** The upload collection the hero belongs to. A hero file is read only from that collection's folder; with one upload collection it may be omitted. */
   heroCollection?: string
   /**

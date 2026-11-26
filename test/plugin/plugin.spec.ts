@@ -5,6 +5,7 @@
  * - internal/colour.ts:8  accept a colour name -> "a named hero background" RED
  * - index.ts:71  ignore `options.serverURL` (use the config's only) -> "ogImagePlugin: serverURL option > builds card URLs on options.serverURL" RED
  * - index.ts:64  no `default` stack required -> "refuses no default stack" RED
+ * - index.ts `uploads.has(slug)` check removed (heroCollection / imageCollections accepted unchecked) -> "3b: heroCollection and imageCollections must name upload collections of this config" RED
  * - index.ts:82  accept a target on a missing collection -> "3: a target whose collection does not exist throws" RED
  * - index.ts:83  accept an unknown template -> "2: a target naming an unknown template throws" RED
  * - index.ts:85  skip the duplicate-kind check -> "4: two targets with the same kind throw" RED
@@ -67,6 +68,21 @@ describe('ogImagePlugin: config transform', () => {
       /target "articles" names the collection "articles", which does not exist/,
     )
     expect(() => apply(options({ targets: { x: defineTarget<any, any>({ ...posts, collection: 'nope' }) } }))).toThrow(/collection "nope"/)
+  })
+  it('3b: heroCollection and imageCollections must name upload collections of this config', () => {
+    const c = {
+      ...baseConfig(),
+      collections: [...(baseConfig().collections ?? []), { slug: 'media', upload: true, fields: [] }, { slug: 'authors', fields: [] }],
+    } as Config
+    const withTarget = (over: Record<string, unknown>) => options({ targets: { posts: defineTarget<any, any>({ ...posts, ...over }) } })
+    expect(() => apply(withTarget({ heroCollection: 'media', imageCollections: { logo: 'media' } }), c)).not.toThrow()
+    expect(() => apply(withTarget({ heroCollection: 'authors' }), c)).toThrow(
+      /target "posts" heroCollection "authors" is not an upload collection/,
+    )
+    expect(() => apply(withTarget({ heroCollection: 'ghost' }), c)).toThrow(/heroCollection "ghost" is not an upload collection/)
+    expect(() => apply(withTarget({ imageCollections: { logo: 'authors' } }), c)).toThrow(
+      /imageCollections\.logo "authors" is not an upload collection/,
+    )
   })
   it('4: two targets with the same kind throw', () => {
     const c = { ...baseConfig(), collections: [...(baseConfig().collections ?? []), { slug: 'pages', fields: [] }] } as Config

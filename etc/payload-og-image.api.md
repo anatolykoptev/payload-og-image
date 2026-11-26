@@ -231,7 +231,7 @@ export type Target<D = any, P = any> = {
     slugField?: string;
     template: string | ((a: ResolverArgs<D>) => string);
     props: (a: ResolverArgs<D>) => P | Promise<P>;
-    hero?: (a: ResolverArgs<D>) => Upload | null | undefined;
+    hero?: (a: ResolverArgs<D>) => Upload | ImageRef | null | undefined;
     heroCollection?: string;
     images?: (a: ResolverArgs<D>) => Record<string, ImageRef | readonly ImageRef[] | null | undefined>;
     imageCollections?: Record<string, string>;
@@ -268,7 +268,7 @@ export type Template<P extends PropsModel> = {
 export type TemplateContext = {
     host: string;
     hero: string | null;
-    images: Record<string, string[]>;
+    images: Readonly<Partial<Record<string, readonly string[]>>>;
     fit(text: string, box: Box, stack: string): {
         size: number;
         lines: number;

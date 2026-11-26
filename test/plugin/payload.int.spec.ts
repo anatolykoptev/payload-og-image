@@ -564,14 +564,14 @@ describe('payloadSource against a real Payload', () => {
     })
     it('named images are read with the visitor access: the public gets what it may read, an editor also a private or draft upload', async () => {
       expect(summary(await cardOf())).toEqual([
+        ['drafts', ['p.png']], // the draft-only file is no image for the public (names in canonical order)
         ['shots', ['h.png']],
-        ['drafts', ['p.png']], // the draft-only file is no image for the public
       ])
       const asEditor = new Request('https://x.test/x', { headers: { ...Object.fromEntries(editorHeaders), 'x-draft': '1' } })
       expect(summary(await cardOf(asEditor))).toEqual([
-        ['shots', ['h.png']],
-        ['secret', ['s.png']],
         ['drafts', ['d.png', 'p.png']],
+        ['secret', ['s.png']],
+        ['shots', ['h.png']],
       ])
     })
   })

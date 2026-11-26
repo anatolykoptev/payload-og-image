@@ -81,14 +81,15 @@ export function normalizeProps(value: unknown, path = 'props', seen: object[] = 
 export const heroTag = (h: Upload) => `${String(h.id)}:${h.updatedAt ?? ''}`
 
 /**
- * `img:` and the canonical JSON of `[name, [upload tags]]` pairs sorted by name, plus the hero palette (named images are cut with it,
+ * `img:` and the canonical JSON of `[name, collection, [upload tags]]` entries sorted by name, plus the hero palette (named images are cut with it,
  * and are never flattened, so the plugin's `heroBackground` is no part of them). Undefined when no image resolved.
  */
 function imageTail(i: VersionInput): string | undefined {
-  const named = (i.images ?? []).filter(([, uploads]) => uploads.length > 0)
+  const named = (i.images ?? []).filter((e) => e.uploads.length > 0)
   if (named.length === 0) return undefined
-  const sorted = [...named].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-  return `img:${canonicalJson(sorted.map(([name, uploads]) => [name, uploads.map(heroTag)]))}${i.heroPalette ? `|hp:${i.heroPalette}` : ''}`
+  const sorted = [...named].sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
+  // The collection is in it: ids are only unique within one collection.
+  return `img:${canonicalJson(sorted.map((e) => [e.name, e.collection, e.uploads.map(heroTag)]))}${i.heroPalette ? `|hp:${i.heroPalette}` : ''}`
 }
 
 // Slots 8-9 (locale, variant) are constants in 0.1 (`''`, `og`); the variant slot carries a JPEG card's encoding (0.6), and the default hashes identically. Slot 10 is the nonce: 0 or absent is the 0.1 value.

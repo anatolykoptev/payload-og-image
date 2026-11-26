@@ -239,6 +239,11 @@ object with no file, is read by id with the visitor's access from `heroCollectio
 collection; `hero: ({ doc }) => doc.photos?.[0]` therefore draws the first photo. With more than one upload collection and
 no `heroCollection`, a bare id cannot be placed, and the card has no hero: name the collection.
 
+Upgrade effect: a resolver that returned a bare id from a `hasMany` field used to draw no hero, and now draws it when the
+id resolves, so those cards get a new `v` once (the hero is part of the version). `Target.hero` may return an `ImageRef`
+(an id, or `{ id }`) as well as an upload. `heroCollection` and every `imageCollections` value must be an upload collection
+of the config, or the plugin refuses to start, naming it.
+
 ## Several images per card
 
 `Target.images` names lists of uploads besides the hero, for a template that draws a stack of photos, a logo or a row of
@@ -271,8 +276,12 @@ const gallery = defineTemplate({
 - At most 8 images in all, across every name, in the order given; the rest are left out.
 - They are never flattened: a transparent logo stays transparent whatever `heroBackground` is. `palette.hero` applies to
   them as it does to the hero.
-- Version: the uploads that resolved (id and `updatedAt`, by name) are part of the card's version, so replacing a file or
-  an editor's choice gives a new URL. A card with no named image hashes exactly as before this option existed.
+- Version: the uploads that resolved (collection, id and `updatedAt`, by name) are part of the card's version, so replacing
+  a file through Payload or an editor's choice gives a new URL. Overwriting a file's bytes in place without changing
+  `updatedAt` (outside Payload) is not seen by the version, as for the hero.
+- `ctx.images` has its names in one canonical order (sorted), the order the version uses, whatever order the target listed
+  them in; a list with nothing left is absent (`ctx.images.stack ?? []`). The budget of 8 is spent in the order the target
+  listed them. A name is read from the collection you configure; an object whose origin is another collection contributes only its id. A card with no named image hashes exactly as before this option existed.
 - An upload that resolved but whose file cannot be prepared is left out of its list, and the card is served for five minutes
   and never stored, like a card whose hero failed.
 

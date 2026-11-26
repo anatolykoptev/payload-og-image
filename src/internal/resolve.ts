@@ -164,10 +164,17 @@ async function namedImages(i: ResolveInput, args: ResolverArgs<any>, template: T
         `payload-og-image: target "${i.targetName}" image "${name}" needs an upload collection: set imageCollections.${name} (the site has more than one upload collection)`,
       )
     }
-    const refs: unknown[] = value === null || value === undefined ? [] : Array.isArray(value) ? value : [value]
-    const ids = refs.map(uploadId).filter((id): id is string => id !== undefined)
-    wanted.push({ name, collection, ids: ids.slice(0, left) })
-    left -= Math.min(left, ids.length)
+    // Ids are collected up to the remaining budget only: a huge hasMany list costs no more than the first few entries.
+    const ids: string[] = []
+    if (value !== null && value !== undefined) {
+      for (const ref of Array.isArray(value) ? value : [value]) {
+        if (ids.length >= left) break
+        const id = uploadId(ref)
+        if (id !== undefined) ids.push(id)
+      }
+    }
+    wanted.push({ name, collection, ids })
+    left -= ids.length
   }
   // Each distinct upload is read once, a few at a time.
   const distinct = [
@@ -176,10 +183,12 @@ async function namedImages(i: ResolveInput, args: ResolverArgs<any>, template: T
     ).entries(),
   ]
   const read = new Map(await pooled(distinct, 4, async ([key, u]) => [key, await readUpload(args.related, u.collection, u.id)] as const))
-  return wanted.flatMap(({ name, collection, ids }) => {
+  const resolved = wanted.flatMap(({ name, collection, ids }) => {
     const uploads = ids.map((id) => read.get(`${collection}\u0000${id}`) ?? null).filter((u): u is Upload => u !== null)
     return uploads.length > 0 ? [{ name, collection, uploads }] : []
   })
+  // One canonical order (by name) for the version and for the template, so equal hash means equal drawing whatever order the target listed them in.
+  return resolved.sort((x, y) => (x.name < y.name ? -1 : x.name > y.name ? 1 : 0))
 }
 
 /** The document's `og.mode`: one of the four, and `inherit` for anything else (including no `og` data). */
@@ -310,7 +319,7 @@ export async function resolveCard(i: ResolveInput): Promise<ResolvedCard> {
     templateRevision: template.revision,
     props,
     heroes: hero ? [hero] : [],
-    images: images.map(({ name, uploads }) => [name, uploads]),
+    images,
     // An own ground is hashed like the plugin's: only when it is not white (white is what 0.4.0 flattened onto, and hashes no tag).
     heroBackground: background === undefined ? i.heroBackground : background === DEFAULT_HERO_BACKGROUND ? undefined : background,
     heroTransparent,

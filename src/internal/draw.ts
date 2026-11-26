@@ -11,7 +11,7 @@ export function templateContext(a: {
   stacks: Stacks
   hero: string | null
   /** The prepared named images; none when absent. */
-  images?: Record<string, string[]>
+  images?: Readonly<Partial<Record<string, readonly string[]>>>
 }): TemplateContext {
   /** The same rule `resolveCard` uses to strip: the named stack, else the explicit `default`. */
   const stackOf = (name: string): string[] => {
@@ -22,7 +22,8 @@ export function templateContext(a: {
   return {
     host: a.host,
     hero: a.hero,
-    images: a.images ?? {},
+    // A null-prototype dictionary: a list named `constructor` or `toString` is a list, never an inherited function.
+    images: a.images ?? Object.create(null),
     // A run no single family draws is measured and drawn glyph by glyph across the stack, never with its first family alone.
     fit: (text, box, stack) => {
       const s = stackOf(stack)

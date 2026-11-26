@@ -90,7 +90,7 @@ export type VersionInput = {
    * The card's named images (`Target.images`), by name and in order, only the ones that resolved; absent or empty adds nothing, so a
    * card without them hashes exactly as before. Hashed with each upload's id and `updatedAt`, and the effective hero palette.
    */
-  images?: Array<[name: string, uploads: Upload[]]>
+  images?: Array<{ name: string; collection: string; uploads: Upload[] }>
   fontsDigest: string
   host: string
   /** A per-document counter an editor bumps to give a card a new URL. 0 or absent hashes exactly as 0.1. */
