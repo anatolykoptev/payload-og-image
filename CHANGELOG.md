@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.2](https://github.com/anatolykoptev/payload-og-image/compare/v0.7.1...v0.7.2) (2026-11-26)
+
+
+### Bug Fixes
+
+* **ci:** run the pack gate on every pull request; install optional peers per entry ([#80](https://github.com/anatolykoptev/payload-og-image/issues/80)) ([91d2e62](https://github.com/anatolykoptev/payload-og-image/commit/91d2e629270c8e8bd68f0c52be5b90777fb85ba7))
+
 ## [0.7.1](https://github.com/anatolykoptev/payload-og-image/compare/v0.7.0...v0.7.1) (2026-11-26)
 
 
