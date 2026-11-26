@@ -293,7 +293,16 @@ Only the photo, the scrims, the logo on the right, the brand art and the accent 
 
 **Logos.** `site().logo` is trimmed of its transparent (or uniform) margin and contained, never cropped: at most 220 x 44 in the head of the text card, 150 x 36 at the end of the photo card's fact row. A logo wider than 1.5:1 stands alone (no site name beside it, no logo on the right).
 `partnerLogo` follows after a 16 px gap (at most 160 x 44, or 120 x 36). A logo whose opaque pixels mostly contrast under 3:1 with the dark ground (a black wordmark) is drawn in the ink (white on the photo card). `ImageShape` (`Template.imageShapes`) is the generic
-form of this: `fit`, `trim`, `contrast`, `aspect`. SVG logos are not read (see `hero.ts`): such a site draws the no-logo card.
+form of this: `fit`, `trim`, `contrast`, `aspect`. An SVG logo is read, after a rebuild: the file is parsed as XML (namespace-aware, no DTD or entity beyond the five predefined) and a new document is
+written from an allowlist of elements and attributes a logo needs (shapes, paths, groups, gradients, clip paths, masks, `use`); `<style>` and
+`style=` are reduced to presentation properties, every reference must be a `#id` that exists, and text, filters, patterns, markers and
+images are not drawn. A file that tries to leave the document (a link, a `url()`, an `<image>`, an entity), loops or multiplies itself
+(a `use` cycle, an expansion past 50,000 elements), or exceeds a bound (1 MiB, depth 32, 256 stops, numbers past 1,000,000, more than 8
+nested groups with opacity below 1, a mask or a clip path) is refused. The rebuilt document is drawn by resvg (WebAssembly: no file system,
+no network, no fonts) in a worker thread with a heap limit and a 4 s timeout, one at a time, at most 1 million pixels: WebAssembly memory is
+not capped by the worker's limits, so memory is bounded by that arithmetic (a full-size layer per nested group, about 27 MiB of growth at the
+caps). The parser and the renderer load the first time an SVG is seen, and the drawn PNG is remembered per upload version (16 entries). A
+refused or failed SVG draws the no-logo card, never a failed card and never a fetch (`src/render/svg.ts`).
 
 **The text card** (dark ground `#121416`, ink `#EEF0F2`, muted `#A3A9B0`, accent `#8FB4FF`): the left column holds the head lockup (logo, partner, site name, a hairline, the label), the title, the sub line and the foot (`author · domain`, where the author is the `byline` prop, and the domain has no `www.`);
 the right holds the uploaded `brandArt`, else the site's logo, whole, trimmed and contained in 400 x 400 at (736, 115), at `artOpacity`; it is faint and sits behind the title, so the title column stays 900 px and a short title keeps its large rungs (84 px on two lines for a 42-character title). Uploaded `brandArt` is opaque: it takes the right of the card (464 px) and the column narrows to 640. With neither, or when the logo is no mark (a trimmed aspect outside 0.67 to 1.5), the right side is empty.

@@ -10,6 +10,7 @@ import type { Upload } from '../internal/types.js'
 import { heroTag } from '../internal/version.js'
 import { guardedFetch, isPublicAddress, type ResolveHost, systemResolve } from './guardedFetch.js'
 import { prepareShape } from './shape.js'
+import { looksLikeSvg, looksRaster } from './sniff.js'
 
 export type HeroLoaderOptions = {
   /**
@@ -38,9 +39,11 @@ export type HeroLoaderOptions = {
 
 const O_NOFOLLOW = constants.O_NOFOLLOW ?? 0
 const O_NONBLOCK = constants.O_NONBLOCK ?? 0
-/** Raster formats only: an SVG would be rasterised by librsvg, which may touch other files. */
+/** Raster formats only: an SVG never reaches sharp as received (librsvg may follow its references); `decode` vets and rasterises it first. */
 const RASTER = new Set(['jpeg', 'png', 'webp', 'gif', 'avif', 'tiff', 'heif'])
 const FETCH_TIMEOUT_MS = 5000
+/** A rasterised SVG whose alpha mean is at least this (of 255) counts as opaque. */
+const SVG_OPAQUE_MEAN = 254
 
 const posInt = (n: unknown, what: string) => {
   if (typeof n !== 'number' || !Number.isInteger(n) || n < 1)
@@ -135,6 +138,22 @@ async function fetchRemote(
 
 const clamp = (n: unknown, fallback: number) => (typeof n === 'number' && Number.isFinite(n) ? Math.min(100, Math.max(0, n)) : fallback)
 
+/**
+ * The bytes ready for the raster pipeline: a raster image as it is, an SVG vetted and rasterised by `rasteriseSvg` (null when it is
+ * refused). `cover` is the size the picture will be drawn at.
+ */
+async function decode(bytes: Buffer, cover: { width: number; height: number }, maxPixels: number): Promise<Buffer | null> {
+  if (looksRaster(bytes)) return bytes
+  // Neither a raster image nor an SVG document: nothing is handed to a decoder (an SVG in an encoding the sanitiser cannot read included).
+  if (!looksLikeSvg(bytes)) return null
+  // The XML parser and the WebAssembly renderer load the first time an SVG is seen, never for a site that has none.
+  const { rasteriseSvg } = await import('./svg.js')
+  return rasteriseSvg(bytes, cover, maxPixels)
+}
+
+/** Rasterised SVGs remembered per upload version and size (the least recently used goes first): an SVG is drawn once per version per process. */
+const SVG_CACHE = 16
+
 /** The image cut to the box around its focal point (the centre without one), as a palette PNG data URL; null if it is no usable raster image. */
 async function prepare(
   bytes: Buffer,
@@ -179,12 +198,16 @@ async function prepare(
 }
 
 /** Whether any pixel of the image is see-through: a header check first, then a pixel pass only for an image that has an alpha channel. */
-async function transparent(bytes: Buffer, maxPixels: number): Promise<boolean> {
+async function transparent(bytes: Buffer, maxPixels: number, fuzzy = false): Promise<boolean> {
   try {
     const input = { limitInputPixels: maxPixels, failOn: 'error' as const }
     const meta = await sharp(bytes, input).metadata()
     if (!meta.format || !RASTER.has(meta.format) || !meta.hasAlpha) return false
-    return !(await sharp(bytes, input).stats()).isOpaque
+    const stats = await sharp(bytes, input).stats()
+    if (!fuzzy) return !stats.isOpaque
+    // A rasterised SVG has a soft edge (and seams) where a shape meets the border or another shape: the alpha MEAN tells a see-through logo
+    // (a margin, a hole, a partial fill) from an opaque one with antialiasing (mean 254.8 of 255 for a solid rectangle).
+    return (stats.channels.at(-1)?.mean ?? 255) < SVG_OPAQUE_MEAN
   } catch {
     return false
   }
@@ -246,10 +269,31 @@ export function payloadHeroLoader(o: HeroLoaderOptions): HeroLoader {
   const colours = o.colours ?? DEFAULT_HERO_COLOURS
   const read = async (hero: Upload, where?: { collection?: string }) =>
     (await readLocal(hero, await o.staticDirs(where?.collection), maxBytes)) ?? (await fetchRemote(hero, { hosts, fetchImpl, maxBytes }))
+  const keyOf = (hero: Upload, where?: { collection?: string }) => `${where?.collection ?? ''}\u0000${heroTag(hero)}`
+  const svgs = new Map<string, Buffer | null>()
+  /** The upload as the raster pipeline reads it. `svg`: it was rasterised (or refused as an SVG), and a repeat is answered from `svgs` without reading the file. */
+  const rasterReady = async (hero: Upload, where: { collection?: string } | undefined, cover: { width: number; height: number }) => {
+    const key = `${keyOf(hero, where)}|${cover.width}x${cover.height}`
+    if (svgs.has(key)) {
+      const hit = svgs.get(key) as Buffer | null
+      svgs.delete(key) // most recently used last
+      svgs.set(key, hit)
+      return { bytes: hit, svg: true, unreadable: false }
+    }
+    const source = await read(hero, where)
+    if (!source) return { bytes: null, svg: false, unreadable: true }
+    const bytes = await decode(source, cover, maxPixels)
+    const svg = bytes !== source
+    if (svg) {
+      svgs.set(key, bytes)
+      if (svgs.size > SVG_CACHE) svgs.delete(svgs.keys().next().value as string)
+    }
+    return { bytes, svg, unreadable: false }
+  }
   const load: HeroLoader = async (hero, box, where) => {
     try {
       if (![box.width, box.height].every((n) => Number.isInteger(n) && n >= 1 && n <= MAX_SIDE)) return null
-      const bytes = await read(hero, where)
+      const { bytes } = await rasterReady(hero, where, box)
       if (!bytes) return null
       // A shaped image (contained, tinted, screened) is its own preparation; `''` is an image its shape declines, not a failure.
       if (where?.shape) return await prepareShape(bytes, box, where.shape, maxPixels)
@@ -262,7 +306,6 @@ export function payloadHeroLoader(o: HeroLoaderOptions): HeroLoader {
       return null
     }
   }
-  const keyOf = (hero: Upload, where?: { collection?: string }) => `${where?.collection ?? ''}\u0000${heroTag(hero)}`
   load.readable = remembered(
     (hero, where) => keyOf(hero, where),
     async (hero, where) => {
@@ -278,9 +321,10 @@ export function payloadHeroLoader(o: HeroLoaderOptions): HeroLoader {
     (hero, where) => keyOf(hero, where),
     async (hero, where) => {
       try {
-        const bytes = await read(hero, where)
-        if (!bytes) return { value: false, keep: false } // unreadable: the card is drawn without it and never stored, so nothing is remembered
-        return { value: await transparent(bytes, maxPixels), keep: true }
+        // An SVG is asked about as it would be drawn (alpha does not depend on the size), at a modest one.
+        const { bytes, svg, unreadable } = await rasterReady(hero, where, { width: 512, height: 512 })
+        if (unreadable) return { value: false, keep: false } // unreadable: the card is drawn without it and never stored, so nothing is remembered
+        return { value: bytes !== null && (await transparent(bytes, maxPixels, svg)), keep: true }
       } catch {
         return { value: false, keep: false }
       }
