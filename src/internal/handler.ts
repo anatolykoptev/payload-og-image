@@ -18,6 +18,7 @@ import {
   resolveCard,
 } from './resolve.js'
 import type { CardEncoding, CardFormat, CardMime, CardStore, OnEvent, SiteInfo, Size, Upload } from './types.js'
+import type { UploadIndex } from './uploadIndex.js'
 import { isVariantName } from './variants.js'
 
 export type DocSource = {
@@ -84,6 +85,8 @@ export type HandlerDeps = {
   serverUrl: string
   source: DocSource
   store: CardStore
+  /** Told which uploads each served card drew, so a change to one can purge it (the plugin's hooks). Absent: nothing is remembered. */
+  uploads?: Pick<UploadIndex, 'record'>
   renderer: Renderer
   heroLoader: HeroLoader
   /** The site's only upload collection, when it has exactly one (see `ResolveInput.uploadCollection`). */
@@ -488,6 +491,7 @@ export function createCardHandler(d: HandlerDeps): CardHandler {
         const { bytes } = await d.gate.run(() => draw(card, fonts))
         return respond(200, CACHE.none, { ...type, 'x-og-cache': 'draft' }, bytes)
       }
+      d.uploads?.record(card, d.uploadCollection)
       const requested = new URL(request.url).searchParams.get('v') // only picks the cache header, never a key
       const current = requested === card.v
       const cache = current ? CACHE.immutable : CACHE.short

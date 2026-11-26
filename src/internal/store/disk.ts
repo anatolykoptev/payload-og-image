@@ -258,6 +258,12 @@ export function diskStore(o: DiskStoreOptions): DiskStore {
         return null
       }
     },
+    async drop(pageId, v, format = 'png') {
+      if (!PAGE_ID.test(pageId) || !VERSION.test(v) || !(await usable())) return
+      const file = path.join(root, fileOf(pageId, v, format))
+      const seen = await lstat(file).catch(() => null)
+      if (seen?.isFile()) await dropIfSame(file, seen) // a symlink or a foreign file at a card name is left alone
+    },
     async put(pageId, v, bytes, format = 'png') {
       if (!PAGE_ID.test(pageId) || !VERSION.test(v) || !(await usable())) return
       if (!(await isWholeCard(bytes, format))) {

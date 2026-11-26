@@ -34,6 +34,7 @@ import { createGate } from '../../src/internal/gate.js'
 import { CACHE, createCardHandler } from '../../src/internal/handler.js'
 import { createMemo } from '../../src/internal/memo.js'
 import { memoryStore } from '../../src/internal/store/memory.js'
+import { createUploadIndex } from '../../src/internal/uploadIndex.js'
 import { payloadHeroLoader } from '../../src/render/hero.js'
 import { defineTarget, defineTemplate } from '../../src/template.js'
 import { loadTestFonts, realPng, relatedUploads } from '../helpers.js'
@@ -109,6 +110,29 @@ const req = (p: string, headers: Record<string, string> = {}) => new Request(`ht
 const vOf = (r: Response) => (r.headers.get('etag') as string).replaceAll('"', '')
 const DRAFT = { 'x-test-draft-mode': '1', 'x-test-editor': '1' }
 const names = (events: { emit: ReturnType<typeof vi.fn> }) => events.emit.mock.calls.map(([e]) => e.name)
+
+describe('card handler: purging the cards an upload drew', () => {
+  it('a served card is remembered per upload, and purging the upload removes it from the memo and the store', async () => {
+    const store = memoryStore()
+    const memo = createMemo()
+    const uploads = createUploadIndex({ store: () => store, memo })
+    const put = vi.spyOn(store, 'put')
+    const { h, renderer } = setup({ store, memo, uploads })
+    const first = await h.GET(req('/og/posts/h/card.png'), ctx('h'))
+    expect(first.headers.get('x-og-cache')).toBe('render')
+    const [pageId, v] = put.mock.calls[0] as unknown as [string, string]
+    expect(await store.get(pageId, v)).not.toBeNull()
+    // An unrelated upload changing leaves it alone; the hero (id 9, in the sole upload collection) takes it away.
+    expect(await uploads.purge('media', 1234)).toBe(0)
+    expect(await store.get(pageId, v)).not.toBeNull()
+    expect(await uploads.purge('media', 9)).toBe(1)
+    expect(await store.get(pageId, v)).toBeNull()
+    // Nothing is left in the memo either: the next request draws the card again.
+    const again = await h.GET(req('/og/posts/h/card.png'), ctx('h'))
+    expect(again.headers.get('x-og-cache')).toBe('render')
+    expect(renderer.render).toHaveBeenCalledTimes(2)
+  })
+})
 
 describe('card handler', () => {
   it('1: an unknown slug is a 404 no-store and renders nothing', async () => {

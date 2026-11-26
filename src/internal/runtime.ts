@@ -158,6 +158,7 @@ export function buildRuntime(state: OgState, payload: Payload, over: RuntimeOver
       renderer,
       heroLoader,
       uploadCollection: soleUpload,
+      uploads: state.uploads,
       gate: state.gate,
       admission: state.admission,
       memo: state.memo,
