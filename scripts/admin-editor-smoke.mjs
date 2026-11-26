@@ -9,8 +9,10 @@
 import { chromium } from 'playwright-core'
 
 const PREVIEW = '/api/payload-og-image/preview'
-const DEBOUNCE_MS = 800 // OgPreviewField's DEBOUNCE_MS: the quiet window after the last change
-const QUIET_MS = DEBOUNCE_MS + 1200 // long enough for a stray second request to show up
+// Long enough for a stray second request to show up: well past the preview field's debounce, whatever its exact value
+// (not copied here, so the smoke never disagrees with it). The debounce itself is asserted by "no request while typing"
+// and "one request for seven keystrokes", not by a timing margin a slow runner could miss.
+const QUIET_MS = 2500
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
 /** Polls `cond` until it is truthy; calls `fail` (which throws) with `what` at the deadline. */
@@ -76,13 +78,8 @@ export async function adminEditorSmoke({ origin, email, password, post, ok, chec
     await title.click()
     await title.press('End')
     await title.pressSequentially(' edited', { delay: 100 })
-    const lastKey = Date.now()
     eq(previews.length, 1, 'admin: no preview POST while the title is still being typed (debounced)')
     await until(() => previews.length >= 2, 'the preview request after the edit', 5_000)
-    check(
-      previews[1].at - lastKey >= DEBOUNCE_MS - 150,
-      `admin: the preview came ${previews[1].at - lastKey} ms after the last keystroke (debounce ${DEBOUNCE_MS} ms)`,
-    )
     await sleep(QUIET_MS)
     eq(previews.length, 2, 'admin: seven quick keystrokes made exactly one preview POST')
     eq(previews[1].body.doc?.title, `${post.title} edited`, 'admin: the preview carries the edited title')
