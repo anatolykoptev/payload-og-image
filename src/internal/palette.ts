@@ -34,13 +34,7 @@ export const cardPaletteOf = (o?: PaletteOption): Palette | false =>
  * lossy anyway, so a 256-colour cut only adds banding. An explicit value always wins.
  */
 export const heroColoursOf = (o?: PaletteOption, lossy = false): false | number =>
-  o?.hero === undefined
-    ? lossy
-      ? false
-      : DEFAULT_HERO_COLOURS
-    : o.hero === false
-      ? false
-      : effectiveColours(o.hero)
+  o?.hero === undefined ? (lossy ? false : DEFAULT_HERO_COLOURS) : o.hero === false ? false : effectiveColours(o.hero)
 
 /**
  * What the card version must mention: nothing while a setting encodes like its default (so existing cards keep their URLs),
