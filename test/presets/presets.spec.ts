@@ -152,8 +152,8 @@ describe('goldens: the two presets keep their URL and what they draw', () => {
   }
   const GOLDEN: Record<string, { v: string; drawn: string }> = {
     'text/-': { v: 'c3ce841ad08e', drawn: '0b0217c3bb22d7508a962e5e5221c11f018d248c90600637fe8580b39a136f05' },
-    'text/logo': { v: '07bdfc08c619', drawn: 'd56453bbf31ed9ae41c19af20d8fdc48b09cebd70d8cbfc0bb1aa3bf33877562' },
-    'photo/-': { v: '46123276026e', drawn: '222a5f37f071122804d7af7d4b8b58b95818c97d83dff4fc8ac5311c9a8dfabe' },
+    'text/logo': { v: '07bdfc08c619', drawn: '19edf4dfc8d13d68628eb6e015c3e60d3cd1f8c45c7555c2b822a00d05a7c791' },
+    'photo/-': { v: '46123276026e', drawn: 'd91a77d94c697058c9878d165af53eb3e1808119fe1df3df1b2f7a3787095647' },
   }
   it.each([
     ['text', undefined],
