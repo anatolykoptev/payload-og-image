@@ -268,7 +268,7 @@ export function installTestRuntime(given: OgImagePluginOptions, docs: KitDocs, o
   if (real?.photo) {
     const cut = real.photo
     heroLoader.photo = async (hero, a) => (isReal(hero) ? cut(hero, a) : { status: 'unreadable' })
-    heroLoader.canPhoto = isReal
+    heroLoader.canPhoto = (hero) => isReal(hero) && (real.canPhoto?.(hero) ?? true)
   }
   heroLoader.readable = async (hero) =>
     real && isReal(hero)

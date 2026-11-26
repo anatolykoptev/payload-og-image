@@ -186,7 +186,7 @@ export function createInspector(d: InspectorDeps): Inspector {
         photos: [],
         large: null,
         reason: enabled
-          ? 'no usable hero photograph: none set, not published, not a raster image, or under 600 px wide'
+          ? 'no usable hero photograph: none set, not published, not a raster image, under 600 px wide, or over the photo size limit (50 MiB and 120 MP for JPEG, PNG and WebP; 15 MiB and 40 MP otherwise)'
           : 'the target has no photo set: it needs a `photo` or `hero` and a card path ending in .:ext',
       }
     }

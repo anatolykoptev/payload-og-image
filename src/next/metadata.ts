@@ -121,7 +121,8 @@ export type OgPhotoImagesArgs = {
  * The photo set of a page for schema.org `image` and Google Discover: up to three clean crops of the page's hero photograph, 16:9, 4:3 and 1:1 in that order,
  * each at most 1200 px wide and never enlarged (a small photograph gives smaller crops, none under 600 px wide). The branded card is never in it: Google asks for no
  * logo or text in a structured-data image, so `og:image` stays the card (`ogMetadata`) and this list is the photograph. `[]` when the page has no usable photograph
- * (no hero, an unpublished or unreadable one, a file too small, or a target whose card path is not a `.:ext` route): the page then lists no image from this feature.
+ * (no hero, an unpublished one, a file too small or over the photo size limit, or a target whose card path is not a `card.:ext` route): the page then lists no image from this feature.
+ * An upload whose file cannot be read right now (missing on disk) is still listed, and its URLs answer 503 until the file is back.
  * Failure handling is `ogMetadata`'s: in production an event and `[]`, in development and test it throws. See docs/reference.md.
  */
 export async function ogPhotoImages(a: OgPhotoImagesArgs): Promise<OgPhotoImage[]> {

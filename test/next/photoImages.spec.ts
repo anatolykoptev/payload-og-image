@@ -162,4 +162,10 @@ describe('og_audit Discover readiness', () => {
     })
     expect(page.summary.discover).toEqual({ withPhotoSet: 1, large: 0 })
   })
+
+  it('says why a photograph over the size limit is not listed', async () => {
+    const { rt } = await boot([20000, 10000]) // 200 MP: over the 120 MP limit for a JPEG
+    const row = (await rt.inspect.audit({ scope: 'posts', page: 1, limit: 10 })).rows.find((r) => r.slug === 'a')
+    expect(row?.discover).toMatchObject({ photos: [], large: null, reason: expect.stringContaining('photo size limit') })
+  })
 })

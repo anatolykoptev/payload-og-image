@@ -1,5 +1,8 @@
 /** Cheap, dependency-free checks on what a file is, so the SVG machinery (`svg.ts`: an XML parser, a WebAssembly renderer) loads only when an SVG is actually seen. */
 
+/** The formats sharp reports for the raster images every loader here reads (one list: the hero, a shaped image and the photo set). Never an SVG. */
+export const RASTER_FORMATS: ReadonlySet<string> = new Set(['jpeg', 'png', 'webp', 'gif', 'avif', 'tiff', 'heif'])
+
 /** A logo is a few kilobytes; a megabyte is already an export with embedded art. */
 export const MAX_SVG_BYTES = 1024 * 1024
 

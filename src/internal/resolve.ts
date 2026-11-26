@@ -424,16 +424,19 @@ export type PhotoInput = Pick<
   canCut: (upload: VerifiedUpload) => boolean
 }
 
+/** A last path segment that is a plain file name ending in `:ext` (`card.:ext`): no `:slug`, `:id` or `:kind` in it, since `photoPath` replaces the whole segment. */
+const FILE_EXT = /^[A-Za-z0-9_~-][A-Za-z0-9._~-]*\.:ext$/
+
 /**
  * Whether a target has a photo set. ONE rule for the page that advertises the URLs and the route that serves them, so a page never lists a URL its route cannot answer:
- * the target names an upload for it (`photo`, else its `hero`; `photo: false` opts out), is not a size variant, and its card path ends in `.:ext`, which is the path
+ * the target names an upload for it (`photo`, else its `hero`; `photo: false` opts out), is not a size variant, and its card path ends in a plain file name with `:ext` (`card.:ext`), which is the path
  * of a route that answers any file name in its folder (the zero-config `[file]` route). A fixed-file path (`card.png`) has a route of its own that would answer 404.
  */
 export const photosEnabled = (target: Target, variant = false): boolean =>
   !variant &&
   target.photo !== false &&
   (typeof target.photo === 'function' || typeof target.hero === 'function') &&
-  /\.:ext$/.test(target.path)
+  FILE_EXT.test(target.path.slice(target.path.lastIndexOf('/') + 1))
 
 /** The path a photo-set image is served at: the target's card path with its file name replaced by `photo-<size>.jpg`. */
 export function photoPath(target: Target, targetName: string, slug: string, name: PhotoName): string {

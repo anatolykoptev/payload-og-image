@@ -65,6 +65,8 @@ export type Upload = {
   alt?: string | null
   updatedAt?: string | null
   filename?: string | null
+  /** The file's size in bytes, as Payload records it. */
+  filesize?: number | null
   focalX?: number | null
   focalY?: number | null
   sizes?: Record<string, Partial<Upload> | undefined> | null

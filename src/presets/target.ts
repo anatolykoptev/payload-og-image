@@ -1,7 +1,8 @@
+import { HERO_MIME } from '../internal/limits.js'
 import type { SiteInfo } from '../internal/types.js'
 import type { ImageRef, ResolverArgs, Target } from '../template.js'
 import type { PresetProps } from './layout.js'
-import { HERO_MIME, HERO_MIN, PHOTO_ID, TEXT_ID } from './spec.js'
+import { HERO_MIN, PHOTO_ID, TEXT_ID } from './spec.js'
 
 export type PresetName = 'auto' | 'photo' | 'text'
 
@@ -85,9 +86,9 @@ export function presetTarget(p: ResolvedPreset): Target {
     ...(p.hero ? { heroCollection: p.hero.collection } : {}),
     // The photo set is cut from the hero field whether or not the card draws it (a 680 x 470 hero is too small for the photo card and still gives a set; a collection that
     // forces the text card still has its hero). Read as a bare id and verified by the reader, so the card's own reads do not change. Never the editor's share image: a hero
-    // that IS the share image field (the `meta.image` fallback, or a plugin `seoImage.path` that is also the hero) is no photo of ours.
+    // that IS the share image field (`meta.image`, however it was chosen, or a plugin `seoImage.path` that is also the hero) is no photo of ours.
     photo:
-      p.hero && p.seo?.path !== p.hero.path
+      p.hero && p.hero.path !== 'meta.image' && p.seo?.path !== p.hero.path
         ? ({ doc }: ResolverArgs<unknown>) => read(doc, (p.hero as { path: string }).path) as ImageRef
         : false,
     // A preset knows which upload fields it draws: the editor's share image, and the hero unless the collection forces text (the hero decides

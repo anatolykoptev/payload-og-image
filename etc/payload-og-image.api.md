@@ -414,6 +414,7 @@ export type Upload = {
     alt?: string | null;
     updatedAt?: string | null;
     filename?: string | null;
+    filesize?: number | null;
     focalX?: number | null;
     focalY?: number | null;
     sizes?: Record<string, Partial<Upload> | undefined> | null;

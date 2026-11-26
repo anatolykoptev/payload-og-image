@@ -79,7 +79,10 @@ export type HeroLoader = {
    * a page then advertises none.
    */
   photo?: (hero: VerifiedUpload, a: { name: PhotoName; quality: number; ground: string }) => Promise<PhotoCut>
-  /** A synchronous question for a test seam that can cut some uploads and not others (the kit's stand-in heroes have no file): false advertises no set for that upload. Default: every upload. */
+  /**
+   * Whether this upload can be cut at all, asked of its record (no file is read): false advertises no set for it. The hero loader answers from the photo size limits it cuts with,
+   * so a page never lists a photo whose URL could only fail; a test seam may refuse the uploads it has no file for (the kit's stand-in heroes). Default: every upload.
+   */
   canPhoto?: (hero: VerifiedUpload) => boolean
 }
 /** `encoding` absent is PNG. */

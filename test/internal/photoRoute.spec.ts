@@ -2,13 +2,16 @@
  * enlarges a small photo, or keeps serving old pixels under an old URL after the focal point moved.
  * - internal/version.ts `photoVersion` without `focalOf(i.upload)` -> "moving only the focal point changes every URL and the pixels" RED
  * - internal/resolve.ts `resolvePhotos` without `fillUploads` + `heroOf` (taking the document's own upload object) -> "a draft-only hero gives no set to the public ..." RED (and 12 more)
+ * - render/hero.ts `canPhoto` removed (or its limits not the cut's) -> "an upload over the photo size limit is not listed ..." RED
+ * - render/photo.ts the resize-then-extract position (`left`/`top` unscaled) -> "a big original is cut by scaling first and cropping the result ..." RED
  * - handler.ts `photos()` reading uploads with `readerFor({ previewing: true })` (the editor's draft view for everyone) -> "a draft-only hero gives no set to the public ..." RED, alone
  * - internal/photo.ts `Math.min(PHOTO_SET.capWidth, crop.width)` -> `PHOTO_SET.capWidth` (enlarging) -> "a 900 px photograph gives crops of at most 900 px ..." RED
  * - render/encode.ts `toJpeg` adding `.withMetadata()` -> "no EXIF, GPS or profile ships ..." RED
  * - render/photo.ts the `.rotate()` dropped -> "no EXIF, GPS or profile ships ..." (upright size) RED
  * - handler.ts the produced-size comparison in `servePhoto` dropped -> "a record that disagrees with its file is served briefly and never stored" RED
  * - presets/target.ts `p.seo?.path !== p.hero.path` dropped -> "a hero that is the share image field gives no set" RED
- * - internal/resolve.ts `photosEnabled` without the `.:ext` test -> "a fixed-file card path has no set ..." RED
+ * - internal/resolve.ts `photosEnabled` without the `.:ext` test -> "a fixed-file card path has no set ..." RED; with the old `/\.:ext$/` -> "a path whose last segment carries a document key ..." RED
+ * - presets/target.ts `p.hero.path !== 'meta.image'` dropped -> "a hero named meta.image gives no set ..." RED
  * - render/hero.ts `prepare` extracting a window 40 px off the shared one -> "the card still draws a hero by the same window ..." RED */
 import { mkdtemp, writeFile } from 'node:fs/promises'
 import os from 'node:os'
@@ -16,11 +19,13 @@ import path from 'node:path'
 import type { Config } from 'payload'
 import sharp from 'sharp'
 import { beforeAll, describe, expect, it } from 'vitest'
+import { cropWindow } from '../../src/internal/crop.js'
 import { loadFonts } from '../../src/internal/fonts.js'
 import { createGate } from '../../src/internal/gate.js'
 import { createCardHandler, type HeroLoader, type RouteContext } from '../../src/internal/handler.js'
 import { createMemo } from '../../src/internal/memo.js'
 import { PHOTO_SET } from '../../src/internal/photo.js'
+import { photosEnabled } from '../../src/internal/resolve.js'
 import { memoryStore } from '../../src/internal/store/memory.js'
 import type { OgEvent } from '../../src/internal/types.js'
 import { uploadFieldsOf } from '../../src/internal/uploads.js'
@@ -72,6 +77,8 @@ beforeAll(async () => {
     })
     .jpeg()
     .toBuffer()
+  // A bigger quarter-turn original: stored 3000 x 2000 with orientation 6, so upright 2000 x 3000 and every window has to shrink.
+  files['rot.jpg'] = await pixels(3000, 2000).withMetadata({ orientation: 6 }).jpeg({ quality: 92 }).toBuffer()
   files['alpha.png'] = await sharp({ create: { width: 1300, height: 800, channels: 4, background: { r: 255, g: 0, b: 0, alpha: 0 } } })
     .png()
     .toBuffer()
@@ -91,6 +98,7 @@ const UPLOADS = (): Record<number, Record<string, any>> => ({
   7: { ...media(7, 'drawing.jpg', 1400, 900), _status: 'published' }, // an SVG under a JPEG record
   8: { ...media(8, 'big.jpg', 2400, 1600, { focalX: 20, focalY: 70 }), _status: 'published' },
   9: { ...media(9, 'big.jpg', 2400, 1600, { mimeType: 'image/svg+xml' }), _status: 'published' },
+  11: { ...media(11, 'rot.jpg', 3000, 2000), _status: 'published' },
   // The record says 2000 x 1500, the file is 900 x 600.
   10: { ...media(10, 'small.jpg', 2000, 1500), _status: 'published' },
 })
@@ -451,6 +459,49 @@ describe('the photo set on the card route', () => {
     expect(await h.photos()).toBeNull()
   })
 
+  it('a hero named meta.image gives no set, whatever the share image option says', async () => {
+    const config = configOf()
+    const posts = config.collections?.find((c) => c.slug === 'posts') as unknown as { fields: Array<{ name: string }> }
+    posts.fields = posts.fields.filter((f) => f.name !== 'heroImage')
+    for (const group of ['meta', 'other'])
+      posts.fields.push({ name: group, type: 'group', fields: [{ name: 'image', type: 'upload', relationTo: 'media' }] } as never)
+    const docs = { a: { id: 10, slug: 'a', title: 'A', meta: { image: 1 }, other: { image: 1 } } }
+    // the share image option points elsewhere, so only the `meta.image` rule can refuse it
+    const h = await harness({
+      config,
+      docs,
+      input: { collections: { posts: { hero: 'meta.image' } }, seoImage: { path: 'other.image' } } as never,
+    })
+    expect(h.options.targets.posts?.photo).toBe(false)
+    expect(await h.photos()).toBeNull()
+  })
+
+  it('a path whose last segment carries a document key has no set, because the photo path replaces that segment', async () => {
+    for (const [path, enabled] of [
+      ['/og/:kind/:slug/card.:ext', true],
+      ['/og/:kind/:slug/card-v2.:ext', true],
+      ['/og/:kind/:slug.:ext', false],
+      ['/og/:kind/:id.:ext', false],
+      ['/og/:kind/:slug/:slug.:ext', false],
+      ['/og/:kind/:slug/card.png', false],
+      ['/og/:kind/:slug/card', false],
+    ] as const)
+      expect(photosEnabled({ path, hero: () => 1 } as never), path).toBe(enabled)
+    const h = await harness({
+      targets: {
+        posts: defineTarget<any, any>({
+          path: '/og/:kind/:slug.:ext',
+          collection: 'posts',
+          template: 'payload-og-image:text',
+          props: ({ doc }: any) => ({ title: doc.title, label: 'x', site: 'x' }),
+          hero: ({ doc }: any) => doc.heroImage,
+          heroCollection: 'media',
+        }),
+      },
+    })
+    expect(await h.photos()).toBeNull()
+  })
+
   it('a fixed-file card path has no set (its route would answer 404), and photo: false opts a target out', async () => {
     const t = (over: Record<string, unknown>) =>
       harness({
@@ -473,6 +524,80 @@ describe('the photo set on the card route', () => {
     expect(await off.photos()).toBeNull()
     const own = await t({ path: '/og/:kind/:slug/card.:ext', hero: () => undefined, photo: ({ doc }: any) => doc.heroImage })
     expect((await own.photos())?.images).toHaveLength(3) // a resolver of its own, whether or not the card draws a hero
+  })
+
+  it('a big original is cut by scaling first and cropping the result: the same window as extract-then-resize, upright, at the advertised size', async () => {
+    const reference = async (
+      file: string,
+      rotate: boolean,
+      crop: { left: number; top: number; width: number; height: number },
+      w: number,
+      h: number,
+    ) =>
+      sharp(await sharp(files[file]).rotate().extract(crop).resize(w, h).raw().toBuffer(), { raw: { width: w, height: h, channels: 3 } })
+        .raw()
+        .toBuffer()
+        .then((b) => ({ b, rotate }))
+    const meanDiff = (a: Buffer, b: Buffer) => a.reduce((n, v, i) => n + Math.abs(v - (b[i] as number)), 0) / a.length
+    for (const [id, file, focal] of [
+      [1, 'big.jpg', [50, 50]],
+      [8, 'big.jpg', [20, 70]],
+      [11, 'rot.jpg', [50, 50]],
+    ] as const) {
+      const h = await harness({ docs: { a: { id: 10, slug: 'a', title: 'A', heroImage: id } } })
+      const upload = h.uploads[id] as { width: number; height: number; focalX?: number; focalY?: number }
+      const turned = file === 'rot.jpg'
+      const upright = { width: turned ? upload.height : upload.width, height: turned ? upload.width : upload.height }
+      for (const image of (await h.photos())?.images ?? []) {
+        const ratio = { '16x9': 16 / 9, '4x3': 4 / 3, '1x1': 1 }[image.name]
+        const crop = cropWindow(upright, ratio, upload) as NonNullable<ReturnType<typeof cropWindow>>
+        const res = await h.get(image.url)
+        const got = await sharp(Buffer.from(await res.arrayBuffer()))
+          .raw()
+          .toBuffer({ resolveWithObject: true })
+        expect([got.info.width, got.info.height]).toEqual([image.width, image.height])
+        const { b } = await reference(file, turned, crop, image.width, image.height)
+        // the same window, up to JPEG noise and a pixel of rounding; a window cut elsewhere is far off (see the control below)
+        expect(meanDiff(got.data, b), `${file} ${focal} ${image.name}`).toBeLessThan(2.5)
+        if (image.name === '16x9' && !turned) {
+          const centre = cropWindow(upright, ratio, {}) as NonNullable<ReturnType<typeof cropWindow>>
+          if (focal[1] !== 50)
+            expect(meanDiff(got.data, (await reference(file, false, centre, image.width, image.height)).b)).toBeGreaterThan(5)
+        }
+      }
+    }
+  })
+
+  it('an upload over the photo size limit is not listed, and one at the limit is', async () => {
+    const over = (extra: Record<string, unknown>) => ({ ...UPLOADS(), 1: { ...(UPLOADS()[1] as Record<string, any>), ...extra } })
+    // pixels: 120 MP is the limit for JPEG, PNG and WebP; 40 MP for any other format
+    expect(await (await harness({ uploads: over({ width: 12000, height: 10000 }) })).photos()).not.toBeNull()
+    expect(await (await harness({ uploads: over({ width: 12000, height: 10001 }) })).photos()).toBeNull()
+    expect(await (await harness({ uploads: over({ width: 7000, height: 6000, mimeType: 'image/avif' }) })).photos()).toBeNull()
+    expect(await (await harness({ uploads: over({ width: 7000, height: 6000, mimeType: 'image/png' }) })).photos()).not.toBeNull()
+    // bytes: 50 MiB for JPEG, PNG and WebP; 15 MiB otherwise
+    expect(await (await harness({ uploads: over({ filesize: 50 * 1024 * 1024 }) })).photos()).not.toBeNull()
+    expect(await (await harness({ uploads: over({ filesize: 50 * 1024 * 1024 + 1 }) })).photos()).toBeNull()
+    expect(await (await harness({ uploads: over({ filesize: 20 * 1024 * 1024, mimeType: 'image/gif' }) })).photos()).toBeNull()
+    // and the page lists no URL for it: no `ogPhotoImages` entry means no URL to fail
+    const audit = await harness({ uploads: over({ width: 20000, height: 10000 }) })
+    expect((await audit.photos())?.images ?? []).toEqual([])
+    expect((await audit.get('https://www.example.test/og/posts/a/photo-16x9.jpg')).status).toBe(404)
+  })
+
+  it('the cut applies the same limits as the listing: a file over them is refused before it is decoded', async () => {
+    const tight = { maxBytes: 50_000_000, maxPixels: 1_000_000 }
+    const h = await harness({ loader: () => payloadHeroLoader({ staticDirs: async () => [dir], photoLimits: () => tight }) })
+    // the record says 2400 x 1600 (3.8 MP): over the limit, so nothing is listed
+    expect(await h.photos()).toBeNull()
+    // a record that understates its file (1000 x 600) is listed, and the cut still refuses the 3.8 MP file by what it is
+    const lie = await harness({
+      uploads: { ...UPLOADS(), 1: { ...(UPLOADS()[1] as Record<string, any>), width: 1000, height: 600, filesize: 1000 } },
+      loader: () => payloadHeroLoader({ staticDirs: async () => [dir], photoLimits: () => tight }),
+    })
+    const set = await lie.photos()
+    expect(set?.images.length).toBeGreaterThan(0)
+    expect((await lie.get(set?.images[0]?.url as string)).status).toBe(404)
   })
 
   it('the cap and the floor are the spec`s own numbers', () => {

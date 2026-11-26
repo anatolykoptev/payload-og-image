@@ -5,7 +5,7 @@ import path from 'node:path'
 import { cropWindow, uprightSize } from '../internal/crop.js'
 import { DepLoadError, loadSharp } from '../internal/deps.js'
 import type { HeroLoader } from '../internal/handler.js'
-import { MAX_SIDE } from '../internal/limits.js'
+import { CARD_MAX_BYTES, CARD_MAX_PIXELS, MAX_SIDE, photoLimits } from '../internal/limits.js'
 import { DEFAULT_HERO_COLOURS } from '../internal/palette.js'
 import type { OnEvent, Upload } from '../internal/types.js'
 import { collectionOf, type VerifiedUpload } from '../internal/uploads.js'
@@ -13,7 +13,7 @@ import { heroTag } from '../internal/version.js'
 import { guardedFetch, isPublicAddress, type ResolveHost, systemResolve } from './guardedFetch.js'
 import { cutPhoto } from './photo.js'
 import { prepareShape } from './shape.js'
-import { looksLikeSvg, looksRaster } from './sniff.js'
+import { looksLikeSvg, looksRaster, RASTER_FORMATS } from './sniff.js'
 
 export type HeroLoaderOptions = {
   /**
@@ -30,9 +30,9 @@ export type HeroLoaderOptions = {
   fetchImpl?: typeof fetch
   /** DNS resolution for the guarded fetch (a test seam; default the system resolver). */
   resolveHost?: ResolveHost
-  /** Largest source file or download (default 15 MiB). */
+  /** Largest source file or download of a card's hero (default 15 MiB). The photo set has its own limits (`photoLimits`). */
   maxBytes?: number
-  /** Largest source image in pixels (default 40 million); a bigger header is refused before any decode. */
+  /** Largest source image of a card's hero in pixels (default 40 million); a bigger header is refused before any decode. */
   maxPixels?: number
   /** Test seam for the SVG render: its timeout, and how long a timed-out upload is left alone (default 10 minutes). */
   svg?: { timeoutMs?: number; retryMs?: number }
@@ -40,6 +40,8 @@ export type HeroLoaderOptions = {
   onEvent?: OnEvent
   /** Colour a transparent image is flattened onto (sharp flattens before it scales). Unset: transparency is kept and the card shows through. */
   background?: string
+  /** The size limits the photo set is read with, by sharp format or media type (a test seam; default `photoLimits`). Listing a photo (`canPhoto`) and cutting it use this one function. */
+  photoLimits?: typeof photoLimits
   /** Colours the hero is cut to (2 to 256, default 256); `false` keeps truecolour. */
   colours?: false | number
 }
@@ -47,7 +49,6 @@ export type HeroLoaderOptions = {
 const O_NOFOLLOW = constants.O_NOFOLLOW ?? 0
 const O_NONBLOCK = constants.O_NONBLOCK ?? 0
 /** Raster formats only: an SVG never reaches sharp as received (librsvg may follow its references); `decode` vets and rasterises it first. */
-const RASTER = new Set(['jpeg', 'png', 'webp', 'gif', 'avif', 'tiff', 'heif'])
 const FETCH_TIMEOUT_MS = 5000
 /** A rasterised SVG whose alpha mean is at least this (of 255) counts as opaque. */
 const SVG_OPAQUE_MEAN = 254
@@ -196,7 +197,7 @@ async function prepare(
     const input = { limitInputPixels: o.maxPixels, failOn: 'error' as const }
     // The header alone: format, size and EXIF orientation, no pixel decode.
     const meta = await sharp(bytes, input).metadata()
-    if (!meta.format || !RASTER.has(meta.format)) return null
+    if (!meta.format || !RASTER_FORMATS.has(meta.format)) return null
     // After `rotate()` the image is upright: the window is cut from the upright size, by the one crop function the photo set uses too.
     const upright = uprightSize(meta)
     if (!upright) return null
@@ -221,7 +222,7 @@ async function transparent(bytes: Buffer, maxPixels: number, fuzzy = false): Pro
   try {
     const input = { limitInputPixels: maxPixels, failOn: 'error' as const }
     const meta = await sharp(bytes, input).metadata()
-    if (!meta.format || !RASTER.has(meta.format) || !meta.hasAlpha) return false
+    if (!meta.format || !RASTER_FORMATS.has(meta.format) || !meta.hasAlpha) return false
     const stats = await sharp(bytes, input).stats()
     if (!fuzzy) return !stats.isOpaque
     // A rasterised SVG has a soft edge (and seams) where a shape meets the border or another shape: the alpha MEAN tells a see-through logo
@@ -279,15 +280,17 @@ function remembered<A extends unknown[]>(
  * is then drawn without it (and served as degraded, never stored).
  */
 export function payloadHeroLoader(o: HeroLoaderOptions): HeroLoader {
-  const maxBytes = posInt(o.maxBytes ?? 15 * 1024 * 1024, 'hero maxBytes')
-  const maxPixels = posInt(o.maxPixels ?? 40_000_000, 'hero maxPixels')
+  const maxBytes = posInt(o.maxBytes ?? CARD_MAX_BYTES, 'hero maxBytes')
+  const maxPixels = posInt(o.maxPixels ?? CARD_MAX_PIXELS, 'hero maxPixels')
   const hosts = new Set((o.allowedHosts ?? []).map((h) => h.toLowerCase()))
   const resolveHost = o.resolveHost ?? systemResolve
   const fetchImpl = o.fetchImpl ?? ((url: string, init: { signal?: AbortSignal }) => guardedFetch(url, init, resolveHost))
   const background = o.background
   const colours = o.colours ?? DEFAULT_HERO_COLOURS
-  const read = async (hero: VerifiedUpload) =>
-    (await readLocal(hero, await o.staticDirs(collectionOf(hero)), maxBytes)) ?? (await fetchRemote(hero, { hosts, fetchImpl, maxBytes }))
+  const limitsOf = o.photoLimits ?? photoLimits
+  const read = async (hero: VerifiedUpload, limit = maxBytes) =>
+    (await readLocal(hero, await o.staticDirs(collectionOf(hero)), limit)) ??
+    (await fetchRemote(hero, { hosts, fetchImpl, maxBytes: limit }))
   const keyOf = (hero: VerifiedUpload) => `${collectionOf(hero)}\u0000${heroTag(hero)}`
   const svgs = new Map<string, Buffer | null>()
   /** Uploads whose last render timed out, and until when they are not tried again. */
@@ -354,15 +357,21 @@ export function payloadHeroLoader(o: HeroLoaderOptions): HeroLoader {
   }
   load.photo = async (hero, a) => {
     try {
-      const { bytes, svg, unreadable } = await rasterReady(hero)
-      if (unreadable) return { status: 'unreadable' }
-      // Never an SVG, whatever its record says: a photo is a photograph, and a drawing's rasterisation is not one.
-      if (svg || !bytes) return { status: 'absent' }
-      return await cutPhoto(bytes, hero, a, { maxPixels })
+      const source = await read(hero, limitsOf(hero.mimeType).maxBytes)
+      if (!source) return { status: 'unreadable' }
+      // Never an SVG, whatever its record says (and never rendered: a photo is a photograph): only raster bytes reach the cutter.
+      if (looksLikeSvg(source) || !looksRaster(source)) return { status: 'absent' }
+      return await cutPhoto(source, hero, a, { maxPixels: (format) => limitsOf(format).maxPixels })
     } catch (error) {
       if (error instanceof DepLoadError) throw error
       return { status: 'unreadable' }
     }
+  }
+  // The page's side of the same limits the cut applies, from the upload's record: a photo over them is not listed, because its URL could only fail.
+  load.canPhoto = (hero) => {
+    const { maxBytes, maxPixels } = limitsOf(hero.mimeType)
+    const pixels = (hero.width ?? 0) * (hero.height ?? 0)
+    return pixels <= maxPixels && !(typeof hero.filesize === 'number' && hero.filesize > maxBytes)
   }
   load.readable = remembered(
     (hero) => keyOf(hero),

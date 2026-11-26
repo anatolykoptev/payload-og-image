@@ -25,7 +25,7 @@ export const ZONE = { x0: 64, x1: 1136, y0: 96, y1: 534 } as const
 /** A hero smaller than this draws the text preset: a smaller photograph is blurred at 1200 x 630. */
 export const HERO_MIN = { width: 800, height: 420 } as const
 /** Raster types the hero loader reads; an SVG is never a hero. */
-export const HERO_MIME = ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/avif'] as const
+export { HERO_MIME } from '../internal/limits.js'
 
 /** The images are cut at twice the size they are drawn at. */
 export const DENSITY = 2

@@ -1,7 +1,7 @@
 // The photo set: clean crops of a page's hero photograph for schema.org `image` and Google Discover. Pure (no sharp): resolve, the version, the route and the
 // helper a page calls all read the sizes from `photoSizes`, so the width and height a page advertises are the ones the cropper produces.
-import { HERO_MIME } from '../presets/spec.js'
 import { type CropWindow, cropWindow, type Focal } from './crop.js'
+import { HERO_MIME } from './limits.js'
 
 /**
  * The spec of the set, and the only place its numbers are written. It enters every photo's version whole, so changing a value moves every photo URL.
