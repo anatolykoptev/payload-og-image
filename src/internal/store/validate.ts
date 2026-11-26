@@ -1,3 +1,4 @@
+import { loadSharp } from '../deps.js'
 import type { CardFormat } from '../format.js'
 import { MAX_SIDE } from '../limits.js'
 import { isCompleteJpeg } from './jpeg.js'
@@ -11,7 +12,7 @@ import { isCompleteWebp } from './webp.js'
  */
 export async function decodesImage(b: Uint8Array): Promise<boolean> {
   try {
-    const { default: sharp } = await import('sharp')
+    const sharp = await loadSharp()
     const { info } = await sharp(Buffer.from(b.buffer, b.byteOffset, b.byteLength), {
       failOn: 'warning',
       limitInputPixels: MAX_SIDE * MAX_SIDE,
