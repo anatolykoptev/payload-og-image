@@ -104,8 +104,11 @@ export type TemplateContext = {
    * the narrowest width that keeps the line count (`balance`, answered as `width`).
    */
   fit(text: string, box: Box, stack: string): { size: number; lines: number; text: string; width?: number }
-  /** The font family of `stack` that draws every character of `text`. */
-  font(stack: string, text: string): string
+  /**
+   * The font family of `stack` that draws every character of `text`. Pass the `weight` the text is drawn at: the face of that weight must
+   * draw the whole run (unset: any face of the family may).
+   */
+  font(stack: string, text: string, weight?: number): string
   /**
    * Lays a row of items out in `width` px with `gap` px between them (default 16). While the row is too wide the item with the highest
    * `priority` is dropped WHOLE, never cut short; an item with priority 0 is never dropped. The answer is the items that stayed, in the

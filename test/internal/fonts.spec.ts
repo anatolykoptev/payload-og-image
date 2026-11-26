@@ -4,6 +4,9 @@
  * - fonts.ts:65  allow the same family/weight/style twice -> "rejects a face registered twice" RED
  * - fonts.ts:40  `data` as `bytes.slice().buffer` (a Buffer view shares its pool) -> "keeps exactly the face bytes when the source is a view into a larger buffer" RED
  * - fonts.ts:91  a family covers a run its faces only cover between them (`some` per char) -> "a family whose faces only cover a run between them does not cover it" RED
+ * - fonts.ts `coveringFamily` ignores `weight` (any face covers) -> "a family whose bold face lacks the glyphs is not chosen for a bold run" RED
+ * - fonts.ts `measureText` calls `coveringFamily` without its weight -> "a family whose bold face lacks the glyphs is not measured for a bold run" RED
+ * - draw.ts `fit` calls `coveringFamily` without `box.weight` / `font` drops `weight` -> "the template context selects by the weight it is given" RED
  * - fonts.ts:98  missingGlyphs looks only at the first family -> "reports and strips chars no face draws" RED
  * - fonts.ts:29  allow a comma or a quote in a family name -> "rejects a family name that cannot sit in a font-family list" RED
  * - fonts.ts:51  advance() ignores unitsPerEm -> "advances match the fontTools oracle" RED
@@ -13,7 +16,8 @@
  * - fonts.ts:138  accept a maxSize above 2048 (Number.MAX_VALUE: size - 2 === size, so only the cap and the `next >= size` guard stop the loop) -> "rejects a box with maxSize beyond any card" / "just above the 2048 cap" RED */
 import { readFile } from 'node:fs/promises'
 import { describe, expect, it } from 'vitest'
-import { coveringFamily, fitText, loadFonts, missingGlyphs, stripMissing } from '../../src/internal/fonts.js'
+import { templateContext } from '../../src/internal/draw.js'
+import { coveringFamily, fitText, loadFonts, measureText, missingGlyphs, stripMissing } from '../../src/internal/fonts.js'
 
 const file = (n: string) => () => readFile(new URL(`../fixtures/fonts/${n}`, import.meta.url))
 const specs = [
@@ -61,6 +65,39 @@ describe('fonts', () => {
       { ...archivo, family: 'F' },
     ]
     expect(fitText(family, 'F', text, box)).toEqual(fitText(base, 'Archivo', text, box))
+  })
+  // One family, two weights: its regular face (Inter) draws Cyrillic, its bold face (Archivo) does not.
+  const weighted = async () => {
+    const { fonts: base } = await loaded
+    const archivo = base.find((f) => f.family === 'Archivo') as (typeof base)[number]
+    const inter = base.find((f) => f.family === 'Inter') as (typeof base)[number]
+    return { base, fonts: [...base, { ...inter, family: 'Fam', weight: 400 }, { ...archivo, family: 'Fam', weight: 700 }] }
+  }
+  it('a family whose bold face lacks the glyphs is not chosen for a bold run', async () => {
+    const { fonts } = await weighted()
+    const run = 'Привет'
+    expect(coveringFamily(fonts, ['Fam', 'Inter'], run, 400)).toBe('Fam')
+    expect(coveringFamily(fonts, ['Fam', 'Inter'], run, 700)).toBe('Inter')
+    expect(coveringFamily(fonts, ['Fam'], run, 700)).toBeNull()
+    expect(coveringFamily(fonts, ['Fam', 'Inter'], 'Hello', 700)).toBe('Fam')
+    expect(coveringFamily(fonts, ['Fam', 'Inter'], run)).toBe('Fam') // no weight asked: any face, as before
+  })
+  it('a family whose bold face lacks the glyphs is not measured for a bold run', async () => {
+    const { base, fonts } = await weighted()
+    const run = 'Привет мир'
+    // Chosen wrongly, the bold face has no Cyrillic advances and the run measures as nothing; measured as drawn, it is Inter's width.
+    expect(measureText(fonts, ['Fam', 'Inter'], run, 40, { weight: 700 })).toBe(measureText(base, ['Inter'], run, 40, { weight: 700 }))
+    expect(measureText(fonts, ['Fam', 'Inter'], run, 40, { weight: 400 })).toBe(measureText(base, ['Inter'], run, 40, { weight: 400 }))
+  })
+  it('the template context selects by the weight it is given', async () => {
+    const { fonts } = await weighted()
+    const ctx = templateContext({ host: 'x.test', fonts, stacks: { default: ['Fam', 'Inter'] }, hero: null })
+    expect(ctx.font('default', 'Привет', 700)).toBe('Inter')
+    expect(ctx.font('default', 'Привет', 400)).toBe('Fam')
+    const box = { width: 560, height: 300, maxSize: 96, minSize: 40, leading: 1, maxLines: 4 }
+    const text = 'Привет мир, это достаточно длинный заголовок для нескольких строк'
+    const bold = ctx.fit(text, { ...box, weight: 700 }, 'default')
+    expect(bold).toEqual(fitText(fonts, 'Inter', text, { ...box, weight: 700 }))
   })
   it('reports and strips chars no face draws (emoji included)', async () => {
     const { fonts } = await loaded
