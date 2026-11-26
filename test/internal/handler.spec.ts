@@ -25,6 +25,7 @@
  * - handler.ts:181  run the document lookup outside the admission gate -> "31: lookups before admission are bounded" RED
  * - handler.ts:256  answer 304 before the bytes exist (early return) -> "30: a revalidation is answered 304 only when the current bytes are available" RED
  * - handler.ts:138  do not tell the hero loader which upload collection to read -> "32: the hero loader is told which upload collection the hero belongs to" RED
+ * - handler.ts the `over_budget` emit removed from `draw` -> "34: a served card over 300 KB emits over_budget" RED
  * - handler.ts:183  Promise.all instead of allSettled (a fonts failure frees the admission slot while the site read runs) -> "33: the admission slot is held until BOTH the fonts and the site read have settled" RED */
 import { mkdtemp, writeFile } from 'node:fs/promises'
 import os from 'node:os'
@@ -510,6 +511,18 @@ describe('card handler', () => {
     await h.GET(req('/og/posts/a/card.png'), ctx('a'))
     expect(names(events).filter((n) => n === 'render')).toHaveLength(1)
     expect(names(events).filter((n) => n === 'hit_memo')).toHaveLength(1)
+  })
+  it('34: a served card over 300 KB emits over_budget with its size; at exactly 300 KB, none', async () => {
+    const png = await realPng('big')
+    const sized = (n: number) => ({ render: vi.fn(async () => Buffer.concat([png, Buffer.alloc(n - png.byteLength)])) })
+    const over = setup({ renderer: sized(300 * 1024 + 1) })
+    await over.h.GET(req('/og/posts/a/card.png'), ctx('a'))
+    const call = over.events.emit.mock.calls.map(([e]) => e).find((e) => e.name === 'over_budget')
+    expect(call).toMatchObject({ name: 'over_budget', kind: 'posts', slug: 'a', bytes: 300 * 1024 + 1 })
+    const at = setup({ renderer: sized(300 * 1024) })
+    await at.h.GET(req('/og/posts/a/card.png'), ctx('a'))
+    expect(names(at.events)).toContain('render')
+    expect(names(at.events)).not.toContain('over_budget')
   })
   it('29: a route pinned to a target never answers for a static card', async () => {
     const staticCard = {
