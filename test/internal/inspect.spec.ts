@@ -1,6 +1,7 @@
 /** Mutation table (production line -> the test that goes RED). Silent-failure surface: a tool that lets a caller open unbounded reads, or names the wrong document.
  * - inspect.ts the `scopes`/`card`/`audit` wrappers around `d.gate.run` dropped -> "concurrent audits are bounded: two run, two wait, the rest are shed" RED
  * - inspect.ts serve(): `d.gate.run(() => resolveRef(a))` -> `resolveRef(a)` -> "serve lookups are bounded: two are held, the third is shed before it reads" RED
+ * - inspect.ts `heroReport(card, card.heroCollection, ...)` -> the target's `heroCollection` -> "reports the hero against the collection the route resolved" RED
  * - inspect.ts `locate` maps `:id` to `{ id }` -> "a card path with :id is looked up by its slug, as the route does" (tools.spec) RED
  * - inspect.ts the audit row slug read from `doc.slug` -> "an audit row's slug follows the target's slugField" (tools.spec) RED */
 import { describe, expect, it } from 'vitest'
@@ -8,6 +9,41 @@ import { createGate, isShedError, ShedError } from '../../src/internal/gate.js'
 import type { CardHandler, DocSource } from '../../src/internal/handler.js'
 import { createInspector } from '../../src/internal/inspect.js'
 import { memoryStore } from '../../src/internal/store/memory.js'
+
+describe('createInspector: the hero collection', () => {
+  it('reports the hero against the collection the route resolved (a populated hero, several upload collections, no heroCollection)', async () => {
+    const asked: Array<string | undefined> = []
+    const hero = { id: 9, url: '/m/h.jpg', filename: 'h.jpg' }
+    const card = {
+      kind: 'generated',
+      key: { kind: 'posts', slug: 'a' },
+      pageId: 'a'.repeat(16),
+      v: 'b'.repeat(12),
+      url: 'https://x.test/og/posts/a/card.png?v=bbbbbbbbbbbb',
+      template: { id: 'post' },
+      alt: 'A',
+      size: { width: 1200, height: 630 },
+      type: 'image/png',
+      encoding: { format: 'png' },
+      hero,
+      heroCollection: 'photos', // what populateUploads' provenance gave the route; the target names none
+      heroTransparent: false,
+      heroGround: undefined,
+    }
+    const inspector = createInspector({
+      gate: createGate({ concurrency: 2, queue: 2 }),
+      targets: { posts: { path: '/og/:kind/:slug/card.png' } },
+      statics: {},
+      source: { publishedById: async () => ({ id: 1, slug: 'a' }) } as unknown as DocSource,
+      store: memoryStore(),
+      heroLoader: { readable: async (_h: unknown, w: { collection?: string }) => (asked.push(w.collection), true) } as never,
+      handler: { resolve: async () => card } as unknown as CardHandler,
+    })
+    const r = await inspector.card({ target: 'posts', id: 1 })
+    expect(asked).toEqual(['photos'])
+    expect(r).toMatchObject({ found: true, hero: { id: 9, readable: true } })
+  })
+})
 
 describe('createInspector', () => {
   it('concurrent audits are bounded: two run, two wait, the rest are shed', async () => {

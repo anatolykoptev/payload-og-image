@@ -185,7 +185,19 @@ export function payloadSource(payload: Payload, state: OgState, cachedSite: () =
   }
   // The root of the editor's share-image field the read must always select: the target's own, else the plugin's.
   const seoPathOf = (name: string) => targetOf(name).seoImage?.path ?? o.seoImage?.path
-  const first = async (args: FindArgs) => ((await payload.find(args)).docs[0] ?? null) as Record<string, any> | null
+  // A collection the caller may not read at all makes Payload throw `Forbidden`: that is no document (404), not a server error.
+  const first = async (args: FindArgs) => {
+    try {
+      return ((await payload.find(args)).docs[0] ?? null) as Record<string, any> | null
+    } catch (error) {
+      if (
+        (error as { name?: string; status?: number } | null)?.name === 'Forbidden' ||
+        (error as { status?: number } | null)?.status === 403
+      )
+        return null
+      throw error
+    }
+  }
   // Only the upload fields the target draws (a preset says which; a hand-written target, whose resolvers are opaque, reads them all).
   const withUploads = <T extends Record<string, any> | null>(name: string, doc: T, user?: unknown) =>
     populateUploads(payload, targetOf(name).collection ?? name, doc, user, doc ? uploadNeeds.get(targetOf(name))?.(doc) : undefined)

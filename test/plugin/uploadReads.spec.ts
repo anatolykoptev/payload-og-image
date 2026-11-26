@@ -1,5 +1,6 @@
 /** Mutation table (production line -> the test that goes RED). Silent-failure surface: a draft-only upload, or an upload nobody draws, reaching a card.
  * - payloadSource.ts `readRelated` without the `_status: published` predicate -> "a draft-only upload never reaches the hero resolver" RED
+ * - payloadSource.ts `first()` rethrowing Forbidden -> "a collection the public may not read is no document, not an error" RED
  * - payloadSource.ts `uploadSource.set` removed -> "an upload it reads is remembered with the collection it came from" RED
  * - payloadSource.ts `populateUploads` reading with `overrideAccess: true` -> "an upload is read with the caller's access, never as the server" RED
  * - payloadSource.ts `withUploads` without `uploadNeeds` (every field read) -> "a collection that forces the text preset reads no hero record" RED
@@ -75,6 +76,19 @@ describe('uploads read behind a card', () => {
     const hero = (await source.published('posts', 'a'))?.heroImage as object
     expect(uploadSource.get(hero)).toBe('media')
     expect(uploadSource.get({ ...hero })).toBeUndefined()
+  })
+  it('a collection the public may not read is no document, not an error', async () => {
+    const { source, payload } = setup({ collections: ['posts'] })
+    const forbidden = Object.assign(new Error('You are not allowed to perform this action.'), { name: 'Forbidden', status: 403 })
+    ;(payload as unknown as { find: unknown }).find = async () => {
+      throw forbidden
+    }
+    expect(await source.published('posts', 'a')).toBeNull()
+    expect(await source.publishedById('posts', 10)).toBeNull()
+    ;(payload as unknown as { find: unknown }).find = async () => {
+      throw new Error('db down')
+    }
+    await expect(source.published('posts', 'a')).rejects.toThrow('db down') // anything else still surfaces
   })
   it('a collection that forces the text preset reads no hero record', async () => {
     const { source, reads } = setup({ collections: { posts: { preset: 'text' } } })
