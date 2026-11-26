@@ -1,10 +1,21 @@
+/**
+ * A brand that survives a bundler duplicating this module: Next may ship `gate.js` in more than one chunk, and then a `ShedError` thrown by
+ * one copy is not an `instanceof` the class of another (a shed would answer as an internal error). Test with `isShedError`.
+ */
+const SHED = Symbol.for('payload-og-image.ShedError')
+
 /** Thrown when the wait queue is full: the caller answers 503 with Retry-After. */
 export class ShedError extends Error {
+  readonly [SHED] = true
   constructor() {
     super('render queue full')
     this.name = 'ShedError'
   }
 }
+
+/** True for a `ShedError` of any copy of this module. */
+export const isShedError = (e: unknown): e is ShedError =>
+  typeof e === 'object' && e !== null && (e as Record<symbol, unknown>)[SHED] === true
 
 export type Gate = {
   run<T>(job: () => Promise<T>): Promise<T>

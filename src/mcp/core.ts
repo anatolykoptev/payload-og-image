@@ -1,7 +1,7 @@
 import type { PayloadRequest } from 'payload'
-import { ShedError } from '../internal/gate.js'
+import { isShedError } from '../internal/gate.js'
 import type { AuditPage, CardRef } from '../internal/inspect.js'
-import { ToolInputError } from '../internal/inspect.js'
+import { isToolInputError } from '../internal/inspect.js'
 
 export type OgMcpText = { type: 'text'; text: string }
 export type OgMcpImage = { type: 'image'; data: string; mimeType: string }
@@ -76,8 +76,8 @@ const text = (value: unknown, isError = false): OgMcpAnswer => ({
  * fixed sentence. The detail (a path, a query) goes to the server's log, never to the holder of a key.
  */
 function failure(e: unknown, req: PayloadRequest, tool: string): OgMcpAnswer {
-  if (e instanceof ToolInputError) return text({ error: e.message }, true)
-  if (e instanceof ShedError) return text({ error: 'busy: too many tool calls at once, retry in a few seconds' }, true)
+  if (isToolInputError(e)) return text({ error: e.message }, true)
+  if (isShedError(e)) return text({ error: 'busy: too many tool calls at once, retry in a few seconds' }, true)
   try {
     req.payload?.logger?.error({ err: e, msg: `payload-og-image: ${tool} failed` })
   } catch {

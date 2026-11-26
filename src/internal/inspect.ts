@@ -86,13 +86,19 @@ export type Inspector = {
   locate(pathname: string): CardRef | null
 }
 
+const INPUT_ERROR = Symbol.for('payload-og-image.ToolInputError')
+
 /** An input the caller can fix: its message is safe to show a tool's user. Any other error is the server's. */
 export class ToolInputError extends Error {
+  readonly [INPUT_ERROR] = true
   constructor(message: string) {
     super(message)
     this.name = 'ToolInputError'
   }
 }
+/** True for a `ToolInputError` of any copy of this module (a bundler may duplicate it, as it may `gate.js`). */
+export const isToolInputError = (e: unknown): e is ToolInputError =>
+  typeof e === 'object' && e !== null && (e as Record<symbol, unknown>)[INPUT_ERROR] === true
 
 export type InspectorDeps = {
   /** Bounds the work an inspector does at once (document reads, hero reads, resolution): a full queue is a `ShedError`. Separate from the render gate. */
