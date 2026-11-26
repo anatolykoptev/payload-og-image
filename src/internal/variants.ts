@@ -12,13 +12,10 @@ const fail = (msg: string): never => {
 
 /**
  * The siblings this module generated. Provenance, not shape: an existing `<name>~<variant>` entry is kept only if it is one of these, so a hand-written
- * target of that name is refused however closely it copies the generated one. Held on `globalThis` so that every copy of this module (Next may load the
- * package twice) agrees on what was generated; a WeakSet, so no target is kept alive.
+ * target of that name is refused however closely it copies the generated one. Module-local, a WeakSet so no target is kept alive: expansion happens in one
+ * module graph. A second copy of this module that meets a sibling it did not build treats it as hand-written and refuses it with the same named error.
  */
-const GENERATED = Symbol.for('payload-og-image.variantSiblings')
-const shared = globalThis as Record<symbol, unknown>
-if (shared[GENERATED] === undefined) shared[GENERATED] = new WeakSet<object>()
-const generated = shared[GENERATED] as WeakSet<object>
+const generated = new WeakSet<object>()
 
 /**
  * Each declared variant becomes a hidden sibling target `<name>~<variant>` with kind `<kind>-<variant>`: the same collection, `props()`,
@@ -51,7 +48,10 @@ export function expandVariants(targets: Record<string, Target>): Record<string, 
         out.set(sibling, have) // already expanded from this very declaration
         continue
       }
-      if (have !== undefined || out.has(sibling)) fail(`target "${name}" variant "${variant}" collides with the target "${sibling}"`)
+      if (have !== undefined || out.has(sibling))
+        fail(
+          `target "${name}" variant "${variant}" collides with the target "${sibling}" (a target of that name already exists: one written by hand, or one expanded by another copy of this package; remove it, the variant creates it)`,
+        )
       if (kinds.has(kind)) fail(`target "${name}" variant "${variant}" has the kind "${kind}", which another target already uses`)
       kinds.add(kind)
       generated.add(target)
