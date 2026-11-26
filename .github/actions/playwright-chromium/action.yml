@@ -1,0 +1,16 @@
+name: playwright-chromium
+description: Install the Chromium that the admin-editor smoke (scripts/admin-editor-smoke.mjs) drives, with its system libraries. Needs the dependencies installed first.
+runs:
+  using: composite
+  steps:
+    # The browser build is keyed by the playwright-core version (pinned exactly in package.json); the system libraries come from apt on every run.
+    - id: version
+      shell: bash
+      run: echo "playwright=$(node -p "require('playwright-core/package.json').version")" >> "$GITHUB_OUTPUT"
+    - uses: actions/cache@v6
+      with:
+        path: ~/.cache/ms-playwright
+        key: playwright-chromium-${{ runner.os }}-${{ runner.arch }}-${{ steps.version.outputs.playwright }}
+    # Called directly, not through `pnpm run`: the payload-beta legs re-resolve dependencies and `pnpm run` would re-check them.
+    - shell: bash
+      run: node_modules/.bin/playwright-core install --with-deps chromium

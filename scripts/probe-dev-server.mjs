@@ -7,12 +7,14 @@
 // - dev/app/(payload)/api/[...slug]/route.ts:17  `HEAD = GET` instead of `withHead(GET)` -> "HEAD an uploaded file: 200"
 // - src/internal/handler.ts:383  `CACHE.immutable` for every version -> "GET a stale ?v: one hour"
 // - dev/payload.config.ts:22  no `revalidateDeletedPost` hook -> "the cached page of a deleted post is gone"
+// - src/client/OgPreviewField.tsx  `fields` left out of the effect's dependencies (dist is what the dev app loads) -> "admin: timed out waiting for the preview request after the edit" (scripts/admin-editor-smoke.mjs)
 // - dev/payload.config.ts:22  no `revalidatePost` hook, or `'max'` instead of `{ expire: 0 }` in dev/src/og/revalidate.ts:15 -> "the cached page advertises a new card after the edit"
 import { spawn, spawnSync } from 'node:child_process'
 import { mkdtempSync, readdirSync, rmSync } from 'node:fs'
 import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { adminEditorSmoke } from './admin-editor-smoke.mjs'
 
 const root = process.cwd()
 const work = mkdtempSync(join(tmpdir(), 'og-probe-'))
@@ -30,6 +32,7 @@ const env = {
   PAYLOAD_CONFIG_PATH: 'dev/payload.config.ts',
   NEXT_TELEMETRY_DISABLED: '1',
 }
+const editor = { email: 'probe@example.test', password: 'probe-pass-123' }
 const bin = (name) => join(root, 'node_modules', '.bin', name)
 const CACHE = {
   immutable: 'public, max-age=31536000, immutable, no-transform',
@@ -141,7 +144,7 @@ try {
     await fetch(`${origin}/api/users/first-register`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ email: 'probe@example.test', password: 'probe-pass-123' }),
+      body: JSON.stringify(editor),
     })
   ).json()
   const auth = { authorization: `JWT ${registered.token}` }
@@ -188,6 +191,10 @@ try {
   eq(gone.status, 200, 'the post was deleted over REST')
   const after = await (await fetch(`${origin}/cached/cached`)).text()
   check(after.includes('Not found') && !after.includes('og:image'), 'the cached page of a deleted post is gone (not found, no og:image)')
+
+  // 8. The admin editor, in a browser: the preview field redraws the card when the form changes. Unsaved: the post stays as it was.
+  const plain = (await (await fetch(`${origin}/api/posts?where[slug][equals]=plain`, { headers: auth })).json()).docs[0]
+  await adminEditorSmoke({ origin, ...editor, post: { id: plain.id, title: plain.title }, ok, check, eq, fail })
 
   console.log('probe-dev-server: all checks passed')
 } catch (error) {
