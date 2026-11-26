@@ -63,12 +63,18 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm test
 
-  # Payload 4 support, a gate like `preflight`: the type check, the suite, the public surface and the dev-app HTTP probe against the newest published
-  # Payload 4 beta that clears the release-age cooldown. Nothing from this job ships or is committed back.
-  payload-beta:
+  # Payload 4 support, a gate like `preflight`: the type check, the suite, the public surface and the dev-app HTTP probe against two Payload 4 betas:
+  # the floor the peer range claims (`^4.0.0-beta.N`) and the newest one every @payloadcms/* package has cleared the release-age cooldown on
+  # (the same version while the floor is the newest). Nothing from this job ships or is committed back.
+  payload-beta-run:
     if: ${{ !github.event.repository.private || github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
     runs-on: ${{ github.event.repository.private && fromJSON('["self-hosted","linux","arm64"]') || 'ubuntu-24.04-arm' }}
     timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [floor, newest]
+    name: payload-beta (${{ matrix.target }})
     env:
       PAYLOAD_CONFIG_PATH: dev/payload.config.ts
     steps:
@@ -80,14 +86,15 @@ jobs:
         with:
           node-version: 26.13.1
       - run: pnpm install --frozen-lockfile
-      # One exact version for every @payloadcms/* package (Payload 4 pins them to each other). The picker applies the
-      # release-age cooldown to `payload` itself (the `beta` dist-tag can name one the cooldown refuses, or a build that is no
-      # beta); a sibling that was published a few minutes later at the same version would be refused by pnpm's own check, so that
-      # check is lifted for this one add. Binaries are called directly after it: `pnpm run` would re-check the cooldown.
+      # One exact version for every @payloadcms/* package (Payload 4 pins them to each other). The picker applies the release-age
+      # cooldown to every package it installs, so pnpm's own check is lifted only for those (`minimumReleaseAgeExclude` in the
+      # checkout's workspace file, never committed); everything else the beta resolves keeps the 24 h cooldown.
+      # Binaries are called directly after it: `pnpm run` would re-check.
       - run: |
-          beta=$(npm view payload time --json | node scripts/latest-payload-beta.mjs)
-          echo "Payload beta: $beta"
-          pnpm add --save-dev --save-exact --config.minimumReleaseAge=0 "payload@$beta" "@payloadcms/db-sqlite@$beta" "@payloadcms/next@$beta" "@payloadcms/richtext-lexical@$beta" "@payloadcms/ui@$beta" "@payloadcms/plugin-mcp@$beta"
+          beta=$(node scripts/latest-payload-beta.mjs ${{ matrix.target }})
+          echo "Payload beta (${{ matrix.target }}): $beta"
+          printf 'minimumReleaseAgeExclude:\n  - payload\n  - "@payloadcms/*"\n' >> pnpm-workspace.yaml
+          pnpm add --save-dev --save-exact $(node scripts/latest-payload-beta.mjs specs "$beta")
       - name: Type check against the beta types (src, tests, dev app)
         run: |
           node_modules/.bin/tsc --noEmit
@@ -102,3 +109,14 @@ jobs:
       # The committed import map is Payload 3's output (`@payloadcms/next/rsc` is gone in 4): regenerate it before the app is built.
       - run: node_modules/.bin/payload generate:importmap
       - run: node scripts/probe-dev-server.mjs
+
+  # The required status check is named `payload-beta`: this job keeps that one stable name over the matrix above, so adding or
+  # renaming a matrix leg never leaves branch protection waiting on a check that no longer exists.
+  payload-beta:
+    if: ${{ always() }}
+    needs: payload-beta-run
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 2
+    steps:
+      - name: Every Payload beta leg passed
+        run: test "${{ needs.payload-beta-run.result }}" = success

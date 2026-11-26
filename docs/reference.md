@@ -102,7 +102,7 @@ export const revalidatePost: CollectionAfterChangeHook = ({ doc, previousDoc, re
 ```
 
 Use `{ expire: 0 }`, not `'max'`: `'max'` serves the stale page to the next visitor, and the next visitor after a save is
-often the crawler. `afterChange` (and `afterOperation`) run inside the operation's transaction, before it commits (Payload 3.94.1: `updateByID` calls
+often the crawler. `afterChange` (and `afterOperation`) run inside the operation's transaction, before it commits (Payload 3.94.2: `updateByID` calls
 `buildAfterOperation` before `commitTransaction`; `req.transactionID` is set while one is open). A request that re-renders the
 page in that window reads the old document and caches it again, with the old `og:image`. For a rarely read page the window is
 milliseconds and does not matter. For a hot page, collect the tags of the request and expire them
