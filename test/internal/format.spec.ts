@@ -32,7 +32,7 @@ describe('assertFormatOption', () => {
     [{ webp: { quality: '80' } }, /webp\.quality/],
     [{ jpeg: { quality: Number.NaN } }, /jpeg\.quality/],
     [{ jpeg: { qualty: 80 } }, /jpeg\.qualty is not an option/],
-    [{ jpeg: { chromaSubsampling: '4:2:2' } }, /jpeg\.chromaSubsampling must be '4:2:0' or '4:4:4'/],
+    [{ jpeg: { chromaSubsampling: '4:2:2' } }, /jpeg\.chromaSubsampling must be one of '4:2:0', '4:4:4'/],
     [{ jpeg: { chromaSubsampling: 444 } }, /jpeg\.chromaSubsampling/],
     [{ webp: { chromaSubsampling: '4:4:4' } }, /webp\.chromaSubsampling is not an option/],
     [{ jpeg: 80 }, /jpeg must be an object/],

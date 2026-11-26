@@ -101,7 +101,7 @@ export type IndexableRoute = {
 // @public
 export function installTestRuntime(given: OgImagePluginOptions, docs: KitDocs, o?: TestRuntimeOptions): TestRuntime;
 
-// @public
+// @public (undocumented)
 export type JpegOptions = {
     quality?: number;
     chromaSubsampling?: ChromaSubsampling;

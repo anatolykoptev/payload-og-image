@@ -90,7 +90,7 @@ export type ImageShape = {
     aspect?: readonly [min: number, max: number];
 };
 
-// @public
+// @public (undocumented)
 export type JpegOptions = {
     quality?: number;
     chromaSubsampling?: ChromaSubsampling;

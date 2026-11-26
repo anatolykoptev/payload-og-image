@@ -6,6 +6,9 @@ export type CardFormat = 'png' | 'jpeg' | 'webp'
 /** JPEG chroma subsampling: `'4:2:0'` (the default) halves the colour resolution both ways, `'4:4:4'` keeps it (no halo round coloured text, a larger file). */
 export type ChromaSubsampling = '4:2:0' | '4:4:4'
 /** JPEG (mozjpeg) settings: `quality` from 1 to 100; `chromaSubsampling` (default `'4:2:0'`). */
+/** Every value of `ChromaSubsampling`, checked complete by the compiler: the validation and its message derive from it. */
+const CHROMA_SUBSAMPLING = Object.keys({ '4:2:0': true, '4:4:4': true } satisfies Record<ChromaSubsampling, true>) as ChromaSubsampling[]
+
 export type JpegOptions = { quality?: number; chromaSubsampling?: ChromaSubsampling }
 /** WebP (libwebp) settings: `quality` from 1 to 100. */
 export type WebpOptions = { quality?: number }
@@ -28,7 +31,6 @@ export const DEFAULT_WEBP_QUALITY = 80
 
 const FORMATS = ['png', 'jpeg', 'webp'] as const
 const LOSSY = ['jpeg', 'webp'] as const
-const CHROMA: readonly ChromaSubsampling[] = ['4:2:0', '4:4:4']
 /** The option keys of each lossy format. */
 const OPTION_KEYS = { jpeg: ['quality', 'chromaSubsampling'], webp: ['quality'] } as const
 export const isLossy = (f: CardFormat): f is 'jpeg' | 'webp' => f !== 'png'
@@ -52,8 +54,10 @@ export function assertFormatOption(where: string, o: FormatSettings): void {
           `payload-og-image: ${where}.${name}.${k} is not an option (${OPTION_KEYS[name].map((o) => `${name}.${o}`).join(', ')})`,
         )
       if (k === 'chromaSubsampling') {
-        if (q !== undefined && !(CHROMA as readonly unknown[]).includes(q))
-          throw new Error(`payload-og-image: ${where}.${name}.chromaSubsampling must be '4:2:0' or '4:4:4', got ${JSON.stringify(q)}`)
+        if (q !== undefined && !(CHROMA_SUBSAMPLING as readonly unknown[]).includes(q))
+          throw new Error(
+            `payload-og-image: ${where}.${name}.chromaSubsampling must be one of ${CHROMA_SUBSAMPLING.map((c) => `'${c}'`).join(', ')}, got ${JSON.stringify(q)}`,
+          )
       } else if (q !== undefined && !(typeof q === 'number' && Number.isInteger(q) && q >= 1 && q <= 100))
         throw new Error(`payload-og-image: ${where}.${name}.quality must be an integer from 1 to 100, got ${JSON.stringify(q)}`)
     }
