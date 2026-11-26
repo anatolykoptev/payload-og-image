@@ -1,6 +1,7 @@
 /** Mutation table (production line -> the test that goes RED). Silent-failure surface: a caller's fixable mistake, or a shed, reported as `internal_error`.
  * - runtime.ts disabled stub `audit` throws a plain Error -> "a disabled plugin's audit says so" RED
  * - runtime.ts getRuntime "not in this Payload config" is a plain Error -> "a config without the plugin says so" RED
+ * - errorKinds.ts `isKind` trusts a property (a Symbol.for brand or `name`) instead of the registry -> "an object a site callback throws is an ordinary error ..." RED
  * - core.ts `isShedError(e)` -> `e instanceof ShedError` -> "a shed from another copy of the module is still a retry" RED
  * - core.ts `isToolInputError(e)` -> `e instanceof ToolInputError` -> "an input error from another copy of the module is still said" RED */
 import type { PayloadRequest } from 'payload'
@@ -55,5 +56,23 @@ describe('tool error sentences', () => {
     const r = await call('og_audit')
     expect(r.text).toContain('no scope x')
     expect(r.text).not.toContain('internal_error')
+  })
+
+  it('an object a site callback throws is an ordinary error, whatever it carries: logged, its message not exposed', async () => {
+    const logged: unknown[] = []
+    const logging = { payload: { config: {}, logger: { error: (o: unknown) => logged.push(o) } } } as unknown as PayloadRequest
+    // What a site's access function could throw: the old public brands, and the class name, on a plain object.
+    const lookalikes = [
+      Object.assign(new Error('secret site detail A'), { [Symbol.for('payload-og-image.ShedError')]: true, name: 'ShedError' }),
+      Object.assign(new Error('secret site detail B'), { [Symbol.for('payload-og-image.ToolInputError')]: true, name: 'ToolInputError' }),
+    ]
+    for (const e of lookalikes) {
+      setTestRuntime({ inspect: { scopes: async () => Promise.reject(e), audit: async () => Promise.reject(e) } } as never)
+      const tool = ogImageMcpTools().find((t) => t.name === 'og_audit')
+      const out = (await (tool as NonNullable<typeof tool>).handler({}, logging, undefined)) as { content: Content[] }
+      expect(out.content[0]?.text).toContain('internal_error')
+      expect(out.content[0]?.text).not.toMatch(/secret|busy/)
+    }
+    expect(logged).toHaveLength(2)
   })
 })

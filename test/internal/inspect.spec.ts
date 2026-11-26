@@ -78,12 +78,16 @@ describe('createInspector', () => {
         (e) => e,
       )
     const first = [call('a'), call('b')]
-    await new Promise((r) => setImmediate(r))
-    expect(started).toBe(2) // both lookups are inside the gate, held
-    const third = await call('c')
-    expect(isShedError(third)).toBe(true)
-    expect(started).toBe(2) // the shed one never reached the source
-    release()
+    try {
+      await new Promise((r) => setImmediate(r))
+      expect(started).toBe(2) // both lookups are inside the gate, held
+      const third = call('c')
+      await new Promise((r) => setImmediate(r))
+      expect(started).toBe(2) // the third never reached the source: it was shed (an ungated one would be waiting on the latch)
+      expect(isShedError(await third)).toBe(true)
+    } finally {
+      release()
+    }
     expect(await Promise.all(first)).toEqual([
       { status: 'not_found', reason: 'no published document' },
       { status: 'not_found', reason: 'no published document' },
