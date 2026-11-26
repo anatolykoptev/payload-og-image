@@ -5,6 +5,7 @@
  * - handler.ts:225  immutable without the `current` check -> "3" RED
  * - handler.ts:235  decide the downgrade inside the memo closure (store and memoise it) -> "17" RED
  * - hero.ts `known.set` removed (the probe forgets) -> "a store hit in the steady state reads no hero file" RED
+ * - resolve.ts `heroCollection` returned as `i.target.heroCollection` -> "is drawn from its own collection's folder" RED
  * - handler.ts:229  call heroLoader before store.get -> "4: a store hit renders nothing and loads no hero" RED
  * - handler.ts:276  fail open when the draft check throws -> "20" RED
  * - handler.ts:154  memoise the fallback in draft mode -> "21" RED
@@ -33,10 +34,11 @@ import { describe, expect, it, vi } from 'vitest'
 import { createGate } from '../../src/internal/gate.js'
 import { CACHE, createCardHandler } from '../../src/internal/handler.js'
 import { createMemo } from '../../src/internal/memo.js'
+import { uploadSource } from '../../src/internal/needs.js'
 import { memoryStore } from '../../src/internal/store/memory.js'
 import { payloadHeroLoader } from '../../src/render/hero.js'
 import { defineTarget, defineTemplate } from '../../src/template.js'
-import { loadTestFonts, realPng } from '../helpers.js'
+import { loadTestFonts, realPng, relatedUploads } from '../helpers.js'
 
 const post = defineTemplate<{ title: string; label: string }>({
   id: 'post',
@@ -84,10 +86,17 @@ function setup(over: Record<string, unknown> = {}, opts: { renderFails?: boolean
     fonts: loadTestFonts,
     stacks: { title: ['Inter'] },
     serverUrl: 'https://x.test',
-    source: { published: async (_: string, s: string) => published.get(s) ?? null, publishedById: async () => null, draft, site },
+    source: {
+      published: async (_: string, s: string) => published.get(s) ?? null,
+      publishedById: async () => null,
+      draft,
+      site,
+      related: relatedUploads(published.get('h')),
+    },
     store,
     renderer,
     heroLoader,
+    uploadCollection: 'media',
     gate: createGate(),
     memo: createMemo(),
     events,
@@ -102,6 +111,32 @@ const req = (p: string, headers: Record<string, string> = {}) => new Request(`ht
 const vOf = (r: Response) => (r.headers.get('etag') as string).replaceAll('"', '')
 const DRAFT = { 'x-test-draft-mode': '1', 'x-test-editor': '1' }
 const names = (events: { emit: ReturnType<typeof vi.fn> }) => events.emit.mock.calls.map(([e]) => e.name)
+
+describe('card handler: a populated hero on a site with several upload collections', () => {
+  it("is drawn from its own collection's folder, with no heroCollection on the target", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), 'og-photos-'))
+    await writeFile(
+      path.join(dir, 'h.jpg'),
+      await sharp({ create: { width: 600, height: 400, channels: 3, background: '#336699' } })
+        .jpeg()
+        .toBuffer(),
+    )
+    const populated = { id: 9, url: '/media/h.jpg', updatedAt: 'u1', filename: 'h.jpg' }
+    uploadSource.set(populated, 'photos')
+    const source = {
+      published: async () => ({ id: 2, slug: 'h', title: 'Hero', heroImage: populated }),
+      publishedById: async () => null,
+      draft: async () => null,
+      site: async () => ({ name: 'Site' }),
+      related: async (collection: string) => (collection === 'photos' ? populated : null),
+    }
+    // Two upload collections: only `photos` has the file, and the loader finds a folder only for a collection it is told.
+    const heroLoader = payloadHeroLoader({ staticDirs: async (collection) => (collection === 'photos' ? [dir] : []) })
+    const { h } = setup({ source, uploadCollection: undefined, heroLoader })
+    const r = await h.GET(req('/og/posts/h/card.png'), ctx('h'))
+    expect([r.status, r.headers.get('x-og-cache')]).toEqual([200, 'render']) // 'downgraded' would mean no hero was found
+  })
+})
 
 describe('card handler', () => {
   it('1: an unknown slug is a 404 no-store and renders nothing', async () => {

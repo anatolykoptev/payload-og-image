@@ -38,3 +38,23 @@ export const realCard = async (text: string, format: 'png' | 'jpeg' | 'webp' = '
     await (format === 'png' ? image.png() : format === 'jpeg' ? image.jpeg({ mozjpeg: true }) : image.webp()).toBuffer(),
   )
 }
+
+/**
+ * A `related()` that answers an upload by id from the fixtures: every object with an `id` and a `url` held, at any depth, by `pool` (a document, a list or a
+ * map of them). What a hero or image resolves to is read again by id, never taken from the document, so a fixture's upload must be readable this way.
+ */
+export const relatedUploads = (pool: unknown) => async (_collection: string, id: string | number) => {
+  const seen = new Set<unknown>()
+  const find = (v: unknown): Record<string, any> | null => {
+    if (v === null || typeof v !== 'object' || seen.has(v)) return null
+    seen.add(v)
+    const o = v as Record<string, any>
+    if (o.id !== undefined && typeof o.url === 'string' && String(o.id) === String(id)) return o
+    for (const c of Object.values(o)) {
+      const hit = find(c)
+      if (hit) return hit
+    }
+    return null
+  }
+  return find(pool)
+}

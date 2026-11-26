@@ -5,7 +5,7 @@ Sources are the package docs (`docs/reference.md`, `docs/crawlers.md`, `docs/ope
 ## Nothing is advertised, or the URL 404s
 
 - **Missing or misplaced route file.** The page advertises a card URL that the app does not serve. The route folder must follow the target `path` (`/og/:kind/:slug/card.png` becomes `app/(frontend)/og/[kind]/[slug]/card.png/route.ts`; a `.jpg` path becomes `card.jpg/`). It must export `GET` from `createOgRoute()` and `HEAD = GET`. Fix by adding the file; prove with `kit.routesMatchPaths`.
-- **Plugin not registered**: the route answers 503 with a `console.warn` line. Outside production `ogMetadata` throws; in production it returns `{}` **silently**: there is no event, because the runtime lookup throws before an emitter exists. The only sign is a page with no `og:image`; `kit.everyRouteHasOwnCard` catches it. With `disabled: true` every card route answers 404 and no metadata is produced.
+- **Plugin not registered**: the route answers 503 with a `console.warn` line. Outside production `ogMetadata` throws; in production it returns `{}` after one `console.error` line (`[payload-og] event=render_error ... add ogImagePlugin`) per process, since no event emitter exists before the runtime does. The page ships without `og:image`; `kit.everyRouteHasOwnCard` catches it too. With `disabled: true` every card route answers 404 and no metadata is produced.
 - **No `serverURL`**: start-up error; card URLs are absolute.
 - **A collection with drafts and no public read of published documents.** Reads use `overrideAccess: false`, so the card 404s. Use `read: ({ req: { user } }) => (user ? true : { _status: { equals: 'published' } })`.
 - **Page passes `doc: null`**: `ogMetadata` returns `{}`; fine for a not-found page.

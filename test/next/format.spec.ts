@@ -18,7 +18,7 @@ import { descriptorOf } from '../../src/next/metadata.js'
 import { createOgRoute } from '../../src/next/route.js'
 import type { OgImagePluginOptions } from '../../src/plugin/index.js'
 import { defineTarget, defineTemplate } from '../../src/template.js'
-import { loadTestFonts, realCard } from '../helpers.js'
+import { loadTestFonts, realCard, relatedUploads } from '../helpers.js'
 
 const post = defineTemplate<{ title: string; label: string }>({
   id: 'post',
@@ -38,7 +38,7 @@ function setup(over: Partial<OgImagePluginOptions> = {}, o: { fail?: boolean; he
     publishedById: async (_t, id) => docs[String(id)] ?? null,
     draft: async () => null,
     site: async () => ({ name: 'Site' }),
-    related: async () => null,
+    related: relatedUploads(docs),
   }
   const options: OgImagePluginOptions = {
     site: () => ({ name: 'Site' }),
@@ -51,6 +51,7 @@ function setup(over: Partial<OgImagePluginOptions> = {}, o: { fail?: boolean; he
         template: 'post',
         props: ({ doc }: any) => ({ title: doc.title, label: 'Blog' }),
         hero: ({ doc }: any) => doc.heroImage,
+        heroCollection: 'media',
       }),
     },
     store: { memory: true },

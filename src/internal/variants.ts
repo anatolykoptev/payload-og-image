@@ -11,6 +11,13 @@ const fail = (msg: string): never => {
 }
 
 /**
+ * The siblings this module generated. Provenance, not shape: an existing `<name>~<variant>` entry is kept only if it is one of these, so a hand-written
+ * target of that name is refused however closely it copies the generated one. Module-local, a WeakSet so no target is kept alive: expansion happens in one
+ * module graph. A second copy of this module that meets a sibling it did not build treats it as hand-written and refuses it with the same named error.
+ */
+const generated = new WeakSet<object>()
+
+/**
  * Each declared variant becomes a hidden sibling target `<name>~<variant>` with kind `<kind>-<variant>`: the same collection, `props()`,
  * hero, share rules, format and slug field as its parent, its own path and template. Everything downstream (route, store, version,
  * etag) then treats it as one more target, so none of it changes. A sibling sits right after its parent, so lookups by collection
@@ -36,14 +43,18 @@ export function expandVariants(targets: Record<string, Target>): Record<string, 
       const sibling = variantTargetName(name, variant)
       const kind = `${t.kind ?? name}-${variant}`
       const have = Object.hasOwn(targets, sibling) ? targets[sibling] : undefined
-      if (have !== undefined && have.kind === kind && have.path === v.path && have.template === v.template) {
+      const target: Target = { ...parent, collection: t.collection ?? name, path: v.path, kind, template: v.template }
+      if (have !== undefined && generated.has(have)) {
         out.set(sibling, have) // already expanded from this very declaration
         continue
       }
-      if (have !== undefined || out.has(sibling)) fail(`target "${name}" variant "${variant}" collides with the target "${sibling}"`)
+      if (have !== undefined || out.has(sibling))
+        fail(
+          `target "${name}" variant "${variant}" collides with the target "${sibling}" (a target of that name already exists: one written by hand, or one expanded by another copy of this package; remove it, the variant creates it)`,
+        )
       if (kinds.has(kind)) fail(`target "${name}" variant "${variant}" has the kind "${kind}", which another target already uses`)
       kinds.add(kind)
-      const target: Target = { ...parent, collection: t.collection ?? name, path: v.path, kind, template: v.template }
+      generated.add(target)
       out.set(sibling, target)
     }
   }
