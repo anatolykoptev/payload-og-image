@@ -122,6 +122,20 @@ but opt-in, because not every link-preview crawler reads WebP. See [JPEG and Web
   check which pages have a card, whether it is stored, and what it looks like (see [reference](docs/reference.md#mcp-tools)).
 - `og-parity`, a bin that compares two directories of rendered cards pixel for pixel.
 
+## For AI coding agents
+
+The package ships an [Agent Skill](skills/payload-og-image/SKILL.md) that teaches a coding agent (Claude Code, Codex, Cursor and
+others that read the open `SKILL.md` format) to install and configure the plugin: the mental model, a decision checklist, the
+per-document fields and migration, the test kit, and a verification routine. Install it in the project, from the installed package:
+
+```sh
+mkdir -p .claude/skills
+cp -R node_modules/payload-og-image/skills/payload-og-image .claude/skills/
+```
+
+Use your agent's own skills folder in place of `.claude/skills/`. Or leave it in `node_modules` and point `AGENTS.md` or `CLAUDE.md`
+at `node_modules/payload-og-image/skills/payload-og-image/SKILL.md`. Copy the whole folder: `SKILL.md` loads its `references/` on demand.
+
 ## Documentation
 
 Start at [docs/INDEX.md](docs/INDEX.md): [reference](docs/reference.md) (image selection, cache headers, drafts,

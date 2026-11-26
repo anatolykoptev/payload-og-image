@@ -12,7 +12,8 @@
       "!temp",
       "!**/.next",
       "!dev/media",
-      "!CHANGELOG.md"
+      "!CHANGELOG.md",
+      "!skills/**/SKILL.md"
     ]
   },
   "formatter": {

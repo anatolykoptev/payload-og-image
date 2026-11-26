@@ -26,6 +26,7 @@
     "dist",
     "!dist/**/*.map",
     "docs",
+    "skills",
     "!docs/INDEX.md",
     "NOTICE"
   ],
