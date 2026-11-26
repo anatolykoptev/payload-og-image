@@ -126,7 +126,7 @@ export function createInspector(d: InspectorDeps): Inspector {
     const hero = card.hero
     if (!hero) return null
     let readable: boolean | null = null
-    if (check && d.heroLoader.readable) readable = await d.heroLoader.readable(hero, { collection: collectionOf(hero) })
+    if (check && d.heroLoader.readable) readable = await d.heroLoader.readable(hero)
     return {
       id: uploadId(hero),
       filename: typeof hero.filename === 'string' ? hero.filename : null,

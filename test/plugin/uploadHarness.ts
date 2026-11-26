@@ -26,7 +26,7 @@ const MEDIA: Record<number, Record<string, unknown>> = {
 export function setup(
   input: OgImagePluginInput,
   posts: Record<string, unknown>[] = [{ id: 10, slug: 'a', title: 'A', heroImage: 1 }],
-  extra: { targets?: Record<string, Target>; templates?: Template<any>[]; fields?: unknown[] } = {},
+  extra: { targets?: Record<string, Target>; templates?: Template<any>[]; fields?: unknown[]; deps?: Record<string, unknown> } = {},
 ) {
   const finds: Array<Record<string, any>> = []
   const config = configOf()
@@ -65,6 +65,7 @@ export function setup(
   const expanded = expandPresets(input, config)
   const options = { ...expanded, targets: { ...expanded.targets, ...extra.targets } }
   const source = payloadSource(payload, createState(options, 'https://www.example.test'), async () => ({ name: 'S' }))
+  const store = memoryStore()
   const handler = createCardHandler({
     targets: options.targets,
     statics: {},
@@ -73,7 +74,7 @@ export function setup(
     stacks: options.stacks,
     serverUrl: 'https://www.example.test',
     source,
-    store: memoryStore(),
+    store,
     renderer: { render: async () => new Uint8Array() },
     heroLoader: (async () => null) as never,
     uploadCollection: 'media',
@@ -83,10 +84,11 @@ export function setup(
     events: { emit: () => {} },
     isDraftRequest: async () => false,
     fallback: fallbackTemplate,
+    ...extra.deps,
   } as never)
   const resolveDoc = (doc: Record<string, any> | null) => handler.resolve({ target: targetName, doc: doc as never }, { previewing: false })
   const resolve = async (slug: string) => resolveDoc(await source.published(targetName, slug))
   const mediaFinds = () => finds.filter((f) => f.collection === 'media')
   const docFinds = () => finds.filter((f) => f.collection === 'posts')
-  return { source, finds, mediaFinds, docFinds, payload, resolve, resolveDoc }
+  return { source, finds, mediaFinds, docFinds, payload, resolve, resolveDoc, handler, store }
 }

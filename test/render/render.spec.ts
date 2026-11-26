@@ -429,12 +429,12 @@ describe('a hero is read only inside its own upload collection', () => {
     await writeFile(path.join(secret, 'only-private.jpg'), await jpeg())
     const dirs = vi.fn(async (c?: string) => (c === 'media' ? [media] : c === 'secret' ? [secret] : []))
     const load = payloadHeroLoader({ staticDirs: dirs })
-    const own = await load(hero(), BOX, { collection: 'media' })
+    const own = await load(hero(), BOX)
     expect(own).not.toBeNull()
     expect((await meta(own as string)).width).toBe(BOX.width)
     // a file that exists only in the other collection is not found through this one
-    expect(await load(hero({ filename: 'only-private.jpg' }), BOX, { collection: 'media' })).toBeNull()
-    expect(await load(hero(), BOX)).toBeNull() // no collection named: nothing is read
+    expect(await load(hero({ filename: 'only-private.jpg' }), BOX)).toBeNull()
+    expect(await load(verifiedUpload({ id: 1, filename: 'h.jpg', url: '/media/h.jpg' }, 'unlisted'), BOX)).toBeNull() // a collection with no folder: nothing is read
     expect(dirs).toHaveBeenCalledWith('media')
   })
 })

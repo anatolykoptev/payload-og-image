@@ -45,9 +45,8 @@ async function loader(files: Record<string, string | Buffer>) {
   const load = heroLoaderFor(payload, {})
   const hero = (name: string) => verifiedUpload({ id: name, filename: name, url: `/m/${name}`, updatedAt: 'u' })
   return {
-    load: (name: string, box = { width: 120, height: 40 }, where: Record<string, unknown> = {}) =>
-      load(hero(name), box, { collection: 'media', ...where }),
-    alpha: (name: string) => load.hasAlpha?.(hero(name), { collection: 'media' }),
+    load: (name: string, box = { width: 120, height: 40 }, where: Record<string, unknown> = {}) => load(hero(name), box),
+    alpha: (name: string) => load.hasAlpha?.(hero(name)),
   }
 }
 
@@ -326,12 +325,12 @@ describe('hostile SVGs', () => {
     const payload = { collections: { media: { config: { upload: { staticDir: dir } } } } } as unknown as Payload
     const load = heroLoaderFor(payload, {})
     const hero = verifiedUpload({ id: 'once', filename: 'logo.svg', url: '/m/logo.svg', updatedAt: 'v1' })
-    const first = await load(hero, { width: 120, height: 40 }, { collection: 'media' })
+    const first = await load(hero, { width: 120, height: 40 })
     expect(first).toMatch(/^data:image\/png/)
     await writeFile(path.join(dir, 'logo.svg'), svg('<rect width="120" height="40" fill="#00f"/>')) // the file changes, the version does not
-    expect(await load(hero, { width: 120, height: 40 }, { collection: 'media' })).toBe(first)
+    expect(await load(hero, { width: 120, height: 40 })).toBe(first)
     // A new updatedAt is a new version: read and drawn again.
-    const next = await load(verifiedUpload({ ...hero, updatedAt: 'v2' }), { width: 120, height: 40 }, { collection: 'media' })
+    const next = await load(verifiedUpload({ ...hero, updatedAt: 'v2' }), { width: 120, height: 40 })
     expect(next).not.toBe(first)
   })
 
@@ -455,10 +454,7 @@ describe('hostile SVGs', () => {
       },
     })
     const hero = verifiedUpload({ id: 'flight', filename: 'logo.svg', url: '/m/logo.svg', updatedAt: 'v1' })
-    const outs = await Promise.all([
-      ...Array.from({ length: 6 }, () => load(hero, { width: 120, height: 40 }, { collection: 'media' })),
-      load.hasAlpha?.(hero, { collection: 'media' }),
-    ])
+    const outs = await Promise.all([...Array.from({ length: 6 }, () => load(hero, { width: 120, height: 40 })), load.hasAlpha?.(hero)])
     expect(reads).toBe(1)
     expect(outs.slice(0, 6).every((u) => typeof u === 'string' && u.startsWith('data:image/png'))).toBe(true)
     expect(outs[6]).toBe(true)
@@ -468,27 +464,26 @@ describe('hostile SVGs', () => {
     const dir = await mkdtemp(path.join(os.tmpdir(), 'og-svg-'))
     const events: OgEvent[] = []
     const load = payloadHeroLoader({ staticDirs: async () => [dir], onEvent: (e) => events.push(e) })
-    const where = { collection: 'media' }
     const box = { width: 120, height: 40 }
     const memory = verifiedUpload({ id: 'memory', filename: 'logo.svg', url: '/m/logo.svg', updatedAt: 'v1' })
     await writeFile(path.join(dir, 'logo.svg'), bombs['sixteen nested <svg> around a huge rect'] as string)
-    expect(await load(memory, box, where)).toBeNull()
+    expect(await load(memory, box)).toBeNull()
     await writeFile(path.join(dir, 'logo.svg'), LOGO) // the file is fine now, the version has not changed: the limit is the file's, and remembered
-    expect(await load(memory, box, where)).toBeNull()
-    expect(await load.hasAlpha?.(memory, where)).toBe(false)
+    expect(await load(memory, box)).toBeNull()
+    expect(await load.hasAlpha?.(memory)).toBe(false)
     // A refusal by the sanitiser likewise.
-    const refused = { ...memory, id: 'refused' }
+    const refused = verifiedUpload({ ...memory, id: 'refused' })
     await writeFile(path.join(dir, 'logo.svg'), svg('<image href="http://x.test/a.png" width="1" height="1"/>'))
-    expect(await load(refused, box, where)).toBeNull()
+    expect(await load(refused, box)).toBeNull()
     await writeFile(path.join(dir, 'logo.svg'), LOGO)
-    expect(await load(refused, box, where)).toBeNull()
+    expect(await load(refused, box)).toBeNull()
     expect(events.map((e) => [e.name, e.detail?.reason])).toEqual([
       ['svg_rejected', 'memory'],
       ['svg_rejected', 'refused'],
     ])
     expect(events.every((e) => e.detail?.collection === 'media')).toBe(true)
     // A new version is a new file.
-    expect(await load(verifiedUpload({ ...memory, updatedAt: 'v2' }), box, where)).toMatch(/^data:image\/png/)
+    expect(await load(verifiedUpload({ ...memory, updatedAt: 'v2' }), box)).toMatch(/^data:image\/png/)
   })
 
   it('a logo too heavy to draw in time costs one render per retry window, never keeps the slot from the others, and is tried again after it', async () => {
@@ -507,7 +502,6 @@ describe('hostile SVGs', () => {
     const base = { staticDirs: async () => [dir], onEvent: (e: OgEvent) => events.push(e) }
     const loadHeavy = payloadHeroLoader({ ...base, svg: { timeoutMs: 1, retryMs: 600_000 } })
     const load = payloadHeroLoader({ ...base, svg: { timeoutMs: 120_000 } })
-    const where = { collection: 'media' }
     const box = { width: 120, height: 40 }
     const slowOne = verifiedUpload({ id: 'heavy', filename: 'heavy.svg', url: '/m/heavy.svg', updatedAt: 'v1' })
     const good = verifiedUpload({ id: 'good', filename: 'good.svg', url: '/m/good.svg', updatedAt: 'v1' })
@@ -516,24 +510,24 @@ describe('hostile SVGs', () => {
     // The retry window is read from `Date.now()`: a fake clock moves it, so the test never sleeps and never races a slow runner.
     vi.useFakeTimers({ toFake: ['Date'] })
     try {
-      expect(await loadHeavy(slowOne, box, where)).toBeNull()
+      expect(await loadHeavy(slowOne, box)).toBeNull()
       expect(timeouts()).toBe(1)
       // Steady traffic to its card: no more renders, and a good logo meanwhile is drawn (not busy).
       for (let i = 0; i < 5; i++) {
-        expect(await loadHeavy(slowOne, box, where)).toBeNull()
-        const out = await load(good, box, where)
+        expect(await loadHeavy(slowOne, box)).toBeNull()
+        const out = await load(good, box)
         expect(typeof out, `request ${i}: the good logo gave ${String(out)}; events ${reasons()}`).toBe('string')
         expect(out).toMatch(/^data:image\/png/)
       }
       expect(timeouts()).toBe(1)
       expect(events.some((e) => e.detail?.reason === 'busy')).toBe(false)
       // The probe says nothing about it while it is in the window (a verdict must not be remembered for a file that was not drawn) ...
-      expect(await loadHeavy.hasAlpha?.(slowOne, where)).toBe(false)
+      expect(await loadHeavy.hasAlpha?.(slowOne)).toBe(false)
       vi.setSystemTime(Date.now() + 600_000 - 1) // ... still in the window one millisecond before its end ...
-      expect(await loadHeavy(slowOne, box, where)).toBeNull()
+      expect(await loadHeavy(slowOne, box)).toBeNull()
       expect(timeouts()).toBe(1)
       vi.setSystemTime(Date.now() + 2) // ... and after the window it is tried again
-      expect(await loadHeavy(slowOne, box, where)).toBeNull()
+      expect(await loadHeavy(slowOne, box)).toBeNull()
       expect(timeouts()).toBe(2)
     } finally {
       vi.useRealTimers()

@@ -29,7 +29,7 @@ export const postCard = defineTemplate<PostCardProps>({
 ## Related documents in props
 
 `props` and `share` receive `{ doc, site, related }`. `doc` is read at depth 0 (relations are bare ids). `await related('authors', doc.author)`
-returns the related document if it is published and the visitor may read it, otherwise `null`. Call it for every related
+returns the related document if it is published and the visitor may read it, `null` if it is missing, unpublished or forbidden, and rejects when the read itself fails (a database error). Do not catch that rejection: the route then answers 503 without storing anything and the next request draws the card from the real data, where a caught error would store a card without the related document under a new immutable URL. Call it for every related
 document the card draws: its fields are part of the card's version only through the props you return.
 
 ## Everything drawn goes through props

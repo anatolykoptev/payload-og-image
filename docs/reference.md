@@ -238,7 +238,7 @@ props: async ({ doc, site, related }) => {
 },
 ```
 
-`related` is published-only and access-respecting (it is `null` for a missing, unpublished or forbidden document); an
+`related` is published-only and access-respecting (it is `null` for a missing, unpublished or forbidden document, and it rejects when the read fails: let that rejection propagate, see [templates](templates.md#related-documents-in-props)); an
 editor previewing a draft also gets the draft of a related document. `Target.depth` is gone: there is nothing to tune.
 Say which upload collection a hero lives in with `heroCollection` on the target; a hero file is read only inside that
 collection's folder. A transparent hero keeps its transparency, so the card shows through it exactly as it would through a direct `<img>`; set

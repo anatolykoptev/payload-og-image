@@ -107,7 +107,7 @@ describe('palette.hero', () => {
     const payload = { collections: { media: { config: { upload: { staticDir: dir } } } } } as unknown as Payload
     const hero = verifiedUpload({ id: 1, filename: 'h.png', url: '/m/h.png', updatedAt: 'u' })
     const load = async (palette?: OgImagePluginOptions['palette']) => {
-      const url = (await heroLoaderFor(payload, { palette })(hero, { width: 100, height: 100 }, { collection: 'media' })) as string
+      const url = (await heroLoaderFor(payload, { palette })(hero, { width: 100, height: 100 })) as string
       const png = Buffer.from(url.split(',')[1] as string, 'base64')
       return { png, meta: await sharp(png).metadata() }
     }
