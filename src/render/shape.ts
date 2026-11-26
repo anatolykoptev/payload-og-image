@@ -1,7 +1,7 @@
 // Prepares a named image by its `ImageShape`: contained and trimmed, tinted when it would vanish on its ground, declined when its shape is no mark.
 // Everything is a pure function of the image's bytes and the template's shape, so the result is covered by the upload's identity (the version's
 // image tail) and the template's revision. Nothing here is random.
-import { contrast, luminance, rgbOf } from '../internal/colour.js'
+import { contrast, DEFAULT_MIN_CONTRAST, luminance, rgbOf } from '../internal/colour.js'
 import { DepLoadError, loadSharp } from '../internal/deps.js'
 import type { ImageShape } from '../template.js'
 
@@ -137,7 +137,7 @@ async function contained(
   let out = await fit(src)
   if (shape.contrast) {
     const ground = luminance(rgbOf(shape.contrast.ground))
-    const min = shape.contrast.min ?? 3
+    const min = shape.contrast.min ?? DEFAULT_MIN_CONTRAST
     let seen = 0
     let low = 0
     for (let i = 0; i < out.width * out.height; i++) {

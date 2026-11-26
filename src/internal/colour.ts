@@ -16,6 +16,9 @@ export function normaliseHeroBackground(v: unknown): string {
   throw new Error(`payload-og-image: heroBackground must be #rgb or #rrggbb, got ${JSON.stringify(v)}`)
 }
 
+/** The contrast below which drawn colour on a ground is replaced by the ink (WCAG's 3:1 for large text and graphics). */
+export const DEFAULT_MIN_CONTRAST = 3
+
 /** `#rgb` or `#rrggbb` as its channels. */
 export const rgbOf = (hex: string): [number, number, number] => {
   const h = hex.replace('#', '')

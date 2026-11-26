@@ -1,6 +1,7 @@
 // The values of the two built-in presets, `payload-og-image:text@2` and `payload-og-image:photo@2`. Nothing here is a plugin default: a site
 // that opts in gets this named spec, and every number enters the card version through the template's id and revision, so changing one is a
 // revision bump that moves only preset cards.
+import { DEFAULT_MIN_CONTRAST } from '../internal/colour.js'
 import type { ImageShape } from '../template.js'
 
 /** The preset templates' ids and the revision both carry. A preset is named `<id>@<revision>`. */
@@ -44,7 +45,7 @@ export const PHOTO_IMAGE_BOXES = {
  * The one contrast rule of the text preset: a logo, or a document's own accent, that contrasts less than this with the ground (the ground is
  * also the colour drawn on a pill of the accent) is drawn in the ink instead.
  */
-export const MIN_CONTRAST = 3
+export const MIN_CONTRAST = DEFAULT_MIN_CONTRAST
 
 /** A logo is contained and trimmed (an opaque JPEG on a uniform ground is cut out of it), and drawn in the ink when most of it would vanish on the ground (under `MIN_CONTRAST`:1). */
 const logoShape = (fill: string): ImageShape => ({
