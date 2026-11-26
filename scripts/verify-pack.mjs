@@ -5,13 +5,9 @@ import { execFileSync } from 'node:child_process'
 import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
+import { PUBLIC_SURFACE } from './public-surface.mjs'
 
-const EXPECTED = {
-  'payload-og-image': ['defineTarget', 'defineTemplate', 'ogFields', 'ogImagePlugin'],
-  'payload-og-image/next': ['OG_SITE_TAG', 'createOgRoute', 'ogMetadata', 'ogTag', 'withHead'],
-  'payload-og-image/testing': ['installTestRuntime', 'ogKit'],
-  'payload-og-image/mcp': ['ogImageMcpToolMap'],
-}
+const EXPECTED = PUBLIC_SURFACE
 const run = (cmd, args, cwd) => execFileSync(cmd, args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'inherit'] })
 const errors = []
 

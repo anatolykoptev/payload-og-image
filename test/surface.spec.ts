@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest'
+// @ts-expect-error: a plain .mjs module without types, shared with scripts/verify-pack.mjs
+import { PUBLIC_SURFACE } from '../scripts/public-surface.mjs'
 import * as main from '../src/exports/index.js'
 import * as mcp from '../src/exports/mcp.js'
 import * as mcpV3 from '../src/exports/mcp-v3.js'
@@ -8,10 +10,15 @@ import * as testing from '../src/exports/testing.js'
 // S§D1: the runtime surface, exactly.
 describe('public surface (S§D1)', () => {
   it('exports exactly the agreed runtime names', () => {
-    expect(Object.keys(main).sort()).toEqual(['defineTarget', 'defineTemplate', 'ogFields', 'ogImagePlugin'])
-    expect(Object.keys(next).sort()).toEqual(['OG_SITE_TAG', 'createOgRoute', 'ogImages', 'ogMetadata', 'ogTag', 'withHead'])
-    expect(Object.keys(testing).sort()).toEqual(['installTestRuntime', 'ogKit'])
-    expect(Object.keys(mcp).sort()).toEqual(['ogImageMcpToolMap'])
-    expect(Object.keys(mcpV3).sort()).toEqual(['ogImageMcpTools'])
+    const entries = {
+      'payload-og-image': main,
+      'payload-og-image/next': next,
+      'payload-og-image/testing': testing,
+      'payload-og-image/mcp': mcp,
+      'payload-og-image/mcp/v3': mcpV3,
+    }
+    expect(Object.keys(entries).sort()).toEqual(Object.keys(PUBLIC_SURFACE).sort())
+    for (const [entry, mod] of Object.entries(entries))
+      expect([entry, Object.keys(mod).sort()]).toEqual([entry, [...PUBLIC_SURFACE[entry]].sort()])
   })
 })
