@@ -27,6 +27,7 @@ import { createHash } from 'node:crypto'
 import { describe, expect, it } from 'vitest'
 import { variantOf } from '../../src/internal/format.js'
 import { canonicalJson, cardVersion, normalizeProps, pageId } from '../../src/internal/version.js'
+import { verifiedUpload } from '../helpers.js'
 
 const base = {
   templateId: 'post',
@@ -49,16 +50,16 @@ describe('cardVersion', () => {
     ['template id', { ...base, templateId: 'page' }],
     ['host (domain move)', { ...base, host: 'new.example.com' }],
     ['fonts (a face file swapped)', { ...base, fontsDigest: 'f2' }],
-    ['hero added', { ...base, heroes: [{ id: 5, updatedAt: 'u1' }] }],
+    ['hero added', { ...base, heroes: [verifiedUpload({ id: 5, updatedAt: 'u1' })] }],
   ])('changes with %s', (_, changed) => expect(cardVersion(changed)).not.toBe(cardVersion(base)))
   it('changes when a hero is replaced or deleted', () => {
-    const withHero = { ...base, heroes: [{ id: 5, updatedAt: 'u1' }] }
-    expect(cardVersion({ ...base, heroes: [{ id: 5, updatedAt: 'u2' }] })).not.toBe(cardVersion(withHero))
+    const withHero = { ...base, heroes: [verifiedUpload({ id: 5, updatedAt: 'u1' })] }
+    expect(cardVersion({ ...base, heroes: [verifiedUpload({ id: 5, updatedAt: 'u2' })] })).not.toBe(cardVersion(withHero))
     expect(cardVersion(base)).not.toBe(cardVersion(withHero))
   })
   it('changes when a different upload with the same updatedAt replaces the hero', () => {
-    const a = { ...base, heroes: [{ id: 5, updatedAt: 'u1' }] }
-    expect(cardVersion({ ...base, heroes: [{ id: 6, updatedAt: 'u1' }] })).not.toBe(cardVersion(a))
+    const a = { ...base, heroes: [verifiedUpload({ id: 5, updatedAt: 'u1' })] }
+    expect(cardVersion({ ...base, heroes: [verifiedUpload({ id: 6, updatedAt: 'u1' })] })).not.toBe(cardVersion(a))
   })
   it('does not collapse Date props', () => {
     const at = (d: string) => ({ ...base, props: { ...base.props, when: new Date(d) } })
@@ -80,7 +81,10 @@ describe('cardVersion', () => {
   })
   it('named images move the version only when present: absent or empty hashes exactly as before, the order of names does not matter, the upload tag and its collection do', () => {
     const img = (id: number, updatedAt = 'u1') => ({ id, updatedAt })
-    const im = (name: string, uploads: Array<{ id: number; updatedAt: string }>, collection = 'media') => ({ name, collection, uploads })
+    const im = (name: string, uploads: Array<{ id: number; updatedAt: string }>, collection = 'media') => ({
+      name,
+      uploads: uploads.map((u) => verifiedUpload(u, collection)),
+    })
     expect(cardVersion({ ...base, images: [] })).toBe(cardVersion(base))
     expect(cardVersion({ ...base, images: [im('stack', [])] })).toBe(cardVersion(base))
     const one = cardVersion({ ...base, images: [im('stack', [img(1)])] })
@@ -104,7 +108,7 @@ describe('cardVersion', () => {
     expect(cardVersion({ ...base, images: [im('stack', [img(1)])], heroBackground: '#336699' })).toBe(one)
   })
   it('a card palette or a hero palette moves the version only when set; unset hashes exactly as before the option', () => {
-    const hero = { id: 9, updatedAt: 'u1' }
+    const hero = verifiedUpload({ id: 9, updatedAt: 'u1' })
     // Pinned from 0.3.0 (before the option existed).
     expect(cardVersion({ ...base, heroes: [hero] })).toBe('d8e5879ff956')
     expect(cardVersion({ ...base, heroes: [hero], heroBackground: '#f1f3ef' })).toBe('90a77b446d60')
@@ -116,7 +120,7 @@ describe('cardVersion', () => {
     expect(cardVersion({ ...base, heroes: [hero], heroPalette: 'false' })).not.toBe(cardVersion({ ...base, heroes: [hero] }))
   })
   it('a transparent hero without a ground moves the version; nothing else does', () => {
-    const hero = { id: 9, updatedAt: 'u1' }
+    const hero = verifiedUpload({ id: 9, updatedAt: 'u1' })
     // 0.4.0 values stay: an opaque hero, a card without a hero, and a flattened hero hash exactly as before.
     expect(cardVersion({ ...base, heroes: [hero], heroTransparent: false })).toBe('d8e5879ff956')
     expect(cardVersion({ ...base, heroes: [hero], heroTransparent: undefined })).toBe('d8e5879ff956')

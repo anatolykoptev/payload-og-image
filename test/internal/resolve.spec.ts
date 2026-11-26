@@ -35,10 +35,10 @@
  * - fonts.ts:113  `missingGlyphs` judges against the stack's first family only (or one covering family) -> "(#38) a stack of two single-script faces strips only what neither draws" RED */
 import { describe, expect, it, vi } from 'vitest'
 import type { LoadedFont } from '../../src/internal/fonts.js'
-import { uploadSource } from '../../src/internal/needs.js'
 import { buildKindIndex, cardPath, resolveCard } from '../../src/internal/resolve.js'
+import { collectionOf, type VerifiedUpload } from '../../src/internal/uploads.js'
 import { defineTarget, defineTemplate } from '../../src/template.js'
-import { loadTestFonts, relatedUploads } from '../helpers.js'
+import { loadTestFonts, relatedUploads, uploadReaderOf, verifiedUpload } from '../helpers.js'
 
 const post = defineTemplate<{ title: string; label: string; site: string }>({
   id: 'post',
@@ -77,10 +77,14 @@ const base = async () => {
     fontsDigest: digest,
     stacks: { title: ['Inter'] },
     seoImage: { path: 'meta.image' },
+    uploads: uploadReaderOf(undefined),
   }
 }
 const generated = async (over: Record<string, unknown>) => {
-  const r = await resolveCard({ ...(await base()), uploadCollection: 'media', related: relatedUploads(over.doc), ...over } as never)
+  const input = { ...(await base()), uploadCollection: 'media', related: relatedUploads(over.doc), ...over } as {
+    related: Parameters<typeof uploadReaderOf>[0]
+  }
+  const r = await resolveCard({ ...input, uploads: uploadReaderOf(input.related) } as never)
   if (r.kind !== 'generated') throw new Error(`expected a generated card, got ${r.kind}`)
   return r
 }
@@ -327,14 +331,13 @@ describe('resolveCard', () => {
     expect((await generated({ doc, uploadCollection: undefined, related: async () => handed })).hero).toBeNull()
   })
   it('a populated hero is read again from the collection populateUploads read it from, with no heroCollection and several upload collections', async () => {
-    const populated = { id: 9, url: '/m/h.jpg', updatedAt: 'u1' }
-    uploadSource.set(populated, 'photos')
+    const populated = verifiedUpload({ id: 9, url: '/m/h.jpg', updatedAt: 'u1' }, 'photos')
     const read = vi.fn(async () => populated)
     const doc = { id: 1, slug: 'a', title: 'A', heroImage: populated }
     const r = await generated({ doc, uploadCollection: undefined, related: read })
     expect(read).toHaveBeenCalledWith('photos', '9')
     expect(r.hero).toEqual(populated)
-    expect(r.heroCollection).toBe('photos') // the loader and the alpha probe look there too
+    expect(collectionOf(r.hero as VerifiedUpload)).toBe('photos') // the loader and the alpha probe look there too
     const heroHasAlpha = vi.fn(async () => false)
     await generated({ doc, uploadCollection: undefined, related: read, heroHasAlpha })
     expect(heroHasAlpha).toHaveBeenCalledWith(populated, { collection: 'photos' })

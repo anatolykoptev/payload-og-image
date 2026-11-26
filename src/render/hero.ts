@@ -7,6 +7,7 @@ import type { HeroLoader } from '../internal/handler.js'
 import { MAX_SIDE } from '../internal/limits.js'
 import { DEFAULT_HERO_COLOURS } from '../internal/palette.js'
 import type { Upload } from '../internal/types.js'
+import type { VerifiedUpload } from '../internal/uploads.js'
 import { heroTag } from '../internal/version.js'
 import { guardedFetch, isPublicAddress, type ResolveHost, systemResolve } from './guardedFetch.js'
 import { prepareShape } from './shape.js'
@@ -267,7 +268,7 @@ export function payloadHeroLoader(o: HeroLoaderOptions): HeroLoader {
       return null
     }
   }
-  const keyOf = (hero: Upload, where?: { collection?: string }) => `${where?.collection ?? ''}\u0000${heroTag(hero)}`
+  const keyOf = (hero: VerifiedUpload, where?: { collection?: string }) => `${where?.collection ?? ''}\u0000${heroTag(hero)}`
   load.readable = remembered(
     (hero, where) => keyOf(hero, where),
     async (hero, where) => {

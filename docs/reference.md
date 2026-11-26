@@ -264,6 +264,13 @@ The upload fields of a document are filled in with the same published-only, acce
 upload never reaches `hero`, `share` or the editor's share-image selection. A preset collection reads only the upload fields its
 card draws: a collection set to `preset: 'text'` reads no hero record at all.
 
+Every upload a card draws is read through one reader per request: the document's upload fields, the hero and the named images are
+verified together, in one `id in` find per upload collection, and an upload named twice (the hero, and the field it sits in) is read
+once. A hand-written target can list the upload fields it draws in `uploadFields` (dotted paths; the collection of each comes from its
+`relationTo`): only those are read, and every other upload field arrives in `doc` as its bare id. Without it, every single-valued
+upload field is read, as before. An upload object that was filled in from a field keeps the collection of that field, so returning it
+from `hero` or `images` needs no `heroCollection`.
+
 Upgrade effect: a resolver that returned a bare id from a `hasMany` field used to draw no hero, and now draws it when the
 id resolves, so those cards get a new `v` once (the hero is part of the version). `Target.hero` may return an `ImageRef`
 (an id, or `{ id }`) as well as an upload. `heroCollection` and every `imageCollections` value must be an upload collection

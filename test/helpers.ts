@@ -58,3 +58,33 @@ export const relatedUploads = (pool: unknown) => async (_collection: string, id:
   }
   return find(pool)
 }
+
+import { createUploadReader, VERIFIED, type VerifiedUpload } from '../src/internal/uploads.js'
+
+/** An upload as the reader would have verified it from `collection`. For a test that feeds the version, the loader or the probe directly. */
+export const verifiedUpload = <T extends Record<string, any>>(upload: T, collection = 'media'): VerifiedUpload & T =>
+  Object.defineProperty({ ...upload }, VERIFIED, { value: collection, enumerable: false }) as VerifiedUpload & T
+
+/** A source's batched `uploads` over a per-id `related`: what the visitor may read, by id. */
+export const uploadsFrom =
+  (related: (collection: string, id: string | number, ctx: any) => Promise<Record<string, any> | null>) =>
+  async (collection: string, ids: string[], ctx?: any) =>
+    new Map(
+      (
+        await Promise.all(
+          ids.map(
+            async (id) =>
+              [
+                id,
+                await (ctx === undefined
+                  ? (related as (c: string, i: string) => Promise<Record<string, any> | null>)(collection, id)
+                  : related(collection, id, ctx)),
+              ] as const,
+          ),
+        )
+      ).flatMap(([id, doc]) => (doc ? [[id, doc] as const] : [])),
+    ) as ReadonlyMap<string, Record<string, any>>
+
+/** The request's upload reader over a per-id `related`: what the visitor may read, one call per id. */
+export const uploadReaderOf = (related: Parameters<typeof uploadsFrom>[0] | undefined) =>
+  createUploadReader(uploadsFrom(related ?? (async () => null)))

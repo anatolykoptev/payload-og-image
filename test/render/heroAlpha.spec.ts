@@ -16,7 +16,7 @@ import sharp from 'sharp'
 import { describe, expect, it } from 'vitest'
 import { payloadHeroLoader } from '../../src/render/hero.js'
 import { nextOgRenderer } from '../../src/render/nextOg.js'
-import { loadTestFonts } from '../helpers.js'
+import { loadTestFonts, verifiedUpload } from '../helpers.js'
 
 // A 256 px icon like a product mark: a gradient tile with a soft shadow, so it has fully transparent and semi-transparent pixels.
 const ICON = `<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256"><defs><filter id="b"><feGaussianBlur stdDeviation="6"/></filter><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#6d5dfc"/><stop offset="1" stop-color="#22d3ee"/></linearGradient></defs><rect x="30" y="36" width="196" height="196" rx="44" fill="#000" fill-opacity="0.45" filter="url(#b)"/><rect x="28" y="24" width="200" height="200" rx="44" fill="url(#g)"/></svg>`
@@ -28,7 +28,7 @@ const dirWith = async (files: Record<string, Buffer>) => {
   return dir
 }
 const loaderFor = (dir: string, background?: string) => payloadHeroLoader({ staticDirs: async () => [dir], colours: false, background })
-const upload = (filename: string) => ({ id: filename, filename, url: `/m/${filename}`, updatedAt: 'u' })
+const upload = (filename: string) => verifiedUpload({ id: filename, filename, url: `/m/${filename}`, updatedAt: 'u' })
 
 /** The card with the image drawn at 52 px on a dark ground, as raw RGBA, with no palette so every pixel is the renderer's. */
 async function drawn(src: string) {

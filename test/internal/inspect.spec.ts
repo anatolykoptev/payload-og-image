@@ -9,11 +9,12 @@ import { createGate, isShedError, ShedError } from '../../src/internal/gate.js'
 import type { CardHandler, DocSource } from '../../src/internal/handler.js'
 import { createInspector } from '../../src/internal/inspect.js'
 import { memoryStore } from '../../src/internal/store/memory.js'
+import { verifiedUpload } from '../helpers.js'
 
 describe('createInspector: the hero collection', () => {
   it('reports the hero against the collection the route resolved (a populated hero, several upload collections, no heroCollection)', async () => {
     const asked: Array<string | undefined> = []
-    const hero = { id: 9, url: '/m/h.jpg', filename: 'h.jpg' }
+    const hero = verifiedUpload({ id: 9, url: '/m/h.jpg', filename: 'h.jpg' }, 'photos') // the collection the reader verified it from
     const card = {
       kind: 'generated',
       key: { kind: 'posts', slug: 'a' },
@@ -26,7 +27,6 @@ describe('createInspector: the hero collection', () => {
       type: 'image/png',
       encoding: { format: 'png' },
       hero,
-      heroCollection: 'photos', // what populateUploads' provenance gave the route; the target names none
       heroTransparent: false,
       heroGround: undefined,
     }

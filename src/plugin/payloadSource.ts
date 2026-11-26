@@ -1,7 +1,5 @@
 import type { Payload } from 'payload'
 import type { DocSource } from '../internal/handler.js'
-import { uploadNeeds, uploadSource } from '../internal/needs.js'
-import { pooled } from '../internal/pool.js'
 import type { OgState } from '../internal/state.js'
 import type { SiteInfo } from '../internal/types.js'
 import type { Target } from '../template.js'
@@ -83,44 +81,22 @@ function withoutStatus(args: FindArgs): FindArgs {
   return { ...args, where: where.and ? where.and[0] : where } as FindArgs
 }
 
-type Field = {
-  type?: string
-  name?: string
-  relationTo?: unknown
-  hasMany?: boolean
-  fields?: Field[]
-  tabs?: Array<{ fields?: Field[]; name?: string }>
-}
-
-/** Paths of the single-valued upload fields of a collection (a `hasMany` upload stays a list of bare ids: `resolveCard` reads the one a hero or named image takes) (top level, in groups, rows and tabs), with their upload collection. */
-export function uploadFieldPaths(fields: Field[] | undefined, prefix: string[] = []): Array<{ path: string[]; relationTo: string }> {
-  const found: Array<{ path: string[]; relationTo: string }> = []
-  for (const f of fields ?? []) {
-    if (f.type === 'upload' && f.name && typeof f.relationTo === 'string' && !f.hasMany)
-      found.push({ path: [...prefix, f.name], relationTo: f.relationTo })
-    else if (f.type === 'group' && f.name) found.push(...uploadFieldPaths(f.fields, [...prefix, f.name]))
-    else if (f.type === 'tabs')
-      for (const t of f.tabs ?? []) found.push(...uploadFieldPaths(t.fields, t.name ? [...prefix, t.name] : prefix))
-    else if (!f.name && f.fields) found.push(...uploadFieldPaths(f.fields, prefix)) // a row or collapsible: no value of its own
-  }
-  return found
-}
-
 /**
- * One document by id, the way every read behind a card is made: access-respecting (`overrideAccess: false`), and published only. A
- * drafts-enabled collection gets the `_status` predicate, so a draft-only document is never returned to the public; an editor previewing
- * (`user`) sees the draft. Null when it does not exist or the caller may not read it.
+ * Documents by id, the way every read behind a card is made: access-respecting (`overrideAccess: false`), and published only. A drafts-enabled
+ * collection gets the `_status` predicate, so a draft-only document is never returned to the public; an editor previewing (`user`) sees the draft.
+ * One find, whatever the number of ids. Only the documents found are returned; none when the caller may not read the collection.
  */
-export async function readRelated(
+async function readMany(
   payload: Payload,
   collection: string,
-  id: string | number,
+  ids: Array<string | number>,
   user?: unknown,
-): Promise<Record<string, any> | null> {
+): Promise<Array<Record<string, any>>> {
+  if (ids.length === 0) return []
   const known = payload.collections as unknown as Record<string, { config?: { versions?: { drafts?: unknown } } } | undefined>
-  const base = { collection, depth: 0, limit: 1, pagination: false, overrideAccess: false }
+  const base = { collection, depth: 0, limit: ids.length, pagination: false, overrideAccess: false }
   try {
-    const match = { id: { equals: id } }
+    const match = ids.length === 1 ? { id: { equals: ids[0] } } : { id: { in: ids } }
     const args = user
       ? { ...base, where: match, draft: true, user }
       : {
@@ -128,48 +104,20 @@ export async function readRelated(
           where: known[collection]?.config?.versions?.drafts ? { and: [match, { _status: { equals: 'published' } }] } : match,
           draft: false,
         }
-    return ((await payload.find(args as unknown as FindArgs)).docs[0] ?? null) as Record<string, any> | null
+    return (await payload.find(args as unknown as FindArgs)).docs as Array<Record<string, any>>
   } catch {
-    return null // not readable by this caller
+    return [] // not readable by this caller
   }
 }
 
-/**
- * The doc was read at depth 0, so its upload fields are bare ids. The hero and the share image are uploads: read each by id with
- * `readRelated` (published only and the caller's access: `user` for an editor, none for the public) and put it in place. An upload that is
- * missing, draft-only or that the caller may not read becomes null. A value that is already an object (a document assembled from an
- * editor's form) is reduced to its id first, so it is read afresh and never trusted. `only` (dotted paths) limits which fields are read:
- * the others are left as bare ids (or null), never read.
- */
-export async function populateUploads<T extends Record<string, any> | null>(
+/** One document by id (see `readMany`): null when it does not exist or the caller may not read it. */
+export async function readRelated(
   payload: Payload,
   collection: string,
-  doc: T,
+  id: string | number,
   user?: unknown,
-  only?: ReadonlySet<string>,
-): Promise<T> {
-  if (!doc) return doc
-  const known = payload.collections as unknown as Record<string, { config?: { fields?: Field[] } } | undefined>
-  for (const { path, relationTo } of uploadFieldPaths(known[collection]?.config?.fields)) {
-    let holder: Record<string, any> | undefined = doc
-    for (const key of path.slice(0, -1)) holder = holder?.[key] as Record<string, any> | undefined
-    const field = path[path.length - 1] as string
-    const raw = holder?.[field]
-    const id = raw && typeof raw === 'object' ? (raw as { id?: unknown }).id : raw
-    if (!holder) continue
-    if (typeof id !== 'string' && typeof id !== 'number') {
-      if (raw && typeof raw === 'object') holder[field] = null // an object with no usable id is no upload of ours
-      continue
-    }
-    if (only && !only.has(path.join('.'))) {
-      holder[field] = id // not drawn by this target: never read, and never an object nobody verified
-      continue
-    }
-    const read = await readRelated(payload, relationTo, id, user)
-    if (read) uploadSource.set(read, relationTo)
-    holder[field] = read
-  }
-  return doc
+): Promise<Record<string, any> | null> {
+  return (await readMany(payload, collection, [id], user))[0] ?? null
 }
 
 /**
@@ -198,10 +146,6 @@ export function payloadSource(payload: Payload, state: OgState, cachedSite: () =
       throw error
     }
   }
-  // Only the upload fields the target draws (a preset says which; a hand-written target, whose resolvers are opaque, reads them all).
-  const withUploads = <T extends Record<string, any> | null>(name: string, doc: T, user?: unknown) =>
-    populateUploads(payload, targetOf(name).collection ?? name, doc, user, doc ? uploadNeeds.get(targetOf(name))?.(doc) : undefined)
-  const readIn = async (name: string, args: FindArgs, user?: unknown) => withUploads(name, await first(args), user)
   // Editors: users of the admin user collection (or the configured auth collections), nobody else.
   const editorCollections = new Set(o.editors ?? [payload.config?.admin?.user ?? 'users'])
   const editor = async (request: Request) => {
@@ -214,13 +158,13 @@ export function payloadSource(payload: Payload, state: OgState, cachedSite: () =
   }
   return {
     published: (name, slug) =>
-      readIn(name, {
+      first({
         ...buildFind(payload, name, targetOf(name), { slug }, seoPathOf(name)),
         draft: false,
         overrideAccess: false,
       } as FindArgs),
     publishedById: (name, id) =>
-      readIn(name, {
+      first({
         ...buildFind(payload, name, targetOf(name), { id }, seoPathOf(name)),
         draft: false,
         overrideAccess: false,
@@ -231,9 +175,7 @@ export function payloadSource(payload: Payload, state: OgState, cachedSite: () =
         draft: false,
         overrideAccess: false,
       } as FindArgs)
-      // Each document reads its uploads by id: a few at a time, not a hundred at once.
-      const docs = await pooled(found.docs as Record<string, any>[], 4, (d) => withUploads(name, d))
-      return { docs, totalDocs: found.totalDocs }
+      return { docs: found.docs as Record<string, any>[], totalDocs: found.totalDocs }
     },
     async draft(name, key, request) {
       const user = await editor(request)
@@ -245,11 +187,16 @@ export function payloadSource(payload: Payload, state: OgState, cachedSite: () =
         key.slug !== undefined ? { slug: key.slug } : { id: key.id as string | number },
         seoPathOf(name),
       )
-      return readIn(name, { ...withoutStatus(found), draft: true, overrideAccess: false, user } as FindArgs, user)
+      return first({ ...withoutStatus(found), draft: true, overrideAccess: false, user } as FindArgs)
     },
     async related(collection, id, { previewing, request }) {
       // An editor previewing sees the draft; everyone else the published document, and never a draft-only one.
       return readRelated(payload, collection, id, previewing && request ? await editor(request) : null)
+    },
+    async uploads(collection, ids, { previewing, request }) {
+      const docs = await readMany(payload, collection, ids, previewing && request ? await editor(request) : null)
+      // Keyed by the id the caller asked with: a record without an `id` is none of them.
+      return new Map(docs.flatMap((d) => (d.id === undefined || d.id === null ? [] : [[String(d.id), d] as const])))
     },
     async site(request) {
       // Draft site data only for an authenticated editor: a draft-mode cookie alone must not draw draft text.

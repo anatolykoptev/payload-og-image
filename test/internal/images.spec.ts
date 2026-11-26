@@ -21,8 +21,9 @@ import { createCardHandler } from '../../src/internal/handler.js'
 import { createMemo } from '../../src/internal/memo.js'
 import { resolveCard } from '../../src/internal/resolve.js'
 import { memoryStore } from '../../src/internal/store/memory.js'
+import { collectionOf, type VerifiedUpload } from '../../src/internal/uploads.js'
 import { defineTarget, defineTemplate } from '../../src/template.js'
-import { loadTestFonts, realPng } from '../helpers.js'
+import { loadTestFonts, realPng, uploadReaderOf, uploadsFrom } from '../helpers.js'
 
 const upload = (id: number, over: Record<string, unknown> = {}) => ({
   id,
@@ -76,7 +77,8 @@ const base = async () => {
   }
 }
 const run = async (over: Record<string, unknown>) => {
-  const r = await resolveCard({ ...(await base()), ...over } as never)
+  const input = { ...(await base()), ...over } as { related?: Parameters<typeof uploadReaderOf>[0] }
+  const r = await resolveCard({ ...input, uploads: uploadReaderOf(input.related) } as never)
   if (r.kind !== 'generated') throw new Error(`expected a generated card, got ${r.kind}`)
   return r
 }
@@ -86,7 +88,7 @@ describe('named images: resolving', () => {
   it('named images reach the card: ids, numbers and objects are all re-read by id, in order', async () => {
     const related = relatedOf({ media: { 1: upload(1), 2: upload(2), 3: upload(3) } })
     const r = await run({ target: target(), doc: doc([1, '2', { id: 3 }]), related })
-    expect(r.images).toEqual([{ name: 'stack', collection: 'media', uploads: [upload(1), upload(2), upload(3)] }])
+    expect(r.images).toEqual([{ name: 'stack', uploads: [upload(1), upload(2), upload(3)] }])
     expect(related.mock.calls.map(([c, id]) => `${c}/${id}`)).toEqual(['media/1', 'media/2', 'media/3'])
   })
   it('an object that claims to be an upload the public may not read is left out: only the id it names is used', async () => {
@@ -106,12 +108,12 @@ describe('named images: resolving', () => {
     const related = relatedOf({ media: { 1: upload(1) }, logos: { 1: upload(1, { filename: 'logo.png' }) } })
     const t = target({ images: () => ({ stack: [1], logo: 1 }), imageCollections: { logo: 'logos' } })
     const r = await run({ target: t, doc: doc([]), related })
-    expect(r.images.map((i) => [i.name, i.collection, i.uploads[0]?.filename])).toEqual([
+    expect(r.images.map((i) => [i.name, collectionOf(i.uploads[0] as VerifiedUpload), i.uploads[0]?.filename])).toEqual([
       ['logo', 'logos', 'logo.png'], // canonical order: by name
       ['stack', 'media', '1.png'],
     ])
     const viaHero = await run({ target: target({ heroCollection: 'logos' }), doc: doc([1]), related })
-    expect(viaHero.images[0]?.collection).toBe('logos')
+    expect(collectionOf(viaHero.images[0]?.uploads[0] as VerifiedUpload)).toBe('logos')
   })
   it('a target whose images cannot be read from any collection, or that the template does not declare, is refused with a reason', async () => {
     const related = relatedOf({})
@@ -238,6 +240,7 @@ describe('named images: drawing', () => {
         draft: async () => null,
         site: async () => ({ name: 'S' }),
         related,
+        uploads: uploadsFrom(related),
       },
       store,
       renderer: {
@@ -335,6 +338,7 @@ describe('named images: drawing', () => {
         draft: async () => null,
         site: async () => ({ name: 'S' }),
         related: relatedOf({ media: { 1: upload(1), 2: upload(2) } }),
+        uploads: uploadsFrom(relatedOf({ media: { 1: upload(1), 2: upload(2) } })),
       },
       store: memoryStore(),
       renderer: {

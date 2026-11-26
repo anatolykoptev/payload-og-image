@@ -13,6 +13,7 @@ import { expandPresets } from '../../src/presets/expand.js'
 import { fallbackTemplate } from '../../src/render/fallback.js'
 import { payloadHeroLoader } from '../../src/render/hero.js'
 import { nextOgRenderer } from '../../src/render/nextOg.js'
+import { uploadsFrom } from '../helpers.js'
 
 /** A config as a site writes it: posts with a hero and a sub line, an `authors` collection with no slug, a media collection. */
 export const configOf = (extra: Partial<Config> = {}): Config =>
@@ -91,6 +92,19 @@ export async function presetHarness(o: {
   const config = o.config ?? configOf()
   const options = expandPresets(input, config)
   const drawn: string[] = []
+  const related = async (collection: string, id: string | number) =>
+    collection === 'media'
+      ? (({ ...o.extraUploads } as Record<string, unknown>)[String(id)] ??
+        (
+          {
+            1: upload(1, 'hero.jpg', 1200, 800),
+            2: upload(2, 'logo.png', 400, 400, 'image/png'),
+            3: upload(3, 'wordmark.png', 500, 100, 'image/png'),
+            4: upload(4, 'icon.jpg', 300, 300),
+          } as Record<string, unknown>
+        )[String(id)] ??
+        null)
+      : null
   const real = nextOgRenderer()
   const handler = createCardHandler({
     targets: options.targets,
@@ -104,19 +118,8 @@ export async function presetHarness(o: {
       publishedById: async () => null,
       draft: async () => null,
       site: async () => ({ name: 'Example', ...o.site }),
-      related: async (collection: string, id: string | number) =>
-        collection === 'media'
-          ? (({ ...o.extraUploads } as Record<string, unknown>)[String(id)] ??
-            (
-              {
-                1: upload(1, 'hero.jpg', 1200, 800),
-                2: upload(2, 'logo.png', 400, 400, 'image/png'),
-                3: upload(3, 'wordmark.png', 500, 100, 'image/png'),
-                4: upload(4, 'icon.jpg', 300, 300),
-              } as Record<string, unknown>
-            )[String(id)] ??
-            null)
-          : null,
+      related,
+      uploads: uploadsFrom(related),
     },
     store: memoryStore(),
     renderer: {

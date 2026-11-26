@@ -1,10 +1,8 @@
 import type { Config, Endpoint, PayloadRequest } from 'payload'
 import { isShedError } from '../internal/gate.js'
-import { uploadNeeds } from '../internal/needs.js'
 import type { OgState } from '../internal/state.js'
 import { OG_EVENT_NAMES } from '../internal/types.js'
 import type { Target } from '../template.js'
-import { populateUploads } from './payloadSource.js'
 
 export const PREVIEW_PATH = '/payload-og-image/preview'
 export const STATS_PATH = '/payload-og-image/stats'
@@ -144,8 +142,6 @@ export function previewEndpoint(state: OgState): Endpoint {
           if (e instanceof BadBody) return text(400, 'Bad request')
           throw e
         }
-        await populateUploads(req.payload, collection, merged, user, uploadNeeds.get(o.targets[targetName as string] as Target)?.(merged))
-
         const { getRuntime } = await import('../internal/runtime.js')
         const rt = await getRuntime(req.payload.config)
         const result = await rt.preview({ target: targetName as string, doc: merged, request: req as unknown as Request })

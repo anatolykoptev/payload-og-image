@@ -18,6 +18,7 @@ import {
   resolveCard,
 } from './resolve.js'
 import type { CardEncoding, CardFormat, CardMime, CardStore, OnEvent, SiteInfo, Size, Upload } from './types.js'
+import { collectionOf, createUploadReader, type UploadField, type UploadReader, type VerifiedUpload } from './uploads.js'
 import { isVariantName } from './variants.js'
 
 export type DocSource = {
@@ -44,10 +45,19 @@ export type DocSource = {
    * editor, the draft. Null when it does not exist or may not be read. Never a draft for anyone else.
    */
   related(collection: string, id: string | number, ctx: { previewing: boolean; request?: Request }): Promise<Record<string, any> | null>
+  /**
+   * The uploads of one collection by id, in ONE read, with the same rule as `related`: published only and access-respecting; an editor previewing
+   * sees the draft. Only the ones found are in the answer. The request's upload reader is the only caller.
+   */
+  uploads(
+    collection: string,
+    ids: string[],
+    ctx: { previewing: boolean; request?: Request },
+  ): Promise<ReadonlyMap<string, Record<string, any>>>
 }
 export type HeroLoader = {
   (
-    hero: Upload,
+    hero: VerifiedUpload,
     box: Size,
     /** `keepAlpha`: flatten onto no ground at all, not even the plugin's `heroBackground` (a named image: a logo stays transparent). `shape`: prepare a named image by its `ImageShape` (the answer `''` is an image the shape declines, which is not a failure). `colours`: the template's own hero palette. */
     o?: { collection?: string; background?: string; keepAlpha?: boolean; shape?: ImageShape; colours?: false | number },
@@ -56,9 +66,9 @@ export type HeroLoader = {
    * Whether the hero has a see-through pixel. Asked only while the site has set no `heroBackground`, to give such a card a
    * new URL (its bytes changed in 0.5.0). A loader without it (a test seam) reports none.
    */
-  hasAlpha?: (hero: Upload, o?: { collection?: string }) => Promise<boolean>
+  hasAlpha?: (hero: VerifiedUpload, o?: { collection?: string }) => Promise<boolean>
   /** Whether the hero's file can be read at all (a read, no decode): false is why a card would be drawn without it. */
-  readable?: (hero: Upload, o?: { collection?: string }) => Promise<boolean>
+  readable?: (hero: VerifiedUpload, o?: { collection?: string }) => Promise<boolean>
 }
 /** `encoding` absent is PNG. */
 export type Renderer = {
@@ -91,6 +101,8 @@ export type HandlerDeps = {
   heroLoader: HeroLoader
   /** The site's only upload collection, when it has exactly one (see `ResolveInput.uploadCollection`). */
   uploadCollection?: string
+  /** The upload fields of a collection, from the schema (see `uploadFieldsOf`). Unset: no document field is filled in. */
+  uploadFields?: (collection: string) => readonly UploadField[]
   gate: Gate
   memo: Memo
   events: { emit: OnEvent }
@@ -174,8 +186,10 @@ export type CardHandler = {
    */
   resolve(
     a: { target: string; doc: Record<string, any> } | { staticKey: string },
-    o: { previewing: boolean; request?: Request },
+    o: { previewing: boolean; request?: Request; uploads?: UploadReader },
   ): Promise<ResolvedCard>
+  /** A reader for one request's uploads: callers resolving several cards of one document (the sizes of a page) share it, so each upload is read once. */
+  uploads(o: { previewing: boolean; request?: Request }): UploadReader
 }
 
 export function createCardHandler(d: HandlerDeps): CardHandler {
@@ -222,8 +236,13 @@ export function createCardHandler(d: HandlerDeps): CardHandler {
    * upload collection's folder. An upload whose file cannot be prepared is left out of its list and counted in `failed`.
    */
   async function loadImages(card: GeneratedCard): Promise<{ images: ImageLists; failed: number }> {
-    const jobs = card.images.flatMap(({ name, collection, uploads }) =>
-      uploads.map((upload) => ({ name, collection, upload, box: (card.template.imageBoxes as Record<string, Size>)[name] as Size })),
+    const jobs = card.images.flatMap(({ name, uploads }) =>
+      uploads.map((upload) => ({
+        name,
+        collection: collectionOf(upload),
+        upload,
+        box: (card.template.imageBoxes as Record<string, Size>)[name] as Size,
+      })),
     )
     const loaded = await pooled(jobs, 4, (j) =>
       d.heroLoader(j.upload, j.box, {
@@ -269,7 +288,7 @@ export function createCardHandler(d: HandlerDeps): CardHandler {
     // After the store miss and inside the gate: a cache hit pays for none of this.
     const hero = card.hero
       ? await d.heroLoader(card.hero, card.template.heroBox ?? card.size, {
-          collection: card.heroCollection,
+          collection: collectionOf(card.hero),
           background: card.heroBackground,
           colours: card.template.heroColours ?? lossyColours(card),
         })
@@ -317,6 +336,9 @@ export function createCardHandler(d: HandlerDeps): CardHandler {
     }
   }
 
+  const readerFor = (o: { previewing: boolean; request?: Request }) =>
+    createUploadReader((collection, ids) => d.source.uploads(collection, ids, o))
+
   function cardFor(a: {
     target: Target
     targetName: string
@@ -327,6 +349,7 @@ export function createCardHandler(d: HandlerDeps): CardHandler {
     isStatic: boolean
     previewing: boolean
     request?: Request
+    uploads: UploadReader
   }) {
     return resolveCard({
       target: a.target,
@@ -352,13 +375,16 @@ export function createCardHandler(d: HandlerDeps): CardHandler {
       seoImage: a.isStatic ? undefined : d.seoImage,
       uploadCollection: d.uploadCollection,
       related: (collection, id) => d.source.related(collection, id, { previewing: a.previewing, request: a.request }),
+      uploads: a.uploads,
+      uploadFields: a.isStatic ? undefined : d.uploadFields?.(a.target.collection ?? a.targetName),
     })
   }
 
   async function resolve(
     a: { target: string; doc: Record<string, any> } | { staticKey: string },
-    o: { previewing: boolean; request?: Request },
+    o: { previewing: boolean; request?: Request; uploads?: UploadReader },
   ) {
+    const uploads = o.uploads ?? readerFor(o)
     const [{ fonts, digest }, site] = await Promise.all([d.fonts(), d.source.site(o.previewing ? o.request : undefined)])
     if ('staticKey' in a) {
       const card = statics.get(a.staticKey)
@@ -373,6 +399,7 @@ export function createCardHandler(d: HandlerDeps): CardHandler {
         isStatic: true,
         previewing: o.previewing,
         request: o.request,
+        uploads,
       })
     }
     if (!Object.hasOwn(d.targets, a.target)) throw new Error(`payload-og-image: no target "${a.target}"`)
@@ -386,14 +413,16 @@ export function createCardHandler(d: HandlerDeps): CardHandler {
       isStatic: false,
       previewing: o.previewing,
       request: o.request,
+      uploads,
     })
   }
 
   async function preview(a: { target: string; doc: Record<string, any>; request: Request }): Promise<PreviewResult> {
     if (!Object.hasOwn(d.targets, a.target)) throw new Error(`payload-og-image: no target "${a.target}"`)
     const target = d.targets[a.target] as Target
+    const uploads = readerFor({ previewing: true, request: a.request })
     const run = (doc: Record<string, any>, fonts: LoadedFont[], digest: string, site: SiteInfo) =>
-      cardFor({ target, targetName: a.target, doc, site, fonts, digest, isStatic: false, previewing: true, request: a.request })
+      cardFor({ target, targetName: a.target, doc, site, fonts, digest, isStatic: false, previewing: true, request: a.request, uploads })
     const og = a.doc.og !== null && typeof a.doc.og === 'object' && !Array.isArray(a.doc.og) ? a.doc.og : {}
     const mode = ogMode(a.doc)
     // A document not saved yet has no slug: a placeholder lets it be drawn. It is never a URL, a key or a store entry here.
@@ -476,6 +505,7 @@ export function createCardHandler(d: HandlerDeps): CardHandler {
         isStatic: staticCard !== undefined,
         previewing,
         request,
+        uploads: readerFor({ previewing, request }),
       })
       return { card, fonts, digest, site, doc }
     })
@@ -571,5 +601,5 @@ export function createCardHandler(d: HandlerDeps): CardHandler {
       return unavailable()
     }
   }
-  return { GET, resolve, preview }
+  return { GET, resolve, preview, uploads: readerFor }
 }

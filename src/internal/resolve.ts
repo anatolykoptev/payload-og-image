@@ -15,9 +15,17 @@ import {
   type WebpOptions,
 } from './format.js'
 import { IMAGE_NAME, MAX_CARD_IMAGES } from './limits.js'
-import { uploadSource } from './needs.js'
-import { pooled } from './pool.js'
-import type { CardEncoding, CardKey, CardMime, SiteInfo, Size, Upload } from './types.js'
+import type { CardEncoding, CardKey, CardMime, SiteInfo, Size } from './types.js'
+import {
+  collectionOf,
+  fillUploads,
+  type ImageRef,
+  idOf,
+  refOf,
+  type UploadField,
+  type UploadReader,
+  type VerifiedUpload,
+} from './uploads.js'
 import { canonicalJson, cardVersion, normalizeProps, pageId } from './version.js'
 
 export type GeneratedCard = {
@@ -27,14 +35,12 @@ export type GeneratedCard = {
   v: string
   template: Template<any>
   props: any
-  hero: Upload | null
+  hero: VerifiedUpload | null
   /**
-   * The target's named images that resolved (read again with the visitor's access, by id), in the order the target gave them; a name none of
-   * whose uploads resolved is not here. Each is read only from its own upload collection's folder.
+   * The target's named images that resolved (verified by the request's reader), in the order the target gave them; a name none of whose uploads
+   * resolved is not here. Each is read only from its own upload collection's folder (`collectionOf`).
    */
-  images: Array<{ name: string; collection: string; uploads: Upload[] }>
-  /** The upload collection the hero was read from: the target's `heroCollection`, else the field's it was populated from, else the site's only one. */
-  heroCollection: string | undefined
+  images: Array<{ name: string; uploads: VerifiedUpload[] }>
   /** The ground this card's own target or template set for a transparent hero (normalised); the loader flattens onto it. Undefined: the plugin's. */
   heroBackground: string | undefined
   /** The hero has a see-through pixel and nothing flattens it, so the card shows through it (what the version's `ha` tag records). */
@@ -70,7 +76,7 @@ export type ResolveInput = {
   /** True when the site set `heroBackground` (white included), so a transparent hero is flattened. */
   heroFlattened?: boolean
   /** Whether a hero has a see-through pixel; asked only for a hero the site did not flatten. */
-  heroHasAlpha?: (hero: Upload, o?: { collection?: string }) => Promise<boolean>
+  heroHasAlpha?: (hero: VerifiedUpload, o?: { collection?: string }) => Promise<boolean>
   /** Effective card / hero palette tags when not the default (see `paletteTags`). */
   cardPalette?: string
   heroPalette?: string
@@ -81,8 +87,12 @@ export type ResolveInput = {
   jpeg?: JpegOptions
   webp?: WebpOptions
   seoImage?: { path: string; isDeliberate?: (image: unknown) => boolean }
-  /** Handed to the target's resolvers (default: always null). */
+  /** Handed to the target's resolvers (default: always null). Uploads are never read through it: see `uploads`. */
   related?: RelatedFn
+  /** The request's upload reader: the only way an upload reaches a card. */
+  uploads: UploadReader
+  /** The upload fields of the target's collection, from the schema (`uploadFieldsOf`); the document's are filled in from them. */
+  uploadFields?: readonly UploadField[]
   /** The site's only upload collection, when it has exactly one: where a hero or named image that is a bare id is read from if the target names no collection. */
   uploadCollection?: string
 }
@@ -105,21 +115,13 @@ export function getPath(obj: unknown, dotted: string): unknown {
   return cur
 }
 
-/** The id of an upload, whether the field is populated (an object) or not (the bare id). */
-const uploadId = (u: unknown): string | undefined => {
-  const id = u && typeof u === 'object' && 'id' in u ? (u as { id?: unknown }).id : u
-  return typeof id === 'string' || typeof id === 'number' ? String(id) : undefined
-}
 const sameUpload = (a: unknown, b: unknown) => {
-  const x = uploadId(a)
-  return x !== undefined && x === uploadId(b)
+  const x = idOf(a)
+  return x !== undefined && x === idOf(b)
 }
 
-/** A hero is drawn only from a populated upload with an id and a file; anything else draws nothing and is no part of the version. */
-const usableHero = (h: unknown): Upload | null =>
-  h && typeof h === 'object' && uploadId(h) !== undefined && typeof (h as Upload).url === 'string' && (h as Upload).url !== ''
-    ? (h as Upload)
-    : null
+/** A hero or image is drawn only from a verified upload with a file; anything else draws nothing and is no part of the version. */
+const withFile = (u: VerifiedUpload | null): VerifiedUpload | null => (u && typeof u.url === 'string' && u.url !== '' ? u : null)
 
 const isPlainObject = (v: unknown): v is Record<string, unknown> => {
   if (v === null || typeof v !== 'object') return false
@@ -128,45 +130,24 @@ const isPlainObject = (v: unknown): v is Record<string, unknown> => {
 }
 
 /**
- * The upload, read again by id with the caller's access (`related`: published and access-respecting, the editor's draft view in a preview), or null
- * when it is missing, unreadable to this caller, or has no file. Never the object the target handed over: that is only the id it names.
+ * The card's hero: only the id the target's `hero` resolver names counts (a bare id, or an upload object), placed in the collection a verified
+ * upload says it came from (the schema's), else `heroCollection`, else the site's only upload collection, and verified by the request's reader with
+ * the caller's access (published only, the editor's draft view in a preview). Whatever filled the object (a custom field, a hand-built value) is
+ * not proof that the public may read that upload. With no collection to name, or nothing readable, there is no hero.
  */
-async function readUpload(related: RelatedFn, collection: string, id: string): Promise<Upload | null> {
-  try {
-    return usableHero(await related(collection, id))
-  } catch {
-    return null
-  }
+async function heroOf(i: ResolveInput, raw: unknown): Promise<VerifiedUpload | null> {
+  const ref = refOf(raw, i.target.heroCollection ?? i.uploadCollection)
+  return ref === undefined ? null : withFile((await i.uploads.load([ref]))[0] ?? null)
 }
 
-/**
- * The card's hero: the id the target's `hero` resolver names (a bare id, or an upload object, of which only the id is taken), read again by id
- * with the caller's access (`related`: published only, the editor's draft view in a preview), from `heroCollection`, else the collection `populateUploads` read the object from, else the site's only upload
- * collection, exactly as a named image is. The object the target handed over is never drawn as it is: whatever filled it (a populated field, a custom
- * field, a hand-built value) is not proof that the public may read that upload. With no collection to name, or nothing readable, there is no hero.
- */
-async function heroOf(
-  i: ResolveInput,
-  args: ResolverArgs<any>,
-  raw: unknown,
-): Promise<{ hero: Upload | null; collection: string | undefined }> {
-  const id = uploadId(raw)
-  // The collection `populateUploads` read this very object from is where it lives, whatever `heroCollection` says (a hero from a `logos` field is not the
-  // `media` upload of the same id); else the target's. What reads it is also what the hero loader and the alpha probe look in; with neither, the site's
-  // only upload collection reads it, and they fall back to that one themselves.
-  const collection = (raw !== null && typeof raw === 'object' ? uploadSource.get(raw) : undefined) ?? i.target.heroCollection
-  const from = collection ?? i.uploadCollection
-  return { hero: id === undefined || from === undefined ? null : await readUpload(args.related, from, id), collection }
-}
-
-/** The target's named images, each upload re-read by id (see `readUpload`) from its own collection. Throws for a target that is wrong, never for a missing upload. */
+/** The target's named images, each verified by the request's reader in its own collection. Throws for a target that is wrong, never for a missing upload. */
 async function namedImages(i: ResolveInput, args: ResolverArgs<any>, template: Template<any>): Promise<GeneratedCard['images']> {
   if (!i.target.images) return []
   const given: unknown = i.target.images(args)
   if (given === null || given === undefined) return []
   if (!isPlainObject(given))
     throw new Error(`payload-og-image: target "${i.targetName}" images() must return a plain object, got ${typeof given}`)
-  const wanted: Array<{ name: string; collection: string; ids: string[] }> = []
+  const wanted: Array<{ name: string; refs: ImageRef[] }> = []
   let left = MAX_CARD_IMAGES
   for (const [name, value] of Object.entries(given)) {
     if (!IMAGE_NAME.test(name)) throw new Error(`payload-og-image: target "${i.targetName}" image name "${name}" must match ${IMAGE_NAME}`)
@@ -175,39 +156,37 @@ async function namedImages(i: ResolveInput, args: ResolverArgs<any>, template: T
         `payload-og-image: target "${i.targetName}" gives image "${name}" that template "${template.id}" does not declare in imageBoxes`,
       )
     }
-    // Ids are collected up to the remaining budget only: a huge hasMany list costs no more than the first few entries.
-    const ids: string[] = []
-    if (value !== null && value !== undefined) {
-      for (const ref of Array.isArray(value) ? value : [value]) {
-        if (ids.length >= left) break
-        const id = uploadId(ref)
-        if (id !== undefined) ids.push(id)
-      }
-    }
-    // A name with no usable id needs no collection: only an image that is really wanted can fail for lack of one.
-    if (ids.length === 0) continue
-    const collection =
+    const hint =
       (i.target.imageCollections && Object.hasOwn(i.target.imageCollections, name) ? i.target.imageCollections[name] : undefined) ??
       i.target.heroCollection ??
       i.uploadCollection
-    if (collection === undefined) {
+    // Ids are collected up to the remaining budget only: a huge hasMany list costs no more than the first few entries.
+    const refs: ImageRef[] = []
+    let unplaced = false
+    if (value !== null && value !== undefined) {
+      for (const item of Array.isArray(value) ? value : [value]) {
+        if (refs.length >= left) break
+        const ref = refOf(item, hint)
+        if (ref !== undefined) refs.push(ref)
+        else if (idOf(item) !== undefined) unplaced = true
+      }
+    }
+    // A name with no usable id needs no collection: only an image that is really wanted can fail for lack of one.
+    if (unplaced) {
       throw new Error(
         `payload-og-image: target "${i.targetName}" image "${name}" needs an upload collection: set imageCollections.${name} (the site has more than one upload collection)`,
       )
     }
-    wanted.push({ name, collection, ids })
-    left -= ids.length
+    if (refs.length === 0) continue
+    wanted.push({ name, refs })
+    left -= refs.length
   }
-  // Each distinct upload is read once, a few at a time.
-  const distinct = [
-    ...new Map(
-      wanted.flatMap((w) => w.ids.map((id) => [`${w.collection}\u0000${id}`, { collection: w.collection, id }] as const)),
-    ).entries(),
-  ]
-  const read = new Map(await pooled(distinct, 4, async ([key, u]) => [key, await readUpload(args.related, u.collection, u.id)] as const))
-  const resolved = wanted.flatMap(({ name, collection, ids }) => {
-    const uploads = ids.map((id) => read.get(`${collection}\u0000${id}`) ?? null).filter((u): u is Upload => u !== null)
-    return uploads.length > 0 ? [{ name, collection, uploads }] : []
+  // One batched read per collection for every image at once.
+  const read = await i.uploads.load(wanted.flatMap((w) => w.refs))
+  let n = 0
+  const resolved = wanted.flatMap(({ name, refs }) => {
+    const uploads = refs.map(() => withFile(read[n++] ?? null)).filter((u): u is VerifiedUpload => u !== null)
+    return uploads.length > 0 ? [{ name, uploads }] : []
   })
   // One canonical order (by name) for the version and for the template, so equal hash means equal drawing whatever order the target listed them in.
   return resolved.sort((x, y) => (x.name < y.name ? -1 : x.name > y.name ? 1 : 0))
@@ -292,8 +271,10 @@ export async function resolveCard(i: ResolveInput): Promise<ResolvedCard> {
   const mode = ogMode(i.doc)
   const overrides = { headline: nonEmpty(og.headline, true), subtitle: nonEmpty(og.subtitle, true) }
   if (mode === 'off') return { kind: 'none' }
+  // The upload fields this card draws, verified (one batched read per upload collection) and put in place for the resolvers.
+  const doc = await fillUploads(i.uploads, i.doc, i.uploadFields ?? [], i.target.uploadFields)
   const args = {
-    doc: i.doc,
+    doc,
     site: i.site,
     related: i.related ?? (async () => null),
     overrides: Object.fromEntries(Object.entries(overrides).filter(([, v]) => v !== undefined)) as OgOverrides,
@@ -301,7 +282,7 @@ export async function resolveCard(i: ResolveInput): Promise<ResolvedCard> {
   const rawHero = i.target.hero?.(args)
   // The target's own `seoImage` wins over the plugin's: it is scoped to the target. `except` is an upload that is not a deliberate share image (the hero).
   const seoOption = i.target.seoImage ?? i.seoImage
-  const seo = seoOption ? getPath(i.doc, seoOption.path) : undefined
+  const seo = seoOption ? getPath(doc, seoOption.path) : undefined
   const except = i.target.seoImage?.except ? i.target.seoImage.except(args) : undefined
   const editor =
     mode !== 'generated' && seo != null && (seoOption?.isDeliberate?.(seo) ?? true) && !sameUpload(seo, rawHero) && !sameUpload(seo, except)
@@ -352,16 +333,17 @@ export async function resolveCard(i: ResolveInput): Promise<ResolvedCard> {
   }
   if (template.required && !template.required(props as never)) return { kind: 'none' }
 
-  const slug = routable(nonEmpty(getPath(i.doc, i.target.slugField ?? 'slug')))
+  const slug = routable(nonEmpty(getPath(doc, i.target.slugField ?? 'slug')))
   if (slug === undefined) return { kind: 'none' }
-  const { hero, collection: heroCollection } = await heroOf(i, args, rawHero)
+  const hero = await heroOf(i, rawHero)
   const images = await namedImages(i, args, template)
   const key = { kind: i.target.kind ?? i.targetName, slug }
   // A transparent hero nobody flattens is drawn with its alpha (0.5.0); its bytes differ from 0.4.0's, so its URL must too.
   const ownBackground = i.target.heroBackground ?? template.heroBackground
   const background = ownBackground === undefined ? undefined : normaliseHeroBackground(ownBackground)
   const flattened = background !== undefined || i.heroFlattened
-  const heroTransparent = hero !== null && !flattened && i.heroHasAlpha ? await i.heroHasAlpha(hero, { collection: heroCollection }) : false
+  const heroTransparent =
+    hero !== null && !flattened && i.heroHasAlpha ? await i.heroHasAlpha(hero, { collection: collectionOf(hero) }) : false
   // The target's own format wins, then the template's, then the plugin's.
   const { format, quality } = formatOf(
     { format: i.format, jpeg: i.jpeg, webp: i.webp },
@@ -400,7 +382,6 @@ export async function resolveCard(i: ResolveInput): Promise<ResolvedCard> {
     props,
     hero,
     images,
-    heroCollection,
     heroBackground: background,
     heroTransparent,
     heroGround: background ?? (i.heroFlattened ? (i.heroBackground ?? DEFAULT_HERO_BACKGROUND) : undefined),

@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
-import type { CardKey, Upload, VersionInput } from './types.js'
+import type { CardKey, VersionInput } from './types.js'
+import { collectionOf, type VerifiedUpload } from './uploads.js'
 
 export const VERSION_FORMAT = 1
 
@@ -78,7 +79,7 @@ export function normalizeProps(value: unknown, path = 'props', seen: object[] = 
 }
 
 /** `id:updatedAt`. The id makes a replaced or deleted upload change the version, which `updatedAt` alone misses. */
-export const heroTag = (h: Upload) => `${String(h.id)}:${h.updatedAt ?? ''}`
+export const heroTag = (h: VerifiedUpload) => `${String(h.id)}:${h.updatedAt ?? ''}`
 
 const imagePaletteOf = (i: VersionInput) => ('imagePalette' in i ? i.imagePalette : i.heroPalette)
 
@@ -91,7 +92,7 @@ function imageTail(i: VersionInput): string | undefined {
   if (named.length === 0) return undefined
   const sorted = [...named].sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
   // The collection is in it: ids are only unique within one collection.
-  return `img:${canonicalJson(sorted.map((e) => [e.name, e.collection, e.uploads.map(heroTag)]))}${imagePaletteOf(i) ? `|hp:${imagePaletteOf(i)}` : ''}`
+  return `img:${canonicalJson(sorted.map((e) => [e.name, collectionOf(e.uploads[0] as VerifiedUpload), e.uploads.map(heroTag)]))}${imagePaletteOf(i) ? `|hp:${imagePaletteOf(i)}` : ''}`
 }
 
 // Slots 8-9 (locale, variant) are constants in 0.1 (`''`, `og`); the variant slot carries a JPEG card's encoding (0.6), and the default hashes identically. Slot 10 is the nonce: 0 or absent is the 0.1 value.

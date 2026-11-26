@@ -28,6 +28,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { resolveCard } from '../../src/internal/resolve.js'
 import { buildRuntime } from '../../src/internal/runtime.js'
 import { CUSTOM_KEY, type OgState } from '../../src/internal/state.js'
+import { createUploadReader, fillUploads, uploadFieldsOf } from '../../src/internal/uploads.js'
 import { ogImagePlugin } from '../../src/plugin/index.js'
 import { payloadSource } from '../../src/plugin/payloadSource.js'
 import { defineTarget, defineTemplate } from '../../src/template.js'
@@ -284,6 +285,7 @@ describe('payloadSource against a real Payload', () => {
         fonts,
         fontsDigest: digest,
         stacks: { default: ['Inter'] },
+        uploads: createUploadReader(async () => new Map()),
       })
     }
     expect(payload.collections.posts?.config.fields.some((f: any) => f.name === 'og')).toBe(true)
@@ -448,11 +450,18 @@ describe('payloadSource against a real Payload', () => {
     expect(await labelOf('rel-draft')).not.toContain('Draft-only note')
   })
   it("uploads are read by id with the caller's access: the hero and a grouped share image are populated; an upload the public may not read is null", async () => {
-    const doc = await src().published('posts', 'with-uploads')
+    const fields = uploadFieldsOf(payload.collections.posts?.config.fields as never)
+    const filled = async (doc: Record<string, any> | null, request?: Request) =>
+      fillUploads(
+        createUploadReader((collection, ids) => src().uploads(collection, ids, { previewing: request !== undefined, request })),
+        doc as Record<string, any>,
+        fields,
+      )
+    const doc = await filled(await src().published('posts', 'with-uploads'))
     expect(doc?.heroImage).toMatchObject({ filename: 'h.png' })
     expect(doc?.meta?.image).toMatchObject({ filename: 'h.png' })
     expect(doc?.secretImage).toBeNull()
-    const asEditor = await src().draft('posts', { slug: 'with-uploads' }, editor())
+    const asEditor = await filled(await src().draft('posts', { slug: 'with-uploads' }, editor()), editor())
     expect(asEditor?.secretImage).toMatchObject({ filename: 's.png' }) // an editor may read it
   })
   it('editors are users of the admin collection only: a customer from another auth collection never gets a draft or draft site data', async () => {
