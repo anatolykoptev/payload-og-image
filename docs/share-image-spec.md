@@ -226,8 +226,8 @@ These change what is drawn through the props; none of them moves the layout rule
   crawlers ignore all but the first. A page's `openGraph` replaces the layout's whole `openGraph`. `ogMetadata` emits `openGraph.images` (one image with its size,
   type, alt and `secure_url` when it is https) and `twitter.card` set to `summary_large_image`.
 - **Structured data gets clean crops.** Google's Article and Discover guidance asks for 16:9, 4:3 and 1:1 images of at least 50,000 pixels, 1200 px wide for Discover, and
-  says to avoid a logo or a text-heavy image there. The branded card is therefore never what goes in JSON-LD. The rule for the set, which is being implemented in a
-  separate change (the API is not described here), is:
+  says to avoid a logo or a text-heavy image there. The branded card is therefore never what goes in JSON-LD. The plugin serves a photo set for it (`ogPhotoImages`, see
+  [reference](reference.md#photo-set-for-structured-data-and-discover)); the rule for the set is:
   - the images are photo crops of the document's hero upload and nothing else: no text, no logo, no scrim;
   - 16:9 capped at 1200 x 675, 4:3 capped at 1200 x 900, 1:1 capped at 1200 x 1200; JPEG, sRGB, no metadata;
   - each crop is taken around the Payload focal point of the hero, and at the centre when none is set;
@@ -236,9 +236,9 @@ These change what is drawn through the props; none of them moves the layout rule
   - Discover's large preview needs the 16:9 image at least 1200 px wide together with `max-image-preview:large`. A source under 1200 px wide therefore gives
     valid Search images but no Discover large preview.
 
-  See [reference](reference.md#size-variants) for the mechanism that exists today and the current structured-data example.
+  The mechanism, the helpers and the JSON-LD example are in [reference](reference.md#photo-set-for-structured-data-and-discover). Card `variants` ([reference](reference.md#size-variants)) are not for this.
 - **`max-image-preview:large` and `noindex`.** Discover shows large images only for a page that allows them: `max-image-preview:large` (or AMP). Google's default when the rule is
-  absent is "an image preview of the default size". The plugin emits no `robots` tag: set it in the page's `robots` metadata or an `X-Robots-Tag` header. A `noindex` on the
+  absent is "an image preview of the default size". The plugin emits no `robots` tag: set it in the page's `robots` metadata (`withLargeImagePreview` adds it without dropping a `noindex`) or an `X-Robots-Tag` header. A `noindex` on the
   page removes it from search results, Discover included, whatever the image says: when robots rules conflict the more restrictive one applies, and a page blocked in
   `robots.txt` never shows its rules to Google. A `noindex` page can still be shared, so its `og:image` still matters to messengers. Do not let the card route
   be `Disallow`ed or `noindex`ed: it is an image, and the platforms fetch it directly.

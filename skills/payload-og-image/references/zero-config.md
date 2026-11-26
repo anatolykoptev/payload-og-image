@@ -37,6 +37,7 @@ The site name is `site()`'s `name` when you give a `site`, else `siteName`, else
 
 ## Rules
 
+- Every collection with a hero also has a photo set for structured data and Discover (`photo-16x9.jpg`, `photo-4x3.jpg`, `photo-1x1.jpg`, clean crops, no setup): `ogPhotoImages`; a hero that is the `meta.image` share image field gives none. `docs/reference.md`, "Photo set".
 - A photo card is `card.jpg`, a text card `card.png`; the other name is a 404 (the name is read from the request path). A page's `ogMetadata` always advertises the right one.
 - `og.mode` behaves as for any target. A forced `photo` with no hero field is a start-up error; a forced `photo` on a document with no usable hero draws the text card.
 - Only a field the public may read is detected: never `admin.hidden`, `hidden`, an `access.read` that is not `true` for anonymous, or `hasMany`. Never point `title` at an admin-only field.

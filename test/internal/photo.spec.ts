@@ -2,6 +2,7 @@
  * - internal/crop.ts `cropWindow` position arithmetic changed -> "the spec's table of windows" RED
  * - internal/photo.ts `Math.min(PHOTO_SET.capWidth, crop.width)` -> `PHOTO_SET.capWidth` (enlarging) -> "never enlarges" RED
  * - internal/photo.ts the `minWidth` floor dropped -> "a size under the floor does not exist, one at the floor does" RED */
+import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { cropWindow, focalOf, uprightSize } from '../../src/internal/crop.js'
 import { PHOTO_NAMES, PHOTO_SET, photoFile, photoNameOfFile, photoSizes } from '../../src/internal/photo.js'
@@ -92,5 +93,17 @@ describe('the photo set spec', () => {
     expect(uprightSize({ width: 400, height: 300 })).toEqual({ width: 400, height: 300 })
     expect(uprightSize({ width: 0, height: 300 })).toBeNull()
     expect(cropWindow({ width: 10, height: 10 }, 1e-9, {})).toBeNull()
+  })
+
+  it('the documentation states the same sizes the spec produces', () => {
+    const docs = readFileSync(new URL('../../docs/reference.md', import.meta.url), 'utf8')
+    for (const s of photoSizes({ width: 4000, height: 3000 }, {})) {
+      expect(docs).toContain(`${s.width}×${s.height}`)
+      expect(docs).toContain(photoFile(s.name))
+    }
+    expect(docs).toContain(`${PHOTO_SET.minWidth} px`)
+    // the worked example of a small source
+    expect(photoSizes({ width: 900, height: 600 }, {}).map((s) => `${s.width}×${s.height}`)).toEqual(['900×506', '800×600', '600×600'])
+    expect(docs).toContain('900×506, 800×600 and 600×600')
   })
 })

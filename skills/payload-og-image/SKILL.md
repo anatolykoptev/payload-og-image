@@ -157,7 +157,8 @@ In the plugin repository, [`scripts/probe-dev-server.mjs`](https://github.com/an
 - Cached pages keep an old `?v`: `force-dynamic` or revalidate with `ogTag` on save.
 - JPEG for photo cards; WebP is not safe on every platform.
 - The plugin boots under jsdom (start-up draws nothing), but drawing a card does not: a spec that draws (templates, `templatesRender`, `sizeBudget`, the kit's real renderer) needs `// @vitest-environment node`.
-- Google structured data wants square and 4:3 images too: use target `variants` and `ogImages()` for JSON-LD (`references/targets.md`, 0.7.0 and later), never extra `og:image` tags. The images there are clean photo crops of the hero (no text, no logo, never the branded card): `docs/share-image-spec.md`, section 4.
+- Google structured data and Discover want 16:9, 4:3 and 1:1 images with no logo or text: use `ogPhotoImages()` for JSON-LD (clean crops of the hero, never enlarged, served on the card route, zero config) and `withLargeImagePreview(robots)` for `max-image-preview:large`; never extra `og:image` tags, never the card (`references/targets.md`, `docs/reference.md` "Photo set", `docs/share-image-spec.md` section 4). Card `variants` are not for this.
+- A target with a fixed-file card path (`card.png`) has no photo set; the zero-config `[file]` route serves it.
 
 ## References (load on demand)
 

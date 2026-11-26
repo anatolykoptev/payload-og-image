@@ -64,7 +64,7 @@ export const docs: KitDocs = {
 | `templatesRender({ props })`                                                                  | a template that cannot be drawn or is not its size (a `div` with children and no `display: flex`); props per template id                                                                                                                                                             |
 | `sizeBudget({ module, params, maxBytes })`                                                    | cards over budget; measure photo cards here                                                                                                                                                                                                                                          |
 
-`installTestRuntime(options, docs, { renderer, heroDir, transparentHero, uploads })`: `heroDir` points at a folder of real hero files named by the docs' `filename`, so real icons draw as in production; `uploads` models the site's upload collections by slug and id (`docs/reference.md`, Testing your site). Test runtime helpers: `rt.setDoc(target, doc)`, `rt.setGlobal(slug, data)`, `rt.draftMode(on, editor?)`.
+`installTestRuntime(options, docs, { renderer, heroDir, transparentHero, uploads })`: `heroDir` points at a folder of real hero files named by the docs' `filename`, so real icons draw as in production (and a photo set is served only for such a hero: the stand-in heroes have none); `uploads` models the site's upload collections by slug and id (`docs/reference.md`, Testing your site). Test runtime helpers: `rt.setDoc(target, doc)`, `rt.setGlobal(slug, data)`, `rt.draftMode(on, editor?)`.
 
 ## Specs that boot Payload
 
