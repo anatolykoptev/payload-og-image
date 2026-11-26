@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.1](https://github.com/anatolykoptev/payload-og-image/compare/v0.7.0...v0.7.1) (2026-11-26)
+
+
+### Bug Fixes
+
+* **release:** one public-surface list for the spec and the pack gate ([#76](https://github.com/anatolykoptev/payload-og-image/issues/76)) ([e4a5892](https://github.com/anatolykoptev/payload-og-image/commit/e4a5892278ca75680de428343db0e9b6c7536131))
+
 ## [0.7.0](https://github.com/anatolykoptev/payload-og-image/compare/v0.6.0...v0.7.0) (2026-11-25)
 
 
