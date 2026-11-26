@@ -136,6 +136,9 @@ describe('the route serves a card under its own file name only', () => {
   })
 })
 
+// The prepared images are palette PNGs whose bytes differ between platforms (their identity is in `v`); the element tree around them is the same everywhere.
+const IMAGE = /data:image\/[a-z]+;base64,[A-Za-z0-9+/=]+/g
+
 describe('goldens: the two presets keep their URL and what they draw', () => {
   const docs = {
     text: { id: 1, slug: 'text', title: 'OxPulse: encrypted calls for a bad network', excerpt: 'Calls that keep working.' },
@@ -168,7 +171,9 @@ describe('goldens: the two presets keep their URL and what they draw', () => {
     expect(res.status).toBe(200)
     const m = await sharp(new Uint8Array(await res.arrayBuffer())).metadata()
     expect([m.format, m.width, m.height]).toEqual([slug === 'photo' ? 'jpeg' : 'png', 1200, 630])
-    expect({ v: c.v, drawn: sha(Buffer.from(h.drawn.at(-1) as string)) }).toEqual(GOLDEN[`${slug}/${logo ? 'logo' : '-'}`])
+    expect({ v: c.v, drawn: sha(Buffer.from((h.drawn.at(-1) as string).replace(IMAGE, 'data:IMG'))) }).toEqual(
+      GOLDEN[`${slug}/${logo ? 'logo' : '-'}`],
+    )
   })
 })
 
