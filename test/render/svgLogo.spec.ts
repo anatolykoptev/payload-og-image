@@ -26,7 +26,7 @@ import os from 'node:os'
 import path from 'node:path'
 import type { Payload } from 'payload'
 import sharp from 'sharp'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { heroLoaderFor } from '../../src/internal/runtime.js'
 import type { OgEvent } from '../../src/internal/types.js'
 import { payloadHeroLoader } from '../../src/render/hero.js'
@@ -306,9 +306,16 @@ describe('hostile SVGs', () => {
     const sampler = setInterval(() => {
       peak = Math.max(peak, process.memoryUsage().rss)
     }, 2)
-    const outs = await Promise.all(Array.from({ length: 4 }, () => rasteriseSvg(worst, cover, 40_000_000)))
+    // No wait or render deadline that a slow runner could pass: the four are queued behind one slot, and each is drawn however long that takes
+    // (the defaults, 2 s in the queue and 3 s a render, give up on the last ones when the machine is busy, and the test would fail on that, not on memory).
+    const outs = await Promise.all(
+      Array.from({ length: 4 }, () => renderSvg(worst, cover, 40_000_000, { queueMs: 300_000, timeoutMs: 300_000 })),
+    )
     clearInterval(sampler)
-    expect(outs.every((o) => o !== null)).toBe(true)
+    expect(
+      outs.map((o) => ('png' in o ? 'png' : o.reason)),
+      'every one of the four is drawn',
+    ).toEqual(['png', 'png', 'png', 'png'])
     expect((peak - before) / 1048576).toBeLessThan(60)
   })
 
@@ -489,25 +496,42 @@ describe('hostile SVGs', () => {
     )
     await writeFile(path.join(dir, 'heavy.svg'), heavy)
     await writeFile(path.join(dir, 'good.svg'), LOGO)
-    const load = payloadHeroLoader({ staticDirs: async () => [dir], onEvent: (e) => events.push(e), svg: { timeoutMs: 100, retryMs: 600 } })
+    // Two loaders, because the timeout is per loader and the render slot is shared by the process. The timeout covers the worker's start, so one
+    // number cannot be both "always exceeded" and "never exceeded" on every runner: the heavy logo's is 1 ms (no worker starts and draws in that
+    // time anywhere: the timeout is certain, whatever the machine's speed) and the good logo's is generous (never reached on a pass).
+    const base = { staticDirs: async () => [dir], onEvent: (e: OgEvent) => events.push(e) }
+    const loadHeavy = payloadHeroLoader({ ...base, svg: { timeoutMs: 1, retryMs: 600_000 } })
+    const load = payloadHeroLoader({ ...base, svg: { timeoutMs: 120_000 } })
     const box = { width: 120, height: 40 }
     const slowOne = verifiedUpload({ id: 'heavy', filename: 'heavy.svg', url: '/m/heavy.svg', updatedAt: 'v1' })
     const good = verifiedUpload({ id: 'good', filename: 'good.svg', url: '/m/good.svg', updatedAt: 'v1' })
     const timeouts = () => events.filter((e) => e.detail?.reason === 'timeout').length
-    expect(await load(slowOne, box)).toBeNull()
-    expect(timeouts()).toBe(1)
-    // Steady traffic to its card: no more renders, and a good logo meanwhile is drawn (not busy).
-    for (let i = 0; i < 5; i++) {
-      expect(await load(slowOne, box)).toBeNull()
-      expect(await load(good, box), `request ${i}`).toMatch(/^data:image\/png/)
+    const reasons = () => JSON.stringify(events.map((e) => e.detail?.reason))
+    // The retry window is read from `Date.now()`: a fake clock moves it, so the test never sleeps and never races a slow runner.
+    vi.useFakeTimers({ toFake: ['Date'] })
+    try {
+      expect(await loadHeavy(slowOne, box)).toBeNull()
+      expect(timeouts()).toBe(1)
+      // Steady traffic to its card: no more renders, and a good logo meanwhile is drawn (not busy).
+      for (let i = 0; i < 5; i++) {
+        expect(await loadHeavy(slowOne, box)).toBeNull()
+        const out = await load(good, box)
+        expect(typeof out, `request ${i}: the good logo gave ${String(out)}; events ${reasons()}`).toBe('string')
+        expect(out).toMatch(/^data:image\/png/)
+      }
+      expect(timeouts()).toBe(1)
+      expect(events.some((e) => e.detail?.reason === 'busy')).toBe(false)
+      // The probe says nothing about it while it is in the window (a verdict must not be remembered for a file that was not drawn) ...
+      expect(await loadHeavy.hasAlpha?.(slowOne)).toBe(false)
+      vi.setSystemTime(Date.now() + 600_000 - 1) // ... still in the window one millisecond before its end ...
+      expect(await loadHeavy(slowOne, box)).toBeNull()
+      expect(timeouts()).toBe(1)
+      vi.setSystemTime(Date.now() + 2) // ... and after the window it is tried again
+      expect(await loadHeavy(slowOne, box)).toBeNull()
+      expect(timeouts()).toBe(2)
+    } finally {
+      vi.useRealTimers()
     }
-    expect(timeouts()).toBe(1)
-    expect(events.some((e) => e.detail?.reason === 'busy')).toBe(false)
-    // The probe says nothing about it while it is in the window (a verdict must not be remembered for a file that was not drawn) ...
-    expect(await load.hasAlpha?.(slowOne)).toBe(false)
-    await new Promise((r) => setTimeout(r, 700)) // ... and after the window it is tried again
-    expect(await load(slowOne, box)).toBeNull()
-    expect(timeouts()).toBe(2)
   })
 
   it('the HEIF brands: every brand an AVIF or HEIF file announces is raster, an unknown one is not', () => {
