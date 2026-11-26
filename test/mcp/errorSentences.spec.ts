@@ -1,9 +1,8 @@
 /** Mutation table (production line -> the test that goes RED). Silent-failure surface: a caller's fixable mistake, or a shed, reported as `internal_error`.
  * - runtime.ts disabled stub `audit` throws a plain Error -> "a disabled plugin's audit says so" RED
  * - runtime.ts getRuntime "not in this Payload config" is a plain Error -> "a config without the plugin says so" RED
- * - errorKinds.ts `isKind` trusts a property (a Symbol.for brand or `name`) instead of the registry -> "an object a site callback throws is an ordinary error ..." RED
- * - core.ts `isShedError(e)` -> `e instanceof ShedError` -> "a shed from another copy of the module is still a retry" RED
- * - core.ts `isToolInputError(e)` -> `e instanceof ToolInputError` -> "an input error from another copy of the module is still said" RED */
+ * - gate.ts `isShedError` / inspect.ts `isToolInputError` trust a property (a Symbol.for brand or `name`) instead of `instanceof` -> "an object a site callback throws is an ordinary error ..." RED
+ * - isShedError / isToolInputError matching by `name` -> "an error from another copy of the module is not trusted ..." RED (and the lookalike test) */
 import type { PayloadRequest } from 'payload'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { buildRuntime, setTestRuntime } from '../../src/internal/runtime.js'
@@ -38,24 +37,21 @@ describe('tool error sentences', () => {
     expect(r.text).not.toContain('internal_error')
   })
 
-  it('a shed from another copy of the module is still a retry', async () => {
+  it('an error from another copy of the module is not trusted: logged, a generic internal_error, no message', async () => {
+    const logged: unknown[] = []
+    const logging = { payload: { config: {}, logger: { error: (o: unknown) => logged.push(o) } } } as unknown as PayloadRequest
     // @ts-expect-error a query suffix makes vite load a second instance of the module; it has no type declaration
-    const { ShedError: Other } = (await import('../../src/internal/gate.js?copy')) as typeof import('../../src/internal/gate.js') // a second copy of the class, as a bundler duplicating gate.js makes
-    setTestRuntime({
-      inspect: { audit: async () => Promise.reject(new Other()), scopes: async () => Promise.reject(new Other()) },
-    } as never)
-    const r = await call('og_audit')
-    expect(r.text).toMatch(/busy/)
-    expect(r.text).not.toContain('internal_error')
-  })
-
-  it('an input error from another copy of the module is still said', async () => {
-    // @ts-expect-error see above
-    const { ToolInputError: Other } = (await import('../../src/internal/inspect.js?copy')) as typeof import('../../src/internal/inspect.js')
-    setTestRuntime({ inspect: { scopes: async () => Promise.reject(new Other('no scope x')) } } as never)
-    const r = await call('og_audit')
-    expect(r.text).toContain('no scope x')
-    expect(r.text).not.toContain('internal_error')
+    const { ShedError: OtherShed } = (await import('../../src/internal/gate.js?copy')) as typeof import('../../src/internal/gate.js')
+    const inspectCopy = '../../src/internal/inspect.js?copy'
+    const { ToolInputError: OtherInput } = (await import(/* @vite-ignore */ inspectCopy)) as typeof import('../../src/internal/inspect.js')
+    for (const e of [new OtherShed(), new OtherInput('secret other-copy detail')]) {
+      setTestRuntime({ inspect: { scopes: async () => Promise.reject(e) } } as never)
+      const tool = ogImageMcpTools().find((t) => t.name === 'og_audit')
+      const out = (await (tool as NonNullable<typeof tool>).handler({}, logging, undefined)) as { content: Content[] }
+      expect(out.content[0]?.text).toContain('internal_error')
+      expect(out.content[0]?.text).not.toMatch(/secret|busy/)
+    }
+    expect(logged).toHaveLength(2)
   })
 
   it('an object a site callback throws is an ordinary error, whatever it carries: logged, its message not exposed', async () => {

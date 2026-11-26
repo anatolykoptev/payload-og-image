@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 /** The start-up self-test runs the real renderer under vitest's jsdom environment (the globals come from another realm).
  * Mutation table: nextOg.ts `inNodeRealm(...)` wrapper removed -> "draws the fallback card with the real renderer" RED ("Unsupported input").
+ * realm.ts `underlyingOf` always undefined (a copy cannot see through another copy's wrapper) -> "two copies of the module drawing interleaved ..." RED
  * realm.ts release(): never restore the global -> "the global TextEncoder is put back ..." RED; restore when the FIRST draw ends (no ownership count) -> the same test RED (`seen`/the wrapped check). */
 import { readFile } from 'node:fs/promises'
 import type { Config } from 'payload'
@@ -43,6 +44,29 @@ describe('start-up self-test under jsdom', () => {
     letGo()
     await a
     expect(seen).toEqual([true, true])
+    expect(globalThis.TextEncoder).toBe(original)
+  })
+
+  it('two copies of the module drawing interleaved (A start, B start, A end, B end) leave the original encoder', async () => {
+    // @ts-expect-error a query suffix makes vite load a second instance of the module; it has no type declaration
+    const other = (await import('../../src/render/realm.js?copy')) as typeof import('../../src/render/realm.js')
+    const original = globalThis.TextEncoder
+    const latch = () => {
+      let go!: () => void
+      const wait = new Promise<void>((r) => {
+        go = r
+      })
+      return { go, wait }
+    }
+    const a = latch()
+    const b = latch()
+    const drawA = inNodeRealm(() => a.wait)
+    const drawB = other.inNodeRealm(() => b.wait)
+    expect(globalThis.TextEncoder).not.toBe(original)
+    a.go()
+    await drawA
+    b.go()
+    await drawB
     expect(globalThis.TextEncoder).toBe(original)
   })
 })
