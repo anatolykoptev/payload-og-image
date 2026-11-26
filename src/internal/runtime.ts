@@ -12,7 +12,7 @@ import { createInspector, type Inspector, ToolInputError } from './inspect.js'
 import type { ResolvedCard } from './resolve.js'
 import { cachedSite } from './site.js'
 import { CUSTOM_KEY, type OgState } from './state.js'
-import type { CardStore } from './types.js'
+import type { CardStore, OnEvent } from './types.js'
 import { type UploadField, uploadFieldsOf } from './uploads.js'
 import { variantsOf } from './variants.js'
 
@@ -91,8 +91,13 @@ const uploadCollections = (payload: Payload) =>
   })
 
 /** The production hero loader: reads only the hero's own upload collection (`Target.heroCollection`), or the one upload collection there is. */
-export function heroLoaderFor(payload: Payload, o: Pick<OgImagePluginOptions, 'allowedImageHosts' | 'heroBackground' | 'palette'>) {
+export function heroLoaderFor(
+  payload: Payload,
+  o: Pick<OgImagePluginOptions, 'allowedImageHosts' | 'heroBackground' | 'palette'>,
+  onEvent?: OnEvent,
+) {
   return payloadHeroLoader({
+    onEvent,
     staticDirs: async (collection) => {
       const uploads = uploadCollections(payload)
       const own = collection === undefined ? (uploads.length === 1 ? uploads : []) : uploads.filter((u) => u.slug === collection)
@@ -127,7 +132,7 @@ export function buildRuntime(state: OgState, payload: Payload, over: RuntimeOver
   const siteCache = state.siteCache
   const source = over.source ?? payloadSource(payload, state, () => siteCache.get())
   const renderer = over.renderer ?? nextOgRenderer({ palette: cardPaletteOf(o.palette) })
-  const heroLoader = over.heroLoader ?? heroLoaderFor(payload, o)
+  const heroLoader = over.heroLoader ?? heroLoaderFor(payload, o, state.events.emit)
   const only = uploadCollections(payload)
   // The schema's upload fields per collection, read once: the config does not change under a running process.
   const fieldCache = new Map<string, readonly UploadField[]>()

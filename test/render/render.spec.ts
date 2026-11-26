@@ -6,7 +6,7 @@
  * - hero.ts:101  follow redirects -> "(f) an allowlisted host is fetched ... redirect: error" RED
  * - hero.ts:108  ignore a declared content-length over the cap -> "a body over maxBytes is null whether it is declared or only streamed" RED
  * - hero.ts:119  no running cap on the stream -> same test RED
- * - hero.ts:144  accept an SVG -> "an SVG, a non-image and an empty file are null" RED
+ * - hero.ts `decode`: pass SVG bytes to sharp unvetted -> svgLogo.spec "hostile SVGs are refused" RED (a vetted SVG is drawn since #89)
  * - hero.ts:141  no pixel limit -> "an image above maxPixels is not decoded" RED
  * - hero.ts:56  read a file above maxBytes -> "a file above maxBytes is not read" RED
  * - encode.ts:25  always the palette encoding -> "(b) encodePng keeps the smaller encoding" RED
@@ -192,15 +192,11 @@ describe('payloadHeroLoader (local files)', () => {
     expect(await loader(dir, { maxPixels: 1000 })(hero(), BOX)).toBeNull()
     expect(await loader(dir)(hero(), BOX)).not.toBeNull()
   })
-  it('an SVG, a non-image and an empty file are null', async () => {
+  it('a non-image and an empty file are null', async () => {
     const dir = await tmp()
-    await writeFile(
-      path.join(dir, 's.svg'),
-      '<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"><rect width="100" height="100"/></svg>',
-    )
     await writeFile(path.join(dir, 't.jpg'), 'not an image')
     await writeFile(path.join(dir, 'e.jpg'), '')
-    for (const filename of ['s.svg', 't.jpg', 'e.jpg', 'missing.jpg']) expect(await loader(dir)(hero({ filename }), BOX)).toBeNull()
+    for (const filename of ['t.jpg', 'e.jpg', 'missing.jpg']) expect(await loader(dir)(hero({ filename }), BOX)).toBeNull()
   })
   it('an unreadable dir, a throwing staticDirs and a bad box are null, never a throw', async () => {
     const dir = await tmp()

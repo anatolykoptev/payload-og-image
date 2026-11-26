@@ -134,7 +134,7 @@ export type OgEvent = {
 };
 
 // @public (undocumented)
-export type OgEventName = 'hit_memo' | 'hit_store' | 'render' | 'shed' | 'store_disabled' | 'store_write_skipped' | 'store_corrupt' | 'downgraded' | 'render_error' | 'glyph_missing' | 'over_budget' | 'draft' | 'not_found' | 'crawler';
+export type OgEventName = 'hit_memo' | 'hit_store' | 'render' | 'shed' | 'store_disabled' | 'store_write_skipped' | 'store_corrupt' | 'downgraded' | 'render_error' | 'glyph_missing' | 'svg_rejected' | 'over_budget' | 'draft' | 'not_found' | 'crawler';
 
 // @public
 export function ogFields(): Field[];

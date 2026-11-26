@@ -6,11 +6,12 @@ import { DepLoadError, loadSharp } from '../internal/deps.js'
 import type { HeroLoader } from '../internal/handler.js'
 import { MAX_SIDE } from '../internal/limits.js'
 import { DEFAULT_HERO_COLOURS } from '../internal/palette.js'
-import type { Upload } from '../internal/types.js'
+import type { OnEvent, Upload } from '../internal/types.js'
 import type { VerifiedUpload } from '../internal/uploads.js'
 import { heroTag } from '../internal/version.js'
 import { guardedFetch, isPublicAddress, type ResolveHost, systemResolve } from './guardedFetch.js'
 import { prepareShape } from './shape.js'
+import { looksLikeSvg, looksRaster } from './sniff.js'
 
 export type HeroLoaderOptions = {
   /**
@@ -31,6 +32,10 @@ export type HeroLoaderOptions = {
   maxBytes?: number
   /** Largest source image in pixels (default 40 million); a bigger header is refused before any decode. */
   maxPixels?: number
+  /** Test seam for the SVG render: its timeout, and how long a timed-out upload is left alone (default 10 minutes). */
+  svg?: { timeoutMs?: number; retryMs?: number }
+  /** Hears why an SVG gave no PNG (`svg_rejected`, with `detail.reason`). Default: nothing. */
+  onEvent?: OnEvent
   /** Colour a transparent image is flattened onto (sharp flattens before it scales). Unset: transparency is kept and the card shows through. */
   background?: string
   /** Colours the hero is cut to (2 to 256, default 256); `false` keeps truecolour. */
@@ -39,9 +44,11 @@ export type HeroLoaderOptions = {
 
 const O_NOFOLLOW = constants.O_NOFOLLOW ?? 0
 const O_NONBLOCK = constants.O_NONBLOCK ?? 0
-/** Raster formats only: an SVG would be rasterised by librsvg, which may touch other files. */
+/** Raster formats only: an SVG never reaches sharp as received (librsvg may follow its references); `decode` vets and rasterises it first. */
 const RASTER = new Set(['jpeg', 'png', 'webp', 'gif', 'avif', 'tiff', 'heif'])
 const FETCH_TIMEOUT_MS = 5000
+/** A rasterised SVG whose alpha mean is at least this (of 255) counts as opaque. */
+const SVG_OPAQUE_MEAN = 254
 
 const posInt = (n: unknown, what: string) => {
   if (typeof n !== 'number' || !Number.isInteger(n) || n < 1)
@@ -136,6 +143,46 @@ async function fetchRemote(
 
 const clamp = (n: unknown, fallback: number) => (typeof n === 'number' && Number.isFinite(n) ? Math.min(100, Math.max(0, n)) : fallback)
 
+/** The size an SVG is drawn at, once per upload version: the pixel cap (`MAX_RENDER_PIXELS`) bounds it, and sharp scales that raster to each card's box. */
+const SVG_COVER = { width: 1000, height: 1000 }
+/** Rasterised SVGs remembered per upload version (the least recently used goes first): an SVG is drawn once per version per process. */
+const SVG_CACHE = 16
+/** How long an SVG whose render timed out is left alone before it is tried again. */
+const SVG_RETRY_MS = 10 * 60 * 1000
+
+/**
+ * The bytes ready for the raster pipeline. A document that opens as SVG is vetted and drawn by `renderSvg` (never handed to sharp, which would
+ * give it to librsvg); raster bytes pass as they are; anything else is nothing. `remember`: the answer is a property of the file (a drawing, or
+ * a refusal by the sanitiser), not of this attempt (a timeout, a memory limit, a busy queue). `onReason` hears why an SVG gave no PNG.
+ */
+/** How long what a render's attempt found is kept: for good, for `svg.retryMs`, or not at all. */
+type Remember = 'always' | 'a while' | false
+
+async function decode(
+  source: Buffer,
+  maxPixels: number,
+  onReason: (reason: string) => void,
+  o: { timeoutMs?: number } = {},
+): Promise<{ bytes: Buffer | null; svg: boolean; remember: Remember }> {
+  // The SVG test first: a document that merely contains the bytes of a raster signature is still an SVG, and must never reach sharp.
+  if (looksLikeSvg(source)) {
+    // The XML parser and the WebAssembly renderer load the first time an SVG is seen, never for a site that has none.
+    const { renderSvg } = await import('./svg.js')
+    const out = await renderSvg(source, SVG_COVER, maxPixels, o)
+    if ('png' in out) return { bytes: out.png, svg: true, remember: 'always' }
+    onReason(out.reason)
+    // A refusal and a memory limit are properties of the file (the page cap is fixed): remembered. A timeout may be a slow machine or a heavy but
+    // honest logo: remembered for a while, so a hostile one cannot hold the single render slot on every request. `busy` and a crash are nobody's fault.
+    return {
+      bytes: null,
+      svg: true,
+      remember: out.reason === 'refused' || out.reason === 'memory' ? 'always' : out.reason === 'timeout' ? 'a while' : false,
+    }
+  }
+  // Neither an SVG document nor a raster image: nothing is handed to a decoder (an SVG in an encoding the sanitiser cannot read included).
+  return { bytes: looksRaster(source) ? source : null, svg: false, remember: false }
+}
+
 /** The image cut to the box around its focal point (the centre without one), as a palette PNG data URL; null if it is no usable raster image. */
 async function prepare(
   bytes: Buffer,
@@ -182,14 +229,18 @@ async function prepare(
 }
 
 /** Whether any pixel of the image is see-through: a header check first, then a pixel pass only for an image that has an alpha channel. */
-async function transparent(bytes: Buffer, maxPixels: number): Promise<boolean> {
+async function transparent(bytes: Buffer, maxPixels: number, fuzzy = false): Promise<boolean> {
   // Outside the try: a sharp that cannot load (a missing native binary) is a render error that names it, not a silent hero-less card.
   const sharp = await loadSharp()
   try {
     const input = { limitInputPixels: maxPixels, failOn: 'error' as const }
     const meta = await sharp(bytes, input).metadata()
     if (!meta.format || !RASTER.has(meta.format) || !meta.hasAlpha) return false
-    return !(await sharp(bytes, input).stats()).isOpaque
+    const stats = await sharp(bytes, input).stats()
+    if (!fuzzy) return !stats.isOpaque
+    // A rasterised SVG has a soft edge (and seams) where a shape meets the border or another shape: the alpha MEAN tells a see-through logo
+    // (a margin, a hole, a partial fill) from an opaque one with antialiasing (mean 254.8 of 255 for a solid rectangle).
+    return (stats.channels.at(-1)?.mean ?? 255) < SVG_OPAQUE_MEAN
   } catch {
     return false
   }
@@ -251,10 +302,57 @@ export function payloadHeroLoader(o: HeroLoaderOptions): HeroLoader {
   const colours = o.colours ?? DEFAULT_HERO_COLOURS
   const read = async (hero: Upload, where?: { collection?: string }) =>
     (await readLocal(hero, await o.staticDirs(where?.collection), maxBytes)) ?? (await fetchRemote(hero, { hosts, fetchImpl, maxBytes }))
+  const keyOf = (hero: VerifiedUpload, where?: { collection?: string }) => `${where?.collection ?? ''}\u0000${heroTag(hero)}`
+  const svgs = new Map<string, Buffer | null>()
+  /** Uploads whose last render timed out, and until when they are not tried again. */
+  const slow = new Map<string, number>()
+  type Ready = { bytes: Buffer | null; svg: boolean; unreadable: boolean; transient: boolean }
+  const inflight = new Map<string, Promise<Ready>>()
+  /**
+   * The upload as the raster pipeline reads it, once per upload version however many cards ask at the same time (single-flight) and for the card and
+   * the see-through probe alike. `svg`: it was rasterised (or refused as an SVG). A drawing, or the sanitiser's refusal, is remembered in `svgs` and a
+   * repeat does not read the file; a failure of this attempt (`transient`) is not.
+   */
+  const rasterReady = (hero: VerifiedUpload, where: { collection?: string } | undefined): Promise<Ready> => {
+    const key = keyOf(hero, where)
+    if (svgs.has(key)) {
+      const hit = svgs.get(key) as Buffer | null
+      svgs.delete(key) // most recently used last
+      svgs.set(key, hit)
+      return Promise.resolve({ bytes: hit, svg: true, unreadable: false, transient: false })
+    }
+    const heavy = slow.get(key)
+    if (heavy !== undefined) {
+      if (heavy > Date.now()) return Promise.resolve({ bytes: null, svg: true, unreadable: false, transient: true })
+      slow.delete(key) // the window is over: it may be drawn again
+    }
+    const running = inflight.get(key)
+    if (running) return running
+    const run = (async (): Promise<Ready> => {
+      const source = await read(hero, where)
+      if (!source) return { bytes: null, svg: false, unreadable: true, transient: false }
+      const d = await decode(
+        source,
+        maxPixels,
+        (reason) => o.onEvent?.({ name: 'svg_rejected', detail: { reason, collection: where?.collection } }),
+        { timeoutMs: o.svg?.timeoutMs },
+      )
+      if (d.remember === 'always') {
+        svgs.set(key, d.bytes)
+        if (svgs.size > SVG_CACHE) svgs.delete(svgs.keys().next().value as string)
+      } else if (d.remember === 'a while') {
+        slow.set(key, Date.now() + (o.svg?.retryMs ?? SVG_RETRY_MS))
+        if (slow.size > SVG_CACHE) slow.delete(slow.keys().next().value as string)
+      }
+      return { bytes: d.bytes, svg: d.svg, unreadable: false, transient: d.svg && d.remember !== 'always' }
+    })().finally(() => inflight.delete(key))
+    inflight.set(key, run)
+    return run
+  }
   const load: HeroLoader = async (hero, box, where) => {
     try {
       if (![box.width, box.height].every((n) => Number.isInteger(n) && n >= 1 && n <= MAX_SIDE)) return null
-      const bytes = await read(hero, where)
+      const { bytes } = await rasterReady(hero, where)
       if (!bytes) return null
       // A shaped image (contained, tinted, screened) is its own preparation; `''` is an image its shape declines, not a failure.
       if (where?.shape) return await prepareShape(bytes, box, where.shape, maxPixels)
@@ -268,7 +366,6 @@ export function payloadHeroLoader(o: HeroLoaderOptions): HeroLoader {
       return null
     }
   }
-  const keyOf = (hero: VerifiedUpload, where?: { collection?: string }) => `${where?.collection ?? ''}\u0000${heroTag(hero)}`
   load.readable = remembered(
     (hero, where) => keyOf(hero, where),
     async (hero, where) => {
@@ -284,9 +381,11 @@ export function payloadHeroLoader(o: HeroLoaderOptions): HeroLoader {
     (hero, where) => keyOf(hero, where),
     async (hero, where) => {
       try {
-        const bytes = await read(hero, where)
-        if (!bytes) return { value: false, keep: false } // unreadable: the card is drawn without it and never stored, so nothing is remembered
-        return { value: await transparent(bytes, maxPixels), keep: true }
+        // The same raster the card is cut from: an SVG is drawn once for both.
+        const { bytes, svg, unreadable, transient } = await rasterReady(hero, where)
+        // Unreadable, or an SVG that failed this time (a timeout, a limit): the card is drawn without it and never stored, so nothing is remembered.
+        if (unreadable || transient) return { value: false, keep: false }
+        return { value: bytes !== null && (await transparent(bytes, maxPixels, svg)), keep: true }
       } catch (error) {
         if (error instanceof DepLoadError) throw error
         return { value: false, keep: false }

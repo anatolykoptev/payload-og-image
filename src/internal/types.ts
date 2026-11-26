@@ -15,6 +15,7 @@ export type OgEventName =
   | 'downgraded'
   | 'render_error'
   | 'glyph_missing'
+  | 'svg_rejected'
   | 'over_budget'
   | 'draft'
   | 'not_found'
@@ -32,6 +33,7 @@ export const OG_EVENT_NAMES = [
   'downgraded',
   'render_error',
   'glyph_missing',
+  'svg_rejected',
   'over_budget',
   'draft',
   'not_found',
