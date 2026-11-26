@@ -1,7 +1,8 @@
 // The layout of both presets as pure functions of the props and a template context: where every box goes, in pixels. A template then draws
 // the boxes it is given, so the safe zone is testable without drawing a pixel.
+import { contrast, hexColour, luminance, rgbOf } from '../internal/colour.js'
 import type { RowFit, RowItem, TemplateContext } from '../template.js'
-import { DENSITY, PHOTO, SLOTS, type SlotName, TEXT } from './spec.js'
+import { COLOURS, DENSITY, MIN_CONTRAST, PHOTO, SLOTS, type SlotName, TEXT } from './spec.js'
 
 export type PresetProps = {
   title: string
@@ -13,6 +14,8 @@ export type PresetProps = {
   byline?: string
   /** The opacity (0 to 1) of the logo on the right of the text card; default 0.35, 1 draws it in full. */
   artOpacity?: number
+  /** The accent (`#rgb` or `#rrggbb`) of the strip, the badge and the accent pill; default: the preset's. A colour that contrasts too little with the ground is drawn in the ink. */
+  accent?: string
   pill?: string
   pill2?: string
   badge?: string
@@ -60,6 +63,13 @@ function drawn(src: string | undefined, maxWidth: number, height: number): { w: 
   return { w: Math.round((size.w / DENSITY) * k), h: Math.round((size.h / DENSITY) * k) }
 }
 
+/** The accent the text card draws: the preset's own, or the props' when it is a colour that stays readable against the ground (else the ink, like a logo that would vanish). */
+export function accentOf(p: Pick<PresetProps, 'accent'>): string {
+  const own = hexColour(typeof p.accent === 'string' ? p.accent.trim() : undefined)
+  if (own === undefined) return COLOURS.accent
+  return contrast(luminance(rgbOf(own)), luminance(rgbOf(COLOURS.ground))) < MIN_CONTRAST ? COLOURS.ink : own
+}
+
 /**
  * The props as the card will draw them, taken before the version: a slot that is empty or over its `maxChars` is not drawn, so it must not be hashed
  * (changing it would move the URL of a card that looks the same). The layout applies the same rule, so a hand-built context cannot disagree.
@@ -71,6 +81,10 @@ export function normalizeSlots(p: PresetProps): PresetProps {
     if (text === '' || [...text].length > SLOTS[name].maxChars) delete out[name]
     else out[name] = text
   }
+  // The accent as drawn: the preset's own is no prop at all, so a document that sets it changes no URL.
+  const accent = accentOf(p).toLowerCase()
+  if (accent === COLOURS.accent.toLowerCase()) delete out.accent
+  else out.accent = accent
   return out as PresetProps
 }
 

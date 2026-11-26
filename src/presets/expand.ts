@@ -70,6 +70,8 @@ function resolvePreset(c: CollectionLike, own: PresetCollectionOptions, o: OgIma
     seo: seo ? { ...seo, collection: uploadCollectionOf(c, seo.path) } : undefined,
     ogHeadline: overrideAllowed(c, 'og.headline'),
     ogSubtitle: overrideAllowed(c, 'og.subtitle'),
+    ogLabel: overrideAllowed(c, 'og.label'),
+    ogAccent: overrideAllowed(c, 'og.accent'),
   }
 }
 

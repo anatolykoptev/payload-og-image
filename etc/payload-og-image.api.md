@@ -102,6 +102,8 @@ export type OgDocFields = {
     mode?: 'inherit' | 'generated' | 'custom' | 'off' | null;
     headline?: string | null;
     subtitle?: string | null;
+    label?: string | null;
+    accent?: string | null;
 };
 
 // @public (undocumented)
@@ -210,6 +212,8 @@ export type OgImagePluginPresetOptions = Omit<OgImagePluginOptions, 'site' | 'fo
 export type OgOverrides = {
     headline?: string;
     subtitle?: string;
+    label?: string;
+    accent?: string;
 };
 
 // @public (undocumented)
@@ -245,6 +249,7 @@ export type PresetProps = {
     site: string;
     byline?: string;
     artOpacity?: number;
+    accent?: string;
     pill?: string;
     pill2?: string;
     badge?: string;

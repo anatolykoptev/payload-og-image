@@ -183,8 +183,8 @@ export type PreviewWarnings = {
 }
 /** `kind: 'png'` names any card image (as before 0.6); `type` is its media type. */
 export type PreviewResult = { kind: 'none' } | { kind: 'png'; bytes: Uint8Array; type: CardMime; warnings: PreviewWarnings }
-/** A card over this many bytes is flagged in a preview. */
-export const PREVIEW_BUDGET_BYTES = 300 * 1024
+/** A card over this many bytes is flagged: in an editor's preview, and as an `over_budget` event when a card is served. */
+export const CARD_BUDGET_BYTES = 300 * 1024
 
 export type CardHandler = {
   /**
@@ -323,8 +323,11 @@ export function createCardHandler(d: HandlerDeps): CardHandler {
     if (dropped.length > 0 && !o.quiet)
       d.events.emit({ name: 'glyph_missing', kind: card.key.kind, slug: card.key.slug, detail: { chars: dropped } })
     // A preview draw is not a render of a real card: no `render` event, so the counters stay about served cards.
-    if (!o.quiet)
+    if (!o.quiet) {
       d.events.emit({ name: 'render', kind: card.key.kind, slug: card.key.slug, v: card.v, ms: Date.now() - t0, bytes: bytes.byteLength })
+      if (bytes.byteLength > CARD_BUDGET_BYTES)
+        d.events.emit({ name: 'over_budget', kind: card.key.kind, slug: card.key.slug, v: card.v, bytes: bytes.byteLength })
+    }
     return { bytes, dropped, downgraded: (card.hero != null && hero == null) || failed > 0 }
   }
 
@@ -581,7 +584,7 @@ export function createCardHandler(d: HandlerDeps): CardHandler {
       type: forced.type,
       warnings: {
         missing: [...new Set([...forced.missing, ...dropped])],
-        overBudget: bytes.byteLength > PREVIEW_BUDGET_BYTES,
+        overBudget: bytes.byteLength > CARD_BUDGET_BYTES,
         customIneligible: mode === 'custom' && actual.kind === 'generated',
         customTooSmall: actual.kind === 'own' && ((actual.image.width ?? 0) < 600 || (actual.image.height ?? 0) < 315),
         modeOff: mode === 'off',

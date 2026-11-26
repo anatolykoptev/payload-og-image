@@ -86,8 +86,6 @@ export default buildConfig({
 import config from '@payload-config'
 import { createOgRoute } from 'payload-og-image/next'
 
-export const dynamic = 'force-dynamic'
-
 const route = createOgRoute({ config })
 export const GET = route.GET
 export const HEAD = GET
@@ -145,7 +143,7 @@ are never overwritten. Detection rules, every per-collection override, the logos
 ## What you get
 
 - `payload-og-image`: `ogImagePlugin`, `defineTemplate`, `defineTarget`, `presets` (the two built-in templates), and `ogFields()` for the optional per-document
-  `og` group (mode, headline, subtitle; see [reference](docs/reference.md#per-document-share-card-fields)).
+  `og` group (mode, headline, subtitle, label, accent; see [reference](docs/reference.md#per-document-share-card-fields)).
 - `payload-og-image/client`: the admin's live card preview (`OgPreviewField`), referenced by the `og` group; run
   `payload generate:importmap` after adding the plugin.
 - `payload-og-image/next`: `createOgRoute`, `ogMetadata`, `ogPhotoImages` (clean crops of the hero for JSON-LD and Discover: [reference](docs/reference.md#photo-set-for-structured-data-and-discover)), `ogPrimaryImageOfPage`, `withLargeImagePreview`, `ogImages` (every size of the card), `withHead` for Payload's REST route (which does not

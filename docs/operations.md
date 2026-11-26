@@ -6,21 +6,22 @@ Pass `onEvent(e)` to receive every event. Without it, one line per event goes to
 `[payload-og] event=render kind=posts slug=a v=0aa023e2fb5b ms=68 bytes=8266`. Cache hits are sampled (the first,
 then every 100th); values that came from a request are printed as plain ASCII.
 
-| Event                   | Meaning                                                                                                                     |
-| ----------------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| `hit_memo`, `hit_store` | a card answered from memory or from the disk store                                                                          |
-| `render`                | a card was drawn (`ms`, `bytes`)                                                                                            |
-| `shed`                  | the render queue was full: 503 with `Retry-After: 5`                                                                        |
-| `store_disabled`        | the disk store switched itself off (unwritable, a symlinked root, a permanent error)                                        |
-| `store_write_skipped`   | one write was skipped (low free space at boot, a transient error, bytes that were not a whole PNG, JPEG or WebP)            |
-| `store_corrupt`         | a stored file failed its checks and was removed                                                                             |
-| `downgraded`            | the hero could not be read: the card was drawn without it and served for 5 minutes                                          |
-| `render_error`          | a card could not be drawn, or a failure happened before one existed                                                         |
-| `glyph_missing`         | characters no font draws were removed from a card's text or from what its template draws                                    |
-| `svg_rejected`          | an SVG logo or hero gave no picture: `detail.reason` is `refused` (the file), `busy`, `timeout`, `memory` or `worker-error` |
-| `draft`                 | a draft-mode request was drawn, uncached                                                                                    |
-| `not_found`             | an unknown route, kind or slug                                                                                              |
-| `crawler`               | a sampled card request (`crawlerEvents`): `ua_family`, `method`, `status`, `cache`                                          |
+| Event                   | Meaning                                                                                                                                                                                  |
+| ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `hit_memo`, `hit_store` | a card answered from memory or from the disk store                                                                                                                                       |
+| `render`                | a card was drawn (`ms`, `bytes`)                                                                                                                                                         |
+| `shed`                  | the render queue was full: 503 with `Retry-After: 5`                                                                                                                                     |
+| `store_disabled`        | the disk store switched itself off (unwritable, a symlinked root, a permanent error)                                                                                                     |
+| `store_write_skipped`   | one write was skipped (low free space at boot, a transient error, bytes that were not a whole PNG, JPEG or WebP)                                                                         |
+| `store_corrupt`         | a stored file failed its checks and was removed                                                                                                                                          |
+| `downgraded`            | the hero could not be read: the card was drawn without it and served for 5 minutes                                                                                                       |
+| `render_error`          | a card could not be drawn, or a failure happened before one existed                                                                                                                      |
+| `over_budget`           | a card was drawn that is over 300 KB (`bytes`), the size the admin preview warns about; an editor's draft card (the `x-og-cache: draft` GET) counts too, the admin preview POST does not |
+| `glyph_missing`         | characters no font draws were removed from a card's text or from what its template draws                                                                                                 |
+| `svg_rejected`          | an SVG logo or hero gave no picture: `detail.reason` is `refused` (the file), `busy`, `timeout`, `memory` or `worker-error`                                                              |
+| `draft`                 | a draft-mode request was drawn, uncached                                                                                                                                                 |
+| `not_found`             | an unknown route, kind or slug                                                                                                                                                           |
+| `crawler`               | a sampled card request (`crawlerEvents`): `ua_family`, `method`, `status`, `cache`                                                                                                       |
 
 Alert on `store_disabled` and on `render_error` above zero per hour, and on `shed` above about 50 per hour.
 
