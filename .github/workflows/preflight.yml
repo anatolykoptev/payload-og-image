@@ -33,6 +33,10 @@ jobs:
           node-version: 26.13.1
       - run: pnpm install --frozen-lockfile
       - run: make preflight
+      # The release gate, run on every pull request: pack the built package, install the tarball into a clean project and
+      # import every entry. It used to run only after the release tag, so v0.7.0 and v0.7.1 were tagged and then failed to
+      # publish on mistakes a pull request could have caught.
+      - run: node scripts/verify-pack.mjs
       # What lives in the Next layer (HEAD, route wiring, the page cache) is only seen over HTTP: build the dev app,
       # serve it with `next start` and probe a card, a stale ?v, an unknown slug and a REST upload. Needs the build above.
       - run: node scripts/probe-dev-server.mjs
