@@ -1,5 +1,6 @@
 import type { Sharp } from 'sharp'
 import { loadSharp } from '../internal/deps.js'
+import type { ChromaSubsampling } from '../internal/format.js'
 import { DEFAULT_PALETTE, type Palette } from '../internal/palette.js'
 
 export { DEFAULT_PALETTE, type Palette }
@@ -31,22 +32,29 @@ export async function encodePng(png: Uint8Array, palette: Palette | false): Prom
  * The JPEG every card and photo is written as: a see-through pixel flattened onto `ground`, mozjpeg at `quality`, no metadata (sharp writes none unless asked,
  * so a phone photo's EXIF and GPS never ship). The one place these settings are written.
  */
-export const toJpeg = (image: Sharp, { quality, ground }: { quality: number; ground: string }): Sharp =>
-  image.flatten({ background: ground }).jpeg({ quality, mozjpeg: true })
+export const toJpeg = (
+  image: Sharp,
+  { quality, ground, chromaSubsampling = '4:2:0' }: { quality: number; ground: string; chromaSubsampling?: ChromaSubsampling },
+): Sharp => image.flatten({ background: ground }).jpeg({ quality, mozjpeg: true, chromaSubsampling })
 
 /**
  * A lossy card from the renderer's PNG: any see-through pixel is flattened onto `ground` first (neither format is used with alpha
  * here: crawlers composite it on whatever they like), then JPEG by mozjpeg (progressive, trellis quantisation, an optimised scan
  * script) or WebP by libwebp (`smartSubsample` keeps chroma edges, the reason a coloured title on a photo does not bleed).
- * JPEG chroma stays 4:2:0, which is what browsers and crawlers expect.
+ * JPEG chroma is 4:2:0 unless the card asks for 4:4:4 (`jpeg.chromaSubsampling`): the photo set always keeps 4:2:0.
  */
 export async function encodeLossy(
   png: Uint8Array,
-  { format, quality, ground }: { format: 'jpeg' | 'webp'; quality: number; ground: string },
+  {
+    format,
+    quality,
+    ground,
+    chromaSubsampling,
+  }: { format: 'jpeg' | 'webp'; quality: number; ground: string; chromaSubsampling?: ChromaSubsampling },
 ): Promise<Uint8Array> {
   const sharp = await loadSharp()
   const out = await (format === 'jpeg'
-    ? toJpeg(sharp(png), { quality, ground })
+    ? toJpeg(sharp(png), { quality, ground, chromaSubsampling })
     : sharp(png).flatten({ background: ground }).webp({ quality, effort: WEBP_EFFORT, smartSubsample: true })
   ).toBuffer()
   return new Uint8Array(out.buffer, out.byteOffset, out.byteLength)

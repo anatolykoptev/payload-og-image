@@ -453,7 +453,7 @@ encoding instead, for every card or for one target (the target wins):
 ogImagePlugin({
   // ...
   format: 'jpeg', // 'png' (default) | 'jpeg' | 'webp'
-  jpeg: { quality: 82 }, // 1 to 100, mozjpeg; the default
+  jpeg: { quality: 82, chromaSubsampling: '4:2:0' }, // quality 1 to 100, mozjpeg; chroma '4:2:0' or '4:4:4'; the defaults
   webp: { quality: 80 }, // 1 to 100, libwebp; the default
   targets: {
     places: defineTarget({ path: '/og/:kind/:slug/card.jpg', format: 'jpeg', template: 'place', props, hero }),
@@ -462,8 +462,8 @@ ogImagePlugin({
 })
 ```
 
-Unset keeps today's behaviour exactly: PNG, and no existing card URL or byte changes (the version tests pin it). The format, its quality
-and the flatten ground are part of the card version (the version's `variant` slot), so switching gives new URLs and never serves a
+Unset keeps today's behaviour exactly: PNG, and no existing card URL or byte changes (the version tests pin it). The format, its quality,
+the flatten ground and a `'4:4:4'` chroma are part of the card version (the version's `variant` slot), so switching gives new URLs and never serves a
 stored card of the other encoding; settings of a format a card does not use change nothing about it. The same value drives the
 `content-type`, `og:image:type`, the store's file name (`<page>-<v>.png`, `.jpg` or `.webp`) and its validation, the memo, the 304 and
 HEAD answers, the fallback and downgraded cards, the admin preview, the MCP `og_card` and `og_preview` tools (`mimeType`), the kit and
@@ -472,6 +472,12 @@ HEAD answers, the fallback and downgraded cards, the admin preview, the MCP `og_
 - **Choose JPEG for photo cards; WebP is opt-in.** Every crawler we could check reads JPEG. WebP is documented for X and Discord only; Facebook and
   LinkedIn publish no list of formats and Telegram is reported to drop a WebP preview ([crawlers](crawlers.md#image-formats)). WebP is
   16 to 20 percent smaller at the defaults, on the sample photograph below, which is not worth a missing preview on one platform.
+- **Chroma subsampling.** `jpeg: { chromaSubsampling: '4:4:4' }` keeps the colour at full resolution; the default `'4:2:0'` halves it both ways, which
+  puts a halo round coloured text (a pill label, a coloured logo face) at chat-preview sizes. It applies to cards (the plugin's `jpeg`, or a target's own), works
+  with mozjpeg (a test decodes the output and reads the sampling back), and enters the card version only when it is `'4:4:4'`: a card that does not
+  ask for it keeps its URL and its bytes. The [photo set](#photo-set-for-structured-data-and-discover) is always 4:2:0. Measured at quality 86, 1200x630, sharp 0.35.5: a text card
+  (white ground, red pill, red logo tile, dark title) is 26,634 bytes at 4:2:0 and 37,621 at 4:4:4 (+41 percent); a photo card (a smooth
+  full-bleed colour-gradient raster with a scrim, a pill and the title) is 44,839 and 62,613 (+40 percent). A noisier photograph is larger in both: measure a real card with `ogKit(rt).sizeBudget`.
 - **No alpha.** JPEG cannot hold it, and a WebP card is flattened too, because crawlers composite a see-through card onto whatever they like. A pixel the
   template leaves see-through is flattened onto the card's ground: the target's or template's `heroBackground`, else the plugin's, else white.
   A transparent hero is drawn over the template's own background as always, so it shows that background through its see-through pixels, and
@@ -729,7 +735,7 @@ gives a smaller crop (a 900×600 photograph gives 900×506, 800×600 and 600×60
 for Discover's large preview. No hero, or nothing reaching 600 px, means no set at all: never the card or the logo as a stand-in.
 
 **The crop.** The largest window of the ratio inside the photograph, centred on the upload's Payload focal point (`focalX`, `focalY`; the centre when unset) and clamped to the image, from the upright image (EXIF rotation applied). A portrait photograph
-gives a band around the focal point. It is the window the card's own hero uses (`cropWindow` in `src/internal/crop.ts`, one function for both); the photo set only differs in never scaling up. The file is JPEG at the plugin's `jpeg.quality` (mozjpeg, progressive), in sRGB,
+gives a band around the focal point. It is the window the card's own hero uses (`cropWindow` in `src/internal/crop.ts`, one function for both); the photo set only differs in never scaling up. The file is JPEG at the plugin's `jpeg.quality` (mozjpeg, progressive, always 4:2:0: `jpeg.chromaSubsampling` is for cards), in sRGB,
 with no metadata: no EXIF, GPS or profile ships. A see-through pixel is flattened onto `heroBackground` (white without one).
 
 **Big originals.** A window that has to shrink is cut by scaling the whole image so the window lands at its output size and then extracting it, so the decoder can shrink while it loads: a phone original costs a fraction of a full decode. The photo set therefore has its own limits, separate from the card hero's (15 MiB, 40 MP, unchanged): **50 MiB, and 120 MP for JPEG, 48 MP for WebP and PNG** (these two decode in full: a 120 MP WebP measured 685 MB and 6.8 s for the three sizes); every other format (GIF, AVIF) keeps the card's limits, because nothing was measured for it. The loader applies the limits from the upload's record when a page lists the set (`canPhoto`) and again, from the file itself, when it cuts, so a page never lists a photo whose URL could only fail: an upload over them has no set, and `og_audit` says so. Measured with sharp 0.35.5 on one Mac, peak resident memory of the whole Node process and time for the three sizes one after another: a 48 MP 22 MB JPEG 170 MB and 0.5 s, a 108 MP JPEG 138 MB and 0.2 s, a 48 MP WebP 345 MB and 0.3 s, a flat 108 MP PNG 210 MB and 0.3 s (a baseline Node process is about 50 MB; the render gate admits two at a time). Your numbers depend on the photograph.

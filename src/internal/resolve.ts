@@ -350,11 +350,11 @@ export async function resolveCard(i: ResolveInput): Promise<ResolvedCard> {
   const flattened = background !== undefined || i.heroFlattened
   const heroTransparent = hero !== null && !flattened && i.heroHasAlpha ? await i.heroHasAlpha(hero) : false
   // The target's own format wins, then the template's, then the plugin's.
-  const { format, quality } = formatOf(
+  const { format, quality, chromaSubsampling } = formatOf(
     { format: i.format, jpeg: i.jpeg, webp: i.webp },
     { ...i.target, format: i.target.format ?? template.format },
   )
-  const encoding: CardEncoding = encodingOf(format, quality, groundOf(background, i.heroBackground))
+  const encoding: CardEncoding = encodingOf(format, quality, groundOf(background, i.heroBackground), chromaSubsampling)
   const lossy = encoding.format !== 'png'
   const lossyPalette = i.heroPaletteLossy ?? i.heroPalette
   const v = cardVersion({

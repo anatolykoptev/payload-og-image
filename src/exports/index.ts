@@ -1,7 +1,7 @@
 // Types the options above are written in.
 
 export type { Box, FontSpec, Stacks, Step } from '../internal/fonts.js'
-export type { CardFormat, JpegOptions, WebpOptions } from '../internal/format.js'
+export type { CardFormat, ChromaSubsampling, JpegOptions, WebpOptions } from '../internal/format.js'
 export type { OgEvent, OgEventName, OnEvent, SiteInfo, Size, Upload } from '../internal/types.js'
 export type {
   OgDocFields,

@@ -3,15 +3,19 @@ import { DEFAULT_HERO_BACKGROUND } from './colour.js'
 
 /** The encodings a card can leave in. PNG is the default and the only one before 0.6. */
 export type CardFormat = 'png' | 'jpeg' | 'webp'
-/** JPEG (mozjpeg) settings: `quality` from 1 to 100. */
-export type JpegOptions = { quality?: number }
+/** JPEG chroma subsampling: `'4:2:0'` (the default) halves the colour resolution both ways, `'4:4:4'` keeps it (no halo round coloured text, a larger file). */
+export type ChromaSubsampling = '4:2:0' | '4:4:4'
+/** JPEG (mozjpeg) settings: `quality` from 1 to 100; `chromaSubsampling` (default `'4:2:0'`). */
+export type JpegOptions = { quality?: number; chromaSubsampling?: ChromaSubsampling }
 /** WebP (libwebp) settings: `quality` from 1 to 100. */
 export type WebpOptions = { quality?: number }
 /**
  * What a card is encoded as, once the plugin's and the target's options are resolved. JPEG and WebP cards are opaque: `ground` is the
  * colour a see-through pixel is flattened onto.
  */
-export type CardEncoding = { format: 'png' } | { format: 'jpeg' | 'webp'; quality: number; ground: string }
+export type CardEncoding =
+  | { format: 'png' }
+  | { format: 'jpeg' | 'webp'; quality: number; ground: string /** JPEG only; absent is 4:2:0. */; chromaSubsampling?: ChromaSubsampling }
 export type CardMime = 'image/png' | 'image/jpeg' | 'image/webp'
 
 /**
@@ -24,6 +28,9 @@ export const DEFAULT_WEBP_QUALITY = 80
 
 const FORMATS = ['png', 'jpeg', 'webp'] as const
 const LOSSY = ['jpeg', 'webp'] as const
+const CHROMA: readonly ChromaSubsampling[] = ['4:2:0', '4:4:4']
+/** The option keys of each lossy format. */
+const OPTION_KEYS = { jpeg: ['quality', 'chromaSubsampling'], webp: ['quality'] } as const
 export const isLossy = (f: CardFormat): f is 'jpeg' | 'webp' => f !== 'png'
 const DEFAULT_QUALITY = { jpeg: DEFAULT_JPEG_QUALITY, webp: DEFAULT_WEBP_QUALITY } as const
 
@@ -38,20 +45,30 @@ export function assertFormatOption(where: string, o: FormatSettings): void {
     const v = o[name]
     if (v === undefined) continue
     if (v === null || typeof v !== 'object' || Array.isArray(v))
-      throw new Error(`payload-og-image: ${where}.${name} must be an object { quality? }`)
+      throw new Error(`payload-og-image: ${where}.${name} must be an object { ${OPTION_KEYS[name].map((k) => `${k}?`).join(', ')} }`)
     for (const [k, q] of Object.entries(v)) {
-      if (k !== 'quality') throw new Error(`payload-og-image: ${where}.${name}.${k} is not an option (${name}.quality)`)
-      if (q !== undefined && !(typeof q === 'number' && Number.isInteger(q) && q >= 1 && q <= 100))
+      if (!(OPTION_KEYS[name] as readonly string[]).includes(k))
+        throw new Error(
+          `payload-og-image: ${where}.${name}.${k} is not an option (${OPTION_KEYS[name].map((o) => `${name}.${o}`).join(', ')})`,
+        )
+      if (k === 'chromaSubsampling') {
+        if (q !== undefined && !(CHROMA as readonly unknown[]).includes(q))
+          throw new Error(`payload-og-image: ${where}.${name}.chromaSubsampling must be '4:2:0' or '4:4:4', got ${JSON.stringify(q)}`)
+      } else if (q !== undefined && !(typeof q === 'number' && Number.isInteger(q) && q >= 1 && q <= 100))
         throw new Error(`payload-og-image: ${where}.${name}.quality must be an integer from 1 to 100, got ${JSON.stringify(q)}`)
     }
   }
 }
 
-/** The format and quality of a card: the target's own setting, else the plugin's, else PNG (and the format's default quality). */
-export function formatOf(plugin: FormatFields, own: FormatFields): { format: CardFormat; quality: number } {
+/**
+ * The format and quality of a card: the target's own setting, else the plugin's, else PNG (and the format's default quality). `chromaSubsampling` is
+ * set only for a JPEG asked for 4:4:4: 4:2:0, the default, stays absent so it hashes and encodes exactly as before.
+ */
+export function formatOf(plugin: FormatFields, own: FormatFields): { format: CardFormat; quality: number; chromaSubsampling?: '4:4:4' } {
   const format = own.format ?? plugin.format ?? 'png'
   const quality = isLossy(format) ? (own[format]?.quality ?? plugin[format]?.quality ?? DEFAULT_QUALITY[format]) : DEFAULT_JPEG_QUALITY
-  return { format, quality }
+  const chroma = format === 'jpeg' ? (own.jpeg?.chromaSubsampling ?? plugin.jpeg?.chromaSubsampling) : undefined
+  return chroma === '4:4:4' ? { format, quality, chromaSubsampling: chroma } : { format, quality }
 }
 
 const MIME: Record<CardFormat, CardMime> = { png: 'image/png', jpeg: 'image/jpeg', webp: 'image/webp' }
@@ -62,7 +79,8 @@ export const extensionOf = (format: CardFormat) => (format === 'jpeg' ? 'jpg' : 
  * The version's variant slot: absent (the 0.1 value, `og`) for PNG so no existing card URL moves; for JPEG and WebP the format, the
  * quality and the ground, because each changes the bytes of the same drawing.
  */
-export const variantOf = (e: CardEncoding): string | undefined => (e.format === 'png' ? undefined : `${e.format}:q${e.quality}:${e.ground}`)
+export const variantOf = (e: CardEncoding): string | undefined =>
+  e.format === 'png' ? undefined : `${e.format}:q${e.quality}:${e.ground}${e.chromaSubsampling === '4:4:4' ? ':c444' : ''}`
 
 /** A short key for a memo entry that must differ per encoding (the fallback card). */
 export const encodingKey = (e: CardEncoding) => variantOf(e) ?? 'png'
@@ -70,9 +88,9 @@ export const encodingKey = (e: CardEncoding) => variantOf(e) ?? 'png'
 /** The ground a transparent pixel of a lossy card is flattened onto: the card's own, else the plugin's, else white. */
 export const groundOf = (card: string | undefined, plugin: string | undefined): string => card ?? plugin ?? DEFAULT_HERO_BACKGROUND
 
-/** The encoding of a format with its quality and ground (PNG needs neither). */
-export const encodingOf = (format: CardFormat, quality: number, ground: string): CardEncoding =>
-  format === 'png' ? { format } : { format, quality, ground }
+/** The encoding of a format with its quality and ground (PNG needs neither) and, for a JPEG, 4:4:4 when asked. */
+export const encodingOf = (format: CardFormat, quality: number, ground: string, chromaSubsampling?: '4:4:4'): CardEncoding =>
+  format === 'png' ? { format } : chromaSubsampling ? { format, quality, ground, chromaSubsampling } : { format, quality, ground }
 
 const PATH_EXT = /\.([A-Za-z0-9]+)$/
 const EXTENSIONS: Record<CardFormat, string[]> = { png: ['png'], jpeg: ['jpg', 'jpeg'], webp: ['webp'] }
