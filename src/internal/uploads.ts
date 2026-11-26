@@ -24,8 +24,9 @@ export const isVerified = (v: unknown): v is VerifiedUpload =>
 export const collectionOf = (u: VerifiedUpload): string => u[VERIFIED]
 
 /**
- * Is this error a DEFINITE answer that there is no readable document? Payload throws `Forbidden` when the caller may not read a collection at all
- * and `NotFound` for a missing one; both are "no such readable record". Any other error (connection, timeout, adapter) is a failure of the read: it
+ * Is this error a DEFINITE answer that there is no readable document? Payload throws `Forbidden` when the caller may not read a collection at all;
+ * the `find` calls used here answer a missing id with no docs, and `NotFound` (thrown by `findByID`) is accepted defensively. Both are "no such
+ * readable record". Any other error (connection, timeout, adapter) is a failure of the read: it
  * says nothing about whether the record exists.
  */
 export const isDefiniteAbsence = (error: unknown): boolean => {
