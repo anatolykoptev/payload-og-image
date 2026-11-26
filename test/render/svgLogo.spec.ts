@@ -45,7 +45,7 @@ async function loader(files: Record<string, string | Buffer>) {
   const load = heroLoaderFor(payload, {})
   const hero = (name: string) => verifiedUpload({ id: name, filename: name, url: `/m/${name}`, updatedAt: 'u' })
   return {
-    load: (name: string, box = { width: 120, height: 40 }, where: Record<string, unknown> = {}) => load(hero(name), box),
+    load: (name: string, box = { width: 120, height: 40 }, where: Record<string, unknown> = {}) => load(hero(name), box, where),
     alpha: (name: string) => load.hasAlpha?.(hero(name)),
   }
 }
