@@ -2,7 +2,7 @@ import type { ReactElement } from 'react'
 import { normaliseHeroBackground } from './internal/colour.js'
 import type { Box } from './internal/fonts.js'
 import { assertFormatOption, type CardFormat, type JpegOptions, pathProblem, type WebpOptions } from './internal/format.js'
-import { MAX_SIDE } from './internal/limits.js'
+import { IMAGE_NAME, MAX_SIDE } from './internal/limits.js'
 import type { SiteInfo, Size, Upload } from './internal/types.js'
 import { VARIANT_NAME } from './internal/variants.js'
 
@@ -30,11 +30,21 @@ export type Normalized<T> = T extends Date
           ? { [K in keyof T]: Normalized<T[K]> }
           : never
 
+/** An upload named by a target: its id, or an object carrying one. It is always reduced to the id and read again with the visitor's access, so nothing else on it is trusted. */
+export type ImageRef = string | number | { id: string | number }
+
 /** What a template's `render` gets besides its props. Site data reaches a template only through props, so it is part of the version. */
 export type TemplateContext = {
   host: string
   /** The hero as a data URL, or null when the card has none (or it could not be prepared). */
   hero: string | null
+  /**
+   * The target's named images (`Target.images`) as data URLs, each cut to the template's `imageBoxes` size, in the order the target gave them.
+   * An image that is missing, that the public may not read, or whose file could not be prepared is left out of its list (a card whose
+   * file could not be prepared is served briefly and never stored, like a hero that failed). Unlike the hero, they are never flattened
+   * onto a ground: a transparent logo stays transparent. A name the target did not give is absent.
+   */
+  images: Record<string, string[]>
   /**
    * The largest size at which `text` fits `box` in `stack`. By default every second size from `box.maxSize` down; a box can opt in to a
    * ladder of its own (`sizes`), letter spacing (`tracking`), room for descenders (`descent`), a calmer line count (`fewerLines`) and
@@ -58,6 +68,8 @@ export type Template<P extends PropsModel> = {
   /** Which font stack each text field uses (field name -> stack name); a field without an entry uses the stack of its own name. */
   stacks?: Record<string, string>
   heroBox?: Size
+  /** The size each named image (`Target.images`) is cut to, by name. A target that names an image the template does not declare is refused when its card is resolved. */
+  imageBoxes?: Record<string, Size>
   /** The colour this template's transparent hero is flattened onto (`#rgb` or `#rrggbb`), instead of the plugin's `heroBackground`. A target's own wins. */
   heroBackground?: string
   render(p: P, ctx: TemplateContext): ReactElement
@@ -65,22 +77,22 @@ export type Template<P extends PropsModel> = {
 
 const DEFAULT_SIZE: Size = { width: 1200, height: 630 }
 
+const validSize = (s: Size) =>
+  Number.isInteger(s?.width) && s.width > 0 && s.width <= MAX_SIDE && Number.isInteger(s?.height) && s.height > 0 && s.height <= MAX_SIDE
+
 export function defineTemplate<P extends PropsModel>(t: Omit<Template<P>, 'size'> & { size?: Size }): Template<P> {
   if (typeof t.id !== 'string' || t.id.trim() === '') throw new Error('payload-og-image: a template needs a non-empty id')
   if (typeof t.revision !== 'string') throw new Error(`payload-og-image: template "${t.id}" needs a string revision`)
   if (t.heroBackground !== undefined) normaliseHeroBackground(t.heroBackground) // a named error now, not at the first card
   const size = t.size ?? DEFAULT_SIZE
-  if (
-    !(
-      Number.isInteger(size.width) &&
-      size.width > 0 &&
-      size.width <= MAX_SIDE &&
-      Number.isInteger(size.height) &&
-      size.height > 0 &&
-      size.height <= MAX_SIDE
-    )
-  ) {
-    throw new Error(`payload-og-image: template "${t.id}" has an invalid size`)
+  if (!validSize(size)) throw new Error(`payload-og-image: template "${t.id}" has an invalid size`)
+  if (t.imageBoxes !== undefined) {
+    if (t.imageBoxes === null || typeof t.imageBoxes !== 'object' || Array.isArray(t.imageBoxes))
+      throw new Error(`payload-og-image: template "${t.id}" imageBoxes must be an object of sizes by image name`)
+    for (const [name, box] of Object.entries(t.imageBoxes)) {
+      if (!IMAGE_NAME.test(name)) throw new Error(`payload-og-image: template "${t.id}" image name "${name}" must match ${IMAGE_NAME}`)
+      if (!validSize(box)) throw new Error(`payload-og-image: template "${t.id}" has an invalid size for image "${name}"`)
+    }
   }
   return { ...t, size }
 }
@@ -117,6 +129,15 @@ export type Target<D = any, P = any> = {
   hero?: (a: ResolverArgs<D>) => Upload | null | undefined
   /** The upload collection the hero belongs to. A hero file is read only from that collection's folder; with one upload collection it may be omitted. */
   heroCollection?: string
+  /**
+   * Named images besides the hero, each a list (a logo is a list of one): `images: ({ doc }) => ({ stack: [a, b, c] })`. Each upload is reduced to its id
+   * and read again with the visitor's access (the editor's, for a draft preview), so an upload the public may not read is left out; a file is read only
+   * from its collection's own folder. At most 8 in all, in the order given. A bare id works wherever the field holds one (a `hasMany`
+   * upload at depth 0). The template draws them from `ctx.images` and must declare each name in `imageBoxes`.
+   */
+  images?: (a: ResolverArgs<D>) => Record<string, ImageRef | readonly ImageRef[] | null | undefined>
+  /** The upload collection each named image is read from; a name not listed uses `heroCollection`, else the only upload collection (several, with neither: the card is refused). */
+  imageCollections?: Record<string, string>
   /** The colour this target's transparent hero is flattened onto (`#rgb` or `#rrggbb`); wins over the template's and the plugin's `heroBackground`. */
   heroBackground?: string
   /**
@@ -156,6 +177,12 @@ export function defineTarget<D, P>(t: Target<D, P>): Target<D, P> {
   assertFormatOption('target', t)
   const mismatch = t.format === undefined ? undefined : pathProblem(t.path, t.format)
   if (mismatch) throw new Error(`payload-og-image: target ${mismatch}`)
+  if (t.images !== undefined && typeof t.images !== 'function') throw new Error('payload-og-image: target images must be a function')
+  if (t.imageCollections !== undefined) {
+    const c = t.imageCollections
+    if (c === null || typeof c !== 'object' || Array.isArray(c) || Object.values(c).some((v) => typeof v !== 'string' || v === ''))
+      throw new Error('payload-og-image: target imageCollections must be an object of upload collection slugs by image name')
+  }
   if (t.alt !== undefined && typeof t.alt !== 'function') throw new Error('payload-og-image: target alt must be a function')
   if (t.kind !== undefined && !/^[A-Za-z0-9_~-][A-Za-z0-9._~-]*$/.test(t.kind)) {
     throw new Error(`payload-og-image: target kind "${t.kind}" must be one URL-safe path segment`)

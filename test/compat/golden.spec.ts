@@ -1,7 +1,6 @@
 /** Mutation table (production line -> the test that goes RED). Silent-failure surface: a change that moves a card URL or its bytes for a site that never opted in gives no error, only a re-render of every card.
- * - version.ts `cardVersion` appends an element for an empty `images` list -> "a card without `images` keeps the URL and the bytes it had before named images" RED (every case)
- * - hero.ts `load` flattens or palettes a hero differently when `keepAlpha` is absent -> the same test RED (the hero cases' bytes)
- * - resolve.ts a hero that is already a usable upload is read again or replaced -> the same test RED */
+ * - version.ts `imageTail` returns a tail for an empty `images` list (not undefined) -> "a card without `images` keeps the URL and the bytes it had before named images" RED (every case)
+ * - hero.ts `load` ignores the site's ground when `keepAlpha` is absent -> the same test RED ("posts clear #f1f3ef": the flattened hero's bytes) */
 import { createHash } from 'node:crypto'
 import { mkdtemp, writeFile } from 'node:fs/promises'
 import os from 'node:os'
@@ -131,7 +130,7 @@ const GOLDEN: Record<string, { v: string; sha256: string }> = {
 }
 
 describe('a card without `images` keeps the URL and the bytes it had before named images', () => {
-  it.each(rows)('$target $slug $ground', async (row) => {
+  it.each(rows)('$target $slug (site ground: $ground)', async (row) => {
     const h = build(row.ground ? { heroBackground: row.ground, heroFlattened: true } : {})
     const resolved = await h.resolve({ target: row.target, doc: docs[row.slug] as never }, { previewing: false })
     if (resolved.kind !== 'generated') throw new Error('expected a generated card')

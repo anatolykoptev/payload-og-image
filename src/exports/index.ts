@@ -6,6 +6,7 @@ export type { OgEvent, OgEventName, OnEvent, SiteInfo, Size, Upload } from '../i
 export type { OgDocFields, OgFieldsOption, OgImagePluginOptions } from '../plugin/index.js'
 export { ogFields, ogImagePlugin } from '../plugin/index.js'
 export type {
+  ImageRef,
   Normalized,
   OgOverrides,
   PropsModel,

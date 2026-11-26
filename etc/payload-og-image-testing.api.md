@@ -50,6 +50,11 @@ export type FontSpec = {
     data: () => Promise<ArrayBuffer | Uint8Array>;
 };
 
+// @public
+export type ImageRef = string | number | {
+    id: string | number;
+};
+
 // @public (undocumented)
 export type IndexableRoute = {
     path: string;
@@ -346,6 +351,8 @@ export type Target<D = any, P = any> = {
     props: (a: ResolverArgs<D>) => P | Promise<P>;
     hero?: (a: ResolverArgs<D>) => Upload | null | undefined;
     heroCollection?: string;
+    images?: (a: ResolverArgs<D>) => Record<string, ImageRef | readonly ImageRef[] | null | undefined>;
+    imageCollections?: Record<string, string>;
     heroBackground?: string;
     alt?: (a: ResolverArgs<D> & {
         props: Normalized<P>;
@@ -370,6 +377,7 @@ export type Template<P extends PropsModel> = {
     textFields?: (keyof P & string)[];
     stacks?: Record<string, string>;
     heroBox?: Size;
+    imageBoxes?: Record<string, Size>;
     heroBackground?: string;
     render(p: P, ctx: TemplateContext): ReactElement;
 };
@@ -378,6 +386,7 @@ export type Template<P extends PropsModel> = {
 export type TemplateContext = {
     host: string;
     hero: string | null;
+    images: Record<string, string[]>;
     fit(text: string, box: Box, stack: string): {
         size: number;
         lines: number;

@@ -82,14 +82,18 @@ export const heroLoaderOptionsOf = (o: Pick<OgImagePluginOptions, 'allowedImageH
   colours: heroColoursOf(o.palette),
 })
 
+/** The upload collections of the site, with the folder each keeps its files in. */
+const uploadCollections = (payload: Payload) =>
+  Object.entries(payload.collections ?? {}).flatMap(([slug, c]) => {
+    const up = c.config.upload
+    return up && typeof up === 'object' && typeof up.staticDir === 'string' ? [{ slug, dir: up.staticDir }] : []
+  })
+
 /** The production hero loader: reads only the hero's own upload collection (`Target.heroCollection`), or the one upload collection there is. */
 export function heroLoaderFor(payload: Payload, o: Pick<OgImagePluginOptions, 'allowedImageHosts' | 'heroBackground' | 'palette'>) {
   return payloadHeroLoader({
     staticDirs: async (collection) => {
-      const uploads = Object.entries(payload.collections).flatMap(([slug, c]) => {
-        const up = c.config.upload
-        return up && typeof up === 'object' && typeof up.staticDir === 'string' ? [{ slug, dir: up.staticDir }] : []
-      })
+      const uploads = uploadCollections(payload)
       const own = collection === undefined ? (uploads.length === 1 ? uploads : []) : uploads.filter((u) => u.slug === collection)
       return own.map((u) => u.dir)
     },
@@ -123,6 +127,8 @@ export function buildRuntime(state: OgState, payload: Payload, over: RuntimeOver
   const source = over.source ?? payloadSource(payload, state, () => siteCache.get())
   const renderer = over.renderer ?? nextOgRenderer({ palette: cardPaletteOf(o.palette) })
   const heroLoader = over.heroLoader ?? heroLoaderFor(payload, o)
+  const only = uploadCollections(payload)
+  const soleUpload = only.length === 1 ? only[0]?.slug : undefined
   const isDraftRequest =
     over.isDraftRequest ??
     (async () => {
@@ -151,6 +157,7 @@ export function buildRuntime(state: OgState, payload: Payload, over: RuntimeOver
       store: over.store ?? state.store(),
       renderer,
       heroLoader,
+      uploadCollection: soleUpload,
       gate: state.gate,
       admission: state.admission,
       memo: state.memo,

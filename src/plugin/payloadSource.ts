@@ -91,7 +91,7 @@ type Field = {
   tabs?: Array<{ fields?: Field[]; name?: string }>
 }
 
-/** Paths of the single-valued upload fields of a collection (top level, in groups, rows and tabs), with their upload collection. */
+/** Paths of the single-valued upload fields of a collection (a `hasMany` upload stays a list of bare ids: `resolveCard` reads the one a hero or named image takes) (top level, in groups, rows and tabs), with their upload collection. */
 export function uploadFieldPaths(fields: Field[] | undefined, prefix: string[] = []): Array<{ path: string[]; relationTo: string }> {
   const found: Array<{ path: string[]; relationTo: string }> = []
   for (const f of fields ?? []) {

@@ -46,7 +46,7 @@ Props are plain JSON: strings, finite numbers, booleans, null, arrays, plain obj
 template receives as its ISO string). A `Map`, a class instance or a function throws, naming the field. Type
 the template with `Normalized<YourProps>` if the target returns dates.
 
-A template is pure. It fetches nothing; images arrive as `ctx.hero`, a data URL prepared before the render.
+A template is pure. It fetches nothing; images arrive as `ctx.hero`, a data URL prepared before the render, and as `ctx.images`, an object of data URL lists, one list for each name the target gave in `images` (declare each name's box in the template's `imageBoxes`; see [reference](reference.md#several-images-per-card)).
 
 ## What the renderer draws
 

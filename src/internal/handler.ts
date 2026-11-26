@@ -5,6 +5,7 @@ import { type LoadedFont, type Stacks, stripMissing } from './fonts.js'
 import { encodingKey, type JpegOptions, type WebpOptions } from './format.js'
 import { createGate, type Gate, ShedError } from './gate.js'
 import type { Memo } from './memo.js'
+import { pooled } from './pool.js'
 import {
   buildKindIndex,
   type GeneratedCard,
@@ -44,7 +45,12 @@ export type DocSource = {
   related(collection: string, id: string | number, ctx: { previewing: boolean; request?: Request }): Promise<Record<string, any> | null>
 }
 export type HeroLoader = {
-  (hero: Upload, box: Size, o?: { collection?: string; background?: string }): Promise<string | null>
+  (
+    hero: Upload,
+    box: Size,
+    /** `keepAlpha`: flatten onto no ground at all, not even the plugin's `heroBackground` (a named image: a logo stays transparent). */
+    o?: { collection?: string; background?: string; keepAlpha?: boolean },
+  ): Promise<string | null>
   /**
    * Whether the hero has a see-through pixel. Asked only while the site has set no `heroBackground`, to give such a card a
    * new URL (its bytes changed in 0.5.0). A loader without it (a test seam) reports none.
@@ -79,6 +85,8 @@ export type HandlerDeps = {
   store: CardStore
   renderer: Renderer
   heroLoader: HeroLoader
+  /** The site's only upload collection, when it has exactly one (see `ResolveInput.uploadCollection`). */
+  uploadCollection?: string
   gate: Gate
   memo: Memo
   events: { emit: OnEvent }
@@ -190,7 +198,27 @@ export function createCardHandler(d: HandlerDeps): CardHandler {
   }
   const unavailable = () => respond(503, CACHE.none, { 'retry-after': '5' })
 
-  const ctxFor = (fonts: LoadedFont[], hero: string | null): TemplateContext => templateContext({ host, fonts, stacks: d.stacks, hero })
+  const ctxFor = (fonts: LoadedFont[], hero: string | null, images?: Record<string, string[]>): TemplateContext =>
+    templateContext({ host, fonts, stacks: d.stacks, hero, images })
+
+  /**
+   * The card's named images, prepared at the template's box for each name and never flattened (a logo stays transparent), each from its own
+   * upload collection's folder. An upload whose file cannot be prepared is left out of its list and counted in `failed`.
+   */
+  async function loadImages(card: GeneratedCard): Promise<{ images: Record<string, string[]>; failed: number }> {
+    const jobs = card.images.flatMap(({ name, collection, uploads }) =>
+      uploads.map((upload) => ({ name, collection, upload, box: (card.template.imageBoxes as Record<string, Size>)[name] as Size })),
+    )
+    const loaded = await pooled(jobs, 4, (j) => d.heroLoader(j.upload, j.box, { collection: j.collection, keepAlpha: true }))
+    const images: Record<string, string[]> = {}
+    let failed = 0
+    jobs.forEach((j, n) => {
+      const url = loaded[n]
+      if (url === null || url === undefined) failed += 1
+      else images[j.name] = [...(images[j.name] ?? []), url]
+    })
+    return { images, failed }
+  }
 
   function staticTarget(card: StaticCard): Target {
     return {
@@ -220,7 +248,8 @@ export function createCardHandler(d: HandlerDeps): CardHandler {
           background: card.heroBackground,
         })
       : null
-    const { bytes, dropped } = await drawElement(d.renderer, card.template.render(card.props, ctxFor(fonts, hero)), {
+    const { images, failed } = await loadImages(card)
+    const { bytes, dropped } = await drawElement(d.renderer, card.template.render(card.props, ctxFor(fonts, hero, images)), {
       ...card.size,
       fonts,
       encoding: card.encoding,
@@ -231,7 +260,7 @@ export function createCardHandler(d: HandlerDeps): CardHandler {
     // A preview draw is not a render of a real card: no `render` event, so the counters stay about served cards.
     if (!o.quiet)
       d.events.emit({ name: 'render', kind: card.key.kind, slug: card.key.slug, v: card.v, ms: Date.now() - t0, bytes: bytes.byteLength })
-    return { bytes, dropped, downgraded: card.hero != null && hero == null }
+    return { bytes, dropped, downgraded: (card.hero != null && hero == null) || failed > 0 }
   }
 
   /** The brand fallback card. A draft-mode request never memoises it (its site name may be draft text). */
@@ -294,6 +323,7 @@ export function createCardHandler(d: HandlerDeps): CardHandler {
       jpeg: d.jpeg,
       webp: d.webp,
       seoImage: a.isStatic ? undefined : d.seoImage,
+      uploadCollection: d.uploadCollection,
       related: (collection, id) => d.source.related(collection, id, { previewing: a.previewing, request: a.request }),
     })
   }

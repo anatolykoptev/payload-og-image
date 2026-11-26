@@ -4,6 +4,8 @@ import { DEFAULT_HERO_BACKGROUND, normaliseHeroBackground } from './colour.js'
 import { firstShareImage, type ShareImage, shareImageOf } from './eligible.js'
 import { type LoadedFont, type Stacks, stripMissing } from './fonts.js'
 import { type CardFormat, encodingOf, formatOf, groundOf, type JpegOptions, mimeOf, variantOf, type WebpOptions } from './format.js'
+import { IMAGE_NAME, MAX_CARD_IMAGES } from './limits.js'
+import { pooled } from './pool.js'
 import type { CardEncoding, CardKey, CardMime, SiteInfo, Size, Upload } from './types.js'
 import { canonicalJson, cardVersion, normalizeProps, pageId } from './version.js'
 
@@ -15,6 +17,11 @@ export type GeneratedCard = {
   template: Template<any>
   props: any
   hero: Upload | null
+  /**
+   * The target's named images that resolved (read again with the visitor's access, by id), in the order the target gave them; a name none of
+   * whose uploads resolved is not here. Each is read only from its own upload collection's folder.
+   */
+  images: Array<{ name: string; collection: string; uploads: Upload[] }>
   /** The upload collection the hero is read from (the target's `heroCollection`). */
   heroCollection: string | undefined
   /** The ground this card's own target or template set for a transparent hero (normalised); the loader flattens onto it. Undefined: the plugin's. */
@@ -63,6 +70,8 @@ export type ResolveInput = {
   seoImage?: { path: string; isDeliberate?: (image: unknown) => boolean }
   /** Handed to the target's resolvers (default: always null). */
   related?: RelatedFn
+  /** The site's only upload collection, when it has exactly one: where a hero or named image that is a bare id is read from if the target names no collection. */
+  uploadCollection?: string
 }
 
 /** The target's own alt, else `<label>: <title>`. An empty answer is the default; anything but a string is the site's bug and says so. */
@@ -103,6 +112,74 @@ const isPlainObject = (v: unknown): v is Record<string, unknown> => {
   if (v === null || typeof v !== 'object') return false
   const proto = Object.getPrototypeOf(v)
   return proto === Object.prototype || proto === null
+}
+
+/**
+ * The upload, read again by id with the caller's access (`related`: published and access-respecting, the editor's draft view in a preview), or null
+ * when it is missing, unreadable to this caller, or has no file. Never the object the target handed over: that is only the id it names.
+ */
+async function readUpload(related: RelatedFn, collection: string, id: string): Promise<Upload | null> {
+  try {
+    return usableHero(await related(collection, id))
+  } catch {
+    return null
+  }
+}
+
+/**
+ * The card's hero. An upload the document already holds (read by id with the caller's access, for a single upload field) is used as it is. A bare id
+ * (the value of a `hasMany` upload field at depth 0, which is never populated) or an object with no file is read here, from `heroCollection` or the
+ * site's only upload collection: otherwise it would silently draw no hero. With neither collection to name, it stays no hero.
+ */
+async function heroOf(i: ResolveInput, args: ResolverArgs<any>, raw: unknown): Promise<Upload | null> {
+  const direct = usableHero(raw)
+  if (direct) return direct
+  const id = uploadId(raw)
+  const collection = i.target.heroCollection ?? i.uploadCollection
+  return id === undefined || collection === undefined ? null : readUpload(args.related, collection, id)
+}
+
+/** The target's named images, each upload re-read by id (see `readUpload`) from its own collection. Throws for a target that is wrong, never for a missing upload. */
+async function namedImages(i: ResolveInput, args: ResolverArgs<any>, template: Template<any>): Promise<GeneratedCard['images']> {
+  if (!i.target.images) return []
+  const given: unknown = i.target.images(args)
+  if (given === null || given === undefined) return []
+  if (!isPlainObject(given))
+    throw new Error(`payload-og-image: target "${i.targetName}" images() must return a plain object, got ${typeof given}`)
+  const wanted: Array<{ name: string; collection: string; ids: string[] }> = []
+  let left = MAX_CARD_IMAGES
+  for (const [name, value] of Object.entries(given)) {
+    if (!IMAGE_NAME.test(name)) throw new Error(`payload-og-image: target "${i.targetName}" image name "${name}" must match ${IMAGE_NAME}`)
+    if (!template.imageBoxes || !Object.hasOwn(template.imageBoxes, name)) {
+      throw new Error(
+        `payload-og-image: target "${i.targetName}" gives image "${name}" that template "${template.id}" does not declare in imageBoxes`,
+      )
+    }
+    const collection =
+      (i.target.imageCollections && Object.hasOwn(i.target.imageCollections, name) ? i.target.imageCollections[name] : undefined) ??
+      i.target.heroCollection ??
+      i.uploadCollection
+    if (collection === undefined) {
+      throw new Error(
+        `payload-og-image: target "${i.targetName}" image "${name}" needs an upload collection: set imageCollections.${name} (the site has more than one upload collection)`,
+      )
+    }
+    const refs: unknown[] = value === null || value === undefined ? [] : Array.isArray(value) ? value : [value]
+    const ids = refs.map(uploadId).filter((id): id is string => id !== undefined)
+    wanted.push({ name, collection, ids: ids.slice(0, left) })
+    left -= Math.min(left, ids.length)
+  }
+  // Each distinct upload is read once, a few at a time.
+  const distinct = [
+    ...new Map(
+      wanted.flatMap((w) => w.ids.map((id) => [`${w.collection}\u0000${id}`, { collection: w.collection, id }] as const)),
+    ).entries(),
+  ]
+  const read = new Map(await pooled(distinct, 4, async ([key, u]) => [key, await readUpload(args.related, u.collection, u.id)] as const))
+  return wanted.flatMap(({ name, collection, ids }) => {
+    const uploads = ids.map((id) => read.get(`${collection}\u0000${id}`) ?? null).filter((u): u is Upload => u !== null)
+    return uploads.length > 0 ? [{ name, collection, uploads }] : []
+  })
 }
 
 /** The document's `og.mode`: one of the four, and `inherit` for anything else (including no `og` data). */
@@ -173,7 +250,6 @@ export async function resolveCard(i: ResolveInput): Promise<ResolvedCard> {
     overrides: Object.fromEntries(Object.entries(overrides).filter(([, v]) => v !== undefined)) as OgOverrides,
   }
   const rawHero = i.target.hero?.(args)
-  const hero = usableHero(rawHero)
   const seo = i.seoImage ? getPath(i.doc, i.seoImage.path) : undefined
   const editor =
     mode !== 'generated' && seo != null && (i.seoImage?.isDeliberate?.(seo) ?? true) && !sameUpload(seo, rawHero) ? seo : undefined
@@ -218,6 +294,8 @@ export async function resolveCard(i: ResolveInput): Promise<ResolvedCard> {
 
   const slug = routable(nonEmpty(getPath(i.doc, i.target.slugField ?? 'slug')))
   if (slug === undefined) return { kind: 'none' }
+  const hero = await heroOf(i, args, rawHero)
+  const images = await namedImages(i, args, template)
   const key = { kind: i.target.kind ?? i.targetName, slug }
   // A transparent hero nobody flattens is drawn with its alpha (0.5.0); its bytes differ from 0.4.0's, so its URL must too.
   const ownBackground = i.target.heroBackground ?? template.heroBackground
@@ -232,6 +310,7 @@ export async function resolveCard(i: ResolveInput): Promise<ResolvedCard> {
     templateRevision: template.revision,
     props,
     heroes: hero ? [hero] : [],
+    images: images.map(({ name, uploads }) => [name, uploads]),
     // An own ground is hashed like the plugin's: only when it is not white (white is what 0.4.0 flattened onto, and hashes no tag).
     heroBackground: background === undefined ? i.heroBackground : background === DEFAULT_HERO_BACKGROUND ? undefined : background,
     heroTransparent,
@@ -251,6 +330,7 @@ export async function resolveCard(i: ResolveInput): Promise<ResolvedCard> {
     template,
     props,
     hero,
+    images,
     heroCollection: i.target.heroCollection,
     heroBackground: background,
     heroTransparent,

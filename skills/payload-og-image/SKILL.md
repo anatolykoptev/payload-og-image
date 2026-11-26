@@ -28,7 +28,7 @@ Floor (README): Payload `^3.93.0` or `^4.0.0-beta.12`, Next.js `^16.4.5`, React 
 ## Mental model
 
 - **Template** (`defineTemplate`): a pure function from props to a JSX card. It fetches nothing and reads no site data except through its props, because the props are what the URL version hashes. `id` and `revision` are part of every version: bump `revision` with the design.
-- **Target** (`defineTarget`): maps one collection to one template. It holds the card `path` (must contain `:slug` or `:id`, may contain `:kind`), `props({ doc, site, related, overrides })`, optional `hero` (an upload) plus `heroCollection`, `format`, `alt`, `share`.
+- **Target** (`defineTarget`): maps one collection to one template. It holds the card `path` (must contain `:slug` or `:id`, may contain `:kind`), `props({ doc, site, related, overrides })`, optional `hero` (an upload) plus `heroCollection`, `images` (named upload lists, with `imageBoxes` on the template), `format`, `alt`, `share`.
 - **`site()`**: plugin option returning data shared by every card (the brand name). It is cached 60 s per process.
 - **Fonts and stacks**: `fonts` are TTF, OTF or WOFF files (never WOFF2) you ship; `stacks` order the families per text field; `stacks.default` is required. No request leaves the host while a card is drawn.
 - **Store**: finished cards live on disk (`store: { dir }`) or in memory (`store: { memory: true }`), behind a bounded render queue.
@@ -142,7 +142,7 @@ In the plugin repository, [`scripts/probe-dev-server.mjs`](https://github.com/an
 
 ## References (load on demand)
 
-- `references/targets.md`: target options, hero, format, static cards, size variants and `ogImages`, store and gate options.
+- `references/targets.md`: target options, hero (and a hero from a `hasMany` field), named `images`, format, static cards, size variants and `ogImages`, store and gate options.
 - `references/templates.md`: writing a template, props, `ctx.fit`, fonts and stacks, the CSS subset.
 - `references/fields-and-mcp.md`: the `og` group, `mode` table, migration, admin preview, MCP tools.
 - `references/testing.md`: the kit, every check, the specs that boot Payload.
