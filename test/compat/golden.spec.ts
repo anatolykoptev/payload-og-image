@@ -68,6 +68,8 @@ beforeAll(async () => {
   docs.clear = { id: 3, slug: 'clear', title: 'A see-through hero', hero: upload(12, 'clear.png') }
 })
 
+const real = nextOgRenderer()
+const drawn: string[] = []
 const build = (over: { heroBackground?: string; heroFlattened?: boolean } = {}) =>
   createCardHandler({
     targets: {
@@ -100,7 +102,12 @@ const build = (over: { heroBackground?: string; heroFlattened?: boolean } = {}) 
       related: async () => null,
     },
     store: memoryStore(),
-    renderer: nextOgRenderer(),
+    renderer: {
+      render: async (el: unknown, o: Parameters<ReturnType<typeof nextOgRenderer>['render']>[1]) => {
+        drawn.push(JSON.stringify(el))
+        return real.render(el as never, o)
+      },
+    },
     heroLoader: payloadHeroLoader({ staticDirs: async () => [dir], background: over.heroBackground }),
     heroBackground: over.heroBackground,
     heroFlattened: over.heroFlattened,
@@ -120,14 +127,28 @@ const rows: Row[] = [
   { slug: 'opaque', target: 'jpegs' },
 ]
 
-/** Captured from `main` before named images existed: the URL's `v` and the sha256 of the served bytes. */
-const GOLDEN: Record<string, { v: string; sha256: string }> = {
-  'posts/plain/-': { v: '1e121f6adc86', sha256: 'b9a7d6ef917d4d3cba192550a4a07e31ecd49d15a50170eae57dab02ea608da7' },
-  'posts/opaque/-': { v: 'bd28280fe470', sha256: '012c0e749fade5c35acfc552c977472fc86f5c8adffd2e69f643d05d47d4c091' },
-  'posts/clear/-': { v: '8bde567508a6', sha256: 'b7e8eca1d619778ed570c61d63826826dd2858b4d84f8012b5ab6ea45b9e0205' },
-  'posts/clear/#f1f3ef': { v: '01bfa3780148', sha256: '761aabfb1fa70c153b457a2608111dc9af6269c94dcbb1013a39b481987763ba' },
-  'jpegs/opaque/-': { v: '758c9f78f611', sha256: '11ac48a5337f4a3622c4a70a90335c7bea1d0cc090bd7c9ea0f276217396cd64' },
+/**
+ * Captured from `main` before named images existed. `v` is the card's URL version; `drawn` is the sha256 of the element tree handed to the renderer
+ * (what the template drew, the prepared hero included): both are the same on every platform. The PNG or JPEG bytes the renderer encodes differ
+ * between platforms, so their sha256 is pinned per `platform-arch` (a platform with no entry fails, printing its value).
+ */
+const GOLDEN: Record<string, { v: string; drawn: string }> = {
+  'posts/plain/-': { v: '1e121f6adc86', drawn: 'c046ac7115975f1bd208940fd99826144d3c79c4d3d5780a6ce3ed564de336f9' },
+  'posts/opaque/-': { v: 'bd28280fe470', drawn: 'd68d4c7de48be535ee0c8a5d0127b5974f34b9f4661c93b8d73bf2b30faf503a' },
+  'posts/clear/-': { v: '8bde567508a6', drawn: '9f2b4bfc48c94fd22d7f2ec2f8ce4d2fe4176d3c50309be9a6bfdaf30111f3fe' },
+  'posts/clear/#f1f3ef': { v: '01bfa3780148', drawn: '6d09ac93fc482465afc3086a92deb77ef79dcec1dfb563fcdddacc904b673f5e' },
+  'jpegs/opaque/-': { v: '758c9f78f611', drawn: 'd68d4c7de48be535ee0c8a5d0127b5974f34b9f4661c93b8d73bf2b30faf503a' },
 }
+const BYTES: Record<string, Record<string, string>> = {
+  'darwin-arm64': {
+    'posts/plain/-': 'b9a7d6ef917d4d3cba192550a4a07e31ecd49d15a50170eae57dab02ea608da7',
+    'posts/opaque/-': '012c0e749fade5c35acfc552c977472fc86f5c8adffd2e69f643d05d47d4c091',
+    'posts/clear/-': 'b7e8eca1d619778ed570c61d63826826dd2858b4d84f8012b5ab6ea45b9e0205',
+    'posts/clear/#f1f3ef': '761aabfb1fa70c153b457a2608111dc9af6269c94dcbb1013a39b481987763ba',
+    'jpegs/opaque/-': '11ac48a5337f4a3622c4a70a90335c7bea1d0cc090bd7c9ea0f276217396cd64',
+  },
+}
+const platform = `${process.platform}-${process.arch}`
 
 describe('a card without `images` keeps the URL and the bytes it had before named images', () => {
   it.each(rows)('$target $slug (site ground: $ground)', async (row) => {
@@ -136,9 +157,9 @@ describe('a card without `images` keeps the URL and the bytes it had before name
     if (resolved.kind !== 'generated') throw new Error('expected a generated card')
     const res = await h.GET(new Request(resolved.url), { params: Promise.resolve({ kind: row.target, slug: row.slug }) })
     expect(res.status).toBe(200)
-    const got = { v: resolved.v, sha256: sha(new Uint8Array(await res.arrayBuffer())) }
     const key = `${row.target}/${row.slug}/${row.ground ?? '-'}`
-    if (process.env.OG_PRINT_GOLDEN) console.log(`GOLDEN ${key} ${JSON.stringify(got)}`)
-    expect(got).toEqual(GOLDEN[key])
+    expect({ v: resolved.v, drawn: sha(Buffer.from(drawn.at(-1) as string)) }).toEqual(GOLDEN[key])
+    const bytes = sha(new Uint8Array(await res.arrayBuffer()))
+    expect({ platform, key, bytes }).toEqual({ platform, key, bytes: BYTES[platform]?.[key] })
   })
 })
