@@ -1,7 +1,7 @@
 // Prepares a named image by its `ImageShape`: contained and trimmed, tinted when it would vanish on its ground, declined when its shape is no mark.
 // Everything is a pure function of the image's bytes and the template's shape, so the result is covered by the upload's identity (the version's
 // image tail) and the template's revision. Nothing here is random.
-import { loadSharp } from '../internal/deps.js'
+import { DepLoadError, loadSharp } from '../internal/deps.js'
 import type { ImageShape } from '../template.js'
 
 const RASTER = new Set(['jpeg', 'png', 'webp', 'gif', 'avif', 'tiff', 'heif'])
@@ -181,7 +181,8 @@ export async function prepareShape(
 ): Promise<string | null> {
   try {
     return await contained(bytes, box, shape, maxPixels)
-  } catch {
+  } catch (error) {
+    if (error instanceof DepLoadError) throw error // sharp itself is broken: loud, not a silently dropped image
     return null
   }
 }
