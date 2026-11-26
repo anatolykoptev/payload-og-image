@@ -5,7 +5,7 @@ description: Install and configure the payload-og-image plugin on a Payload CMS 
 
 # payload-og-image
 
-A Payload 3/4 plugin plus a Next 16 route that draws Open Graph cards (1200x630 by default) from your documents. The card URL carries a version derived from everything the card shows, so a changed title gives a new URL and an unchanged card is cached for a year. Source of truth: the package's `docs/` folder (`reference.md`, `templates.md`, `crawlers.md`, `operations.md`) and the working app in `dev/` of the repository (https://github.com/anatolykoptev/payload-og-image/blob/tree/main/dev; `dev/` and `scripts/` are not in the npm package). When this file and the docs disagree, the docs and the code win.
+A Payload 3/4 plugin plus a Next 16 route that draws Open Graph cards (1200x630 by default) from your documents. The card URL carries a version derived from everything the card shows, so a changed title gives a new URL and an unchanged card is cached for a year. Source of truth: the package's `docs/` folder (`reference.md`, `templates.md`, `crawlers.md`, `operations.md`) and the working app in `dev/` of the repository (https://github.com/anatolykoptev/payload-og-image/tree/main/dev; `dev/` and `scripts/` are not in the npm package). When this file and the docs disagree, the docs and the code win.
 
 ## Install and compatibility
 
