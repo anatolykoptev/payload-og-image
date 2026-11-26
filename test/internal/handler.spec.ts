@@ -36,7 +36,7 @@ import { createMemo } from '../../src/internal/memo.js'
 import { memoryStore } from '../../src/internal/store/memory.js'
 import { payloadHeroLoader } from '../../src/render/hero.js'
 import { defineTarget, defineTemplate } from '../../src/template.js'
-import { loadTestFonts, realPng } from '../helpers.js'
+import { loadTestFonts, realPng, relatedUploads } from '../helpers.js'
 
 const post = defineTemplate<{ title: string; label: string }>({
   id: 'post',
@@ -84,10 +84,17 @@ function setup(over: Record<string, unknown> = {}, opts: { renderFails?: boolean
     fonts: loadTestFonts,
     stacks: { title: ['Inter'] },
     serverUrl: 'https://x.test',
-    source: { published: async (_: string, s: string) => published.get(s) ?? null, publishedById: async () => null, draft, site },
+    source: {
+      published: async (_: string, s: string) => published.get(s) ?? null,
+      publishedById: async () => null,
+      draft,
+      site,
+      related: relatedUploads(published.get('h')),
+    },
     store,
     renderer,
     heroLoader,
+    uploadCollection: 'media',
     gate: createGate(),
     memo: createMemo(),
     events,

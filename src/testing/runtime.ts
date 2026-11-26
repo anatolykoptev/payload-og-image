@@ -129,18 +129,49 @@ export function installTestRuntime(given: OgImagePluginOptions, docs: KitDocs, o
     return String(doc[field]) === String(cond.equals)
   }
 
+  /**
+   * An upload the fixtures hold: any object with an `id` and a `url`, at any depth of any document. The production source reads a hero or a named
+   * image again by id, so the kit answers that read from the fixture's own stand-in upload, in whatever upload collection the target names.
+   */
+  const uploadOf = (id: unknown): Record<string, any> | null => {
+    const seen = new Set<unknown>()
+    const find = (v: unknown): Record<string, any> | null => {
+      if (v === null || typeof v !== 'object' || seen.has(v)) return null
+      seen.add(v)
+      const o = v as Record<string, any>
+      if (o.id !== undefined && typeof o.url === 'string' && String(o.id) === String(id)) return o
+      for (const c of Object.values(o)) {
+        const hit = find(c)
+        if (hit) return hit
+      }
+      return null
+    }
+    return find([docs.published, docs.drafts])
+  }
+  const isTargetCollection = (collection: string) =>
+    Object.entries(options.targets).some(([name, t]) => (t.collection ?? name) === collection)
+
   // The parts of Payload the production source touches: auth, find (the table above), collections, findGlobal.
   const fakePayload = {
     // `globals` as Payload lists them: a site's `site()` often asks which of its globals have drafts.
     config: { admin: { user: options.editors?.[0] ?? 'users' }, globals: Object.keys(docs.globals ?? {}).map((slug) => ({ slug })) },
-    collections: Object.fromEntries(
-      Object.entries(options.targets).map(([name, t]) => [t.collection ?? name, { config: { versions: { drafts: true } } }]),
-    ),
+    collections: {
+      ...Object.fromEntries(
+        Object.entries(options.targets).map(([name, t]) => [t.collection ?? name, { config: { versions: { drafts: true } } }]),
+      ),
+      // The site's only upload collection, so a target that names no `heroCollection` still reads its hero (stand-ins have no folder to load from).
+      uploads: { config: { upload: { staticDir: '' } } },
+    },
     findGlobal: async ({ slug }: { slug: string }) => structuredClone(docs.globals?.[slug] ?? {}),
     auth: async ({ headers }: { headers: Headers }) => ({
       user: headers.get('authorization') === EDITOR_AUTH ? { id: 1, collection: editorCollection } : null,
     }),
     find: async (args: { collection: string; where?: unknown; draft?: boolean; page?: number; limit?: number; sort?: string }) => {
+      if (!isTargetCollection(args.collection)) {
+        const id = (args.where as { and?: unknown[] } | undefined)?.and?.[0] ?? args.where
+        const upload = uploadOf((id as { id?: { equals?: unknown } } | undefined)?.id?.equals)
+        return { docs: upload ? [structuredClone(upload)] : [], totalDocs: upload ? 1 : 0 }
+      }
       const name = targetOfCollection(args.collection)
       const found = table(name, args.draft === true).filter((d) => args.where === undefined || matches(args.where, d))
       if (args.sort === 'id') found.sort((a: any, b: any) => String(a.id).localeCompare(String(b.id), undefined, { numeric: true }))

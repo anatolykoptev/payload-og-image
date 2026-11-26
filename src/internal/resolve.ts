@@ -137,13 +137,12 @@ async function readUpload(related: RelatedFn, collection: string, id: string): P
 }
 
 /**
- * The card's hero. An upload the document already holds (read by id with the caller's access, for a single upload field) is used as it is. A bare id
- * (the value of a `hasMany` upload field at depth 0, which is never populated) or an object with no file is read here, from `heroCollection` or the
- * site's only upload collection: otherwise it would silently draw no hero. With neither collection to name, it stays no hero.
+ * The card's hero: the id the target's `hero` resolver names (a bare id, or an upload object, of which only the id is taken), read again by id
+ * with the caller's access (`related`: published only, the editor's draft view in a preview), from `heroCollection` or the site's only upload
+ * collection, exactly as a named image is. The object the target handed over is never drawn as it is: whatever filled it (a populated field, a custom
+ * field, a hand-built value) is not proof that the public may read that upload. With no collection to name, or nothing readable, there is no hero.
  */
 async function heroOf(i: ResolveInput, args: ResolverArgs<any>, raw: unknown): Promise<Upload | null> {
-  const direct = usableHero(raw)
-  if (direct) return direct
   const id = uploadId(raw)
   const collection = i.target.heroCollection ?? i.uploadCollection
   return id === undefined || collection === undefined ? null : readUpload(args.related, collection, id)

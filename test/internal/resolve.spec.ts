@@ -9,6 +9,7 @@
  * - resolve.ts:144  skip stripMissing -> "10: a title with an emoji ..." RED
  * - resolve.ts:149  skip `template.required` -> "9: a blank title advertises nothing" RED
  * - resolve.ts:198  never ask `heroHasAlpha`, or ask it for a flattened hero -> "a transparent hero nobody flattens has its own version, asked in its upload collection" RED
+ * - resolve.ts `heroOf` drawing the object the target handed over (`usableHero(raw)` first) -> "a hero object is only an id: it is read again with the caller's access" RED
  * - resolve.ts:114  hash the raw hero object -> "a hero without a file is no part of the version" RED
  * - resolve.ts:160  leave `host` out of the version -> "the host is part of the version" RED
  * - resolve.ts:159  leave the stacks out of the version -> "reordering a font stack is a new version" RED
@@ -33,7 +34,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { LoadedFont } from '../../src/internal/fonts.js'
 import { buildKindIndex, cardPath, resolveCard } from '../../src/internal/resolve.js'
 import { defineTarget, defineTemplate } from '../../src/template.js'
-import { loadTestFonts } from '../helpers.js'
+import { loadTestFonts, relatedUploads } from '../helpers.js'
 
 const post = defineTemplate<{ title: string; label: string; site: string }>({
   id: 'post',
@@ -75,7 +76,7 @@ const base = async () => {
   }
 }
 const generated = async (over: Record<string, unknown>) => {
-  const r = await resolveCard({ ...(await base()), ...over } as never)
+  const r = await resolveCard({ ...(await base()), uploadCollection: 'media', related: relatedUploads(over.doc), ...over } as never)
   if (r.kind !== 'generated') throw new Error(`expected a generated card, got ${r.kind}`)
   return r
 }
@@ -301,6 +302,25 @@ describe('resolveCard', () => {
     expect(a.v).not.toBe(none.v)
     expect((await withHero({ ...real, updatedAt: 'u2' })).v).not.toBe(a.v)
     expect(a.hero).toEqual(real)
+  })
+  it("a hero object is only an id: it is read again with the caller's access", async () => {
+    const handed = { id: 9, url: '/m/h.jpg', updatedAt: 'u1' }
+    const doc = { id: 1, slug: 'a', title: 'A', heroImage: handed }
+    const none = await generated({ doc: { ...doc, heroImage: undefined } })
+    // The public may not read it (draft-only, private, deleted): nothing is drawn and the version is the hero-less one.
+    const unreadable = await generated({ doc, related: async () => null })
+    expect(unreadable.hero).toBeNull()
+    expect(unreadable.v).toBe(none.v)
+    // What is drawn, and hashed, is what the read returned, not the object the document carried.
+    const fresh = { ...handed, updatedAt: 'u2' }
+    const read = vi.fn(async () => fresh)
+    const seen = await generated({ doc, related: read })
+    expect(read).toHaveBeenCalledWith('media', '9')
+    expect(seen.hero).toEqual(fresh)
+    // The same upload read back gives the version the handed object always did: no card URL moves.
+    expect((await generated({ doc, related: async () => handed })).v).toBe((await generated({ doc })).v)
+    // No collection to read it from: not drawn either.
+    expect((await generated({ doc, uploadCollection: undefined, related: async () => handed })).hero).toBeNull()
   })
   it('a transparent hero nobody flattens has its own version, asked in its upload collection', async () => {
     const real = { id: 9, url: '/m/h.png', updatedAt: 'u1' }

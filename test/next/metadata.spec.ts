@@ -22,7 +22,7 @@ import { descriptorOf, ogMetadata } from '../../src/next/metadata.js'
 import { createOgRoute } from '../../src/next/route.js'
 import type { OgImagePluginOptions } from '../../src/plugin/index.js'
 import { defineTarget, defineTemplate } from '../../src/template.js'
-import { loadTestFonts, realPng } from '../helpers.js'
+import { loadTestFonts, realPng, relatedUploads } from '../helpers.js'
 
 vi.mock('payload', async (orig) => ({ ...(await orig<typeof import('payload')>()), getPayload: vi.fn() }))
 
@@ -47,7 +47,7 @@ function setup(
     publishedById,
     draft: async () => null,
     site: async () => ({ name: 'Site' }),
-    related: async () => null,
+    related: relatedUploads(docs),
   }
   const options: OgImagePluginOptions = {
     site: () => ({ name: 'Site' }),
@@ -60,6 +60,7 @@ function setup(
         template: 'post',
         props: ({ doc }: any) => ({ title: doc.title, label: 'Blog' }),
         hero: ({ doc }: any) => doc.heroImage,
+        heroCollection: 'media',
       }),
     },
     static: {
