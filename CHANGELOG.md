@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.0](https://github.com/anatolykoptev/payload-og-image/compare/v0.8.0...v0.9.0) (2026-11-26)
+
+
+### Features
+
+* zero-config presets (photo and text) behind collections ([#88](https://github.com/anatolykoptev/payload-og-image/issues/88)) ([12094f3](https://github.com/anatolykoptev/payload-og-image/commit/12094f301c5754d958c99056e877bc5cfd283a8a))
+
 ## [0.8.0](https://github.com/anatolykoptev/payload-og-image/compare/v0.7.2...v0.8.0) (2026-11-26)
 
 
