@@ -271,7 +271,7 @@ from a custom field, or one a resolver built by hand, is therefore never drawn a
 collection and no `heroCollection`, the id cannot be placed, and the card has no hero: name the collection. The one exception is the
 upload object the plugin itself filled in from a single upload field: it is read again from the collection of that field. A remote
 hero (a resolver returning an absolute URL on an `allowedImageHosts` host) is drawn only when its id names an upload record the public may
-read: a hero with no readable record is not drawn. Before this change such an object was drawn as given; give it a backing upload record (the
+read: a hero with no readable record is not drawn. Before 0.10.0 such an object was drawn as given; give it a backing upload record (the
 cloud-storage plugins do) or return the id.
 
 The upload fields of a document are filled in with the same published-only, access-respecting read (`related()`'s), so a draft-only
@@ -285,7 +285,7 @@ once. A hand-written target can list the upload fields it draws in `uploadFields
 upload field is read, as before. An upload object that was filled in from a field keeps the collection of that field, so returning it
 from `hero` or `images` needs no `heroCollection`.
 
-Upgrade effect: a resolver that returned a bare id from a `hasMany` field used to draw no hero, and now draws it when the
+Upgrade effect (0.8.0): a resolver that returned a bare id from a `hasMany` field used to draw no hero, and now draws it when the
 id resolves, so those cards get a new `v` once (the hero is part of the version). `Target.hero` may return an `ImageRef`
 (an id, or `{ id }`) as well as an upload. `heroCollection` and every `imageCollections` value must be an upload collection
 of the config, or the plugin refuses to start, naming it.
@@ -293,7 +293,7 @@ of the config, or the plugin refuses to start, naming it.
 ## Zero-config presets
 
 The plugin serves every public page on its own. It expands the preset side of its options into ordinary targets before anything validates (as `variants` do), so resolve, the
-handler and the store know nothing about presets. With presets, `site`, `fonts`, `stacks`, `templates`, `targets` and `store` are optional.
+handler and the store know nothing about presets. With presets, `site`, `fonts`, `stacks`, `templates`, `targets` and `store` are optional, and what you give is used as it is: a `site`, your own `fonts` and `stacks`, a `store`, a target of the same name or a template with a preset's id is never replaced by a default. `targets` without `collections` turns discovery off. With no `store` the cards live in memory and are drawn again after every restart: set `store: { dir }` in production.
 
 **Discovery.** With neither `collections` nor `targets`, every collection is covered that is not an upload or an auth collection, whose `access.read` answers an anonymous
 request (called with `{ req: { user: null } }` when the config is built) with `true` or a `Where`, and that has a title field the public may read. A collection with no `access.read`
@@ -325,7 +325,7 @@ serves a card only under its own file name, read from the request **pathname** (
 `slug` and `id` (the `[file]` catch-all), that holds for every card, a classic PNG included: `card.jpg` for it is a 404. A fixed route keeps its behaviour. A `path` is validated once for every target (a preset's, a
 hand-written one, a static card): `:ext` only as the end of the file name, and a fixed path only when every encoding its template can choose is the one it names.
 
-**Versions.** Both presets are templates (`payload-og-image:photo`, `payload-og-image:text`, revision `1`): their spec lives in `src/presets/spec.ts` and enters the version through the template id and revision, so a design change is a revision bump
+**Versions.** Both presets are templates (`payload-og-image:photo`, `payload-og-image:text`, revision `2`, written `@2`): their spec lives in `src/presets/spec.ts` and enters the version through the template id and revision, so a design change is a revision bump
 that moves only preset cards. Prepared images (the contained logo, its tint) are derived from the upload's bytes and the template's shape, so the upload's identity and the revision cover them. A site that does not opt in hashes exactly as before
 (`test/compat/golden.spec.ts`). A slot over its limit is normalised away (`Template.normalize`) before the version is taken.
 
@@ -339,7 +339,7 @@ Only the photo, the scrims, the logo on the right, the brand art and the accent 
 
 **Logos.** `site().logo` is trimmed of its transparent (or uniform) margin and contained, never cropped: at most 220 x 44 in the head of the text card, 150 x 36 at the end of the photo card's fact row. A logo wider than 1.5:1 stands alone (no site name beside it, no logo on the right).
 `partnerLogo` follows after a 16 px gap (at most 160 x 44, or 120 x 36). A logo whose opaque pixels mostly contrast under 3:1 with the dark ground (a black wordmark) is drawn in the ink (white on the photo card). `ImageShape` (`Template.imageShapes`) is the generic
-form of this: `fit`, `trim`, `contrast`, `aspect`. An SVG logo is read, after a rebuild: the file is parsed as XML (namespace-aware, no DTD or entity beyond the five predefined) and a new document is
+form of this: `fit`, `trim`, `contrast`, `aspect`. An SVG logo is read: the file is parsed as XML (namespace-aware, no DTD or entity beyond the five predefined) and a new document is
 written from an allowlist of elements and attributes a logo needs (shapes, paths, groups, gradients, clip paths, masks, `use`); `<style>` and
 `style=` are reduced to presentation properties, every reference must be a `#id` that exists, and text, filters, patterns, markers and
 images are not drawn. A file that tries to leave the document (a link, a `url()`, an `<image>`, an entity), loops or multiplies itself
@@ -351,7 +351,7 @@ at the source: the module's memory section is rewritten with a maximum of 2048 p
 more fails in milliseconds (a few kilobytes of nested `svg` or `symbol` reached over 1 GiB without it). The parser and the renderer load the
 first time an SVG is seen; one raster per upload version (16 entries) serves every card and the see-through probe, however many ask at once.
 A refused or failed SVG draws the no-logo card, never a failed card and never a fetch, and says why in a `svg_rejected` event (`detail.reason`:
-`refused`, `busy`, `timeout`, `memory` or `worker-error`); only a refusal is remembered (`src/render/svg.ts`).
+`refused`, `busy`, `timeout`, `memory` or `worker-error`). A refusal and a memory limit are properties of the file and are remembered; a timeout is remembered for 10 minutes, so a slow or hostile logo cannot hold the single render slot on every request, and the card drawn without it that time is served for five minutes and never stored; `busy` and `worker-error` are not remembered (`src/render/svg.ts`, `src/render/hero.ts`).
 
 **The text card** (dark ground `#121416`, ink `#EEF0F2`, muted `#A3A9B0`, accent `#8FB4FF`): the left column holds the head lockup (logo, partner, site name, a hairline, the label), the title, the sub line and the foot (`author · domain`, where the author is the `byline` prop, and the domain has no `www.`);
 the right holds the uploaded `brandArt`, else the site's logo, whole, trimmed and contained in 400 x 400 at (736, 115), at `artOpacity`; it is faint and sits behind the title, so the title column stays 900 px and a short title keeps its large rungs (84 px on two lines for a 42-character title). Uploaded `brandArt` is opaque: it takes the right of the card (464 px) and the column narrows to 640. With neither, or when the logo is no mark (a trimmed aspect outside 0.67 to 1.5), the right side is empty.
@@ -587,6 +587,8 @@ Latin-only mono face against a Cyrillic sample) takes its own list: `glyphCovera
 checks `mono` against that list and the others against `samples`; a stack name that is not configured is an error, and with
 every stack named `samples` can be left out.
 
+`installTestRuntime(options, docs, { uploads })` models the site's upload collections by slug and id (`{ media: { 7: { ... } } }`; an entry with `_status: 'draft'` is a draft-only upload) for documents that hold bare ids, or uploads that differ by collection; without it the stand-in uploads inside the documents are used.
+
 The test runtime's heroes are small stand-in images, always opaque. `installTestRuntime(options, docs, { heroDir })` prepares a
 hero whose `filename` is a file in that folder with the production loader (the same cut, `heroBackground` and `palette.hero`),
 so a real icon is drawn, and tested, as it will be; and `{ transparentHero: (hero) => boolean }` declares stand-ins
@@ -646,8 +648,7 @@ mcpPlugin({ /* collections, globals... */ tools: { ...ogImageMcpToolMap({ descri
 ```
 
 The same implementation serves both. `payload-og-image/mcp/v3` imports `zod` (`^3.25.50`, the version plugin 3 uses) statically, so a
-bundler and Next's file tracer (`output: 'standalone'`) include it; the plugin depends on it, but under strict pnpm (no hoisting) add
-it to your own dependencies, since an optional peer is not installed for you. `payload-og-image/mcp` (the Payload 4 map, JSON Schema
+bundler and Next's file tracer (`output: 'standalone'`) include it; it is an optional peer, so add it to your own dependencies. `payload-og-image/mcp` (the Payload 4 map, JSON Schema
 inputs) imports no zod at all. On Payload 4 the tools are available to a signed-in MCP user, as the plugin's own
 default is; pass `access: ({ req }) => ...` to narrow it. On Payload 3 each tool is enabled per API key in the admin.
 

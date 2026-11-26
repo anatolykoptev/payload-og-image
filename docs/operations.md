@@ -48,7 +48,7 @@ symlink, and that it has free space. The event's `detail` names the errno. Resta
 digest changes by itself). Old files are pruned: the newest two versions of a page are kept.
 
 **A card shows the brand fallback.** A render threw: look for `render_error` with the message. The fallback is
-served for 5 minutes and never stored.
+served for 5 minutes and never stored. Its colours are the plugin's `brand: { ink, paper }` option (hex or colour names).
 
 ## What the store does
 

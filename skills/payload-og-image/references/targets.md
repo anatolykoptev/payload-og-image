@@ -28,16 +28,13 @@ defineTarget({
 - **`overrides`**: `{ headline?, subtitle?, label?, accent? }` from the document's `og` group, trimmed and absent when empty. They change a card only if `props` reads them.
 - **`hero`**: only the id the resolver names counts: the plugin reads the upload again by id with the visitor's access (published only), then loads the file from the `heroCollection` folder only. An upload object a resolver built by hand is never drawn as it is. A transparent hero keeps its transparency unless `heroBackground` (`#rgb`/`#rrggbb`, on target, template or plugin; target wins) flattens it. A missing hero file downgrades the card (drawn without it, served 5 minutes, never stored).
 - **A hero that is a bare id**: a `hasMany` upload field is not populated (depth 0), so `hero: ({ doc }) => doc.photos?.[0]` is an id. The plugin reads a bare id by id with the visitor's access, from `heroCollection`, else the site's only upload collection. With several upload collections and no `heroCollection` it stays no hero: name the collection.
+- **`uploadFields`**: the document's upload fields (dotted paths) the target draws, for `hero`, `images`, `share` and the editor's share image. Only these are read (one batched read per upload collection) and arrive in `doc` as the upload; every other upload field arrives as its bare id. The collection of each comes from the field's `relationTo`. Omit it to read every single-valued upload field. The presets set it. Details: `docs/reference.md`, Related documents.
 - **`images`**: named upload lists besides the hero, `images: ({ doc }) => ({ stack: doc.photos, logo: doc.logo })` (each a list, one upload or nothing; an entry is an id, or an object whose `id` is used). `imageCollections: { logo: 'logos' }` names a name's upload collection (default `heroCollection`, else the only one; several and none named throws). Each entry is re-read by id with the visitor's access, so a forbidden or missing upload is left out and an object is never trusted. At most 8 in all, in the order given. They are never flattened (a transparent logo stays transparent) and are part of the version (id and `updatedAt`); a card with none hashes as before. The template declares every name in `imageBoxes` and draws `ctx.images[name]`. A file that cannot be prepared downgrades the card like a hero.
 - **Remote heroes** are refused unless the host is in `allowedImageHosts` (https only, default port, no redirect, public addresses only). Default: nothing is fetched at render time.
 
-## Which image a page advertises (precedence)
+## Which image a page advertises
 
-1. The editor's image at `seoImage.path` (for example `meta.image`), unless it is the hero itself or `seoImage.isDeliberate` says it is a placeholder.
-2. Another eligible image from the target's `share`.
-3. The generated card.
-
-Eligible: width, height and MIME type on record, and JPEG, PNG, WebP or GIF; never SVG. A card whose `required` fails (empty title) advertises nothing. The per-document `og.mode` changes this order (see `fields-and-mcp.md`). Set `seoImage: { path: 'meta.image' }` when the site has an SEO plugin; without it the generated card is always used.
+The order (the editor's image at `seoImage.path`, then `share`, then the generated card), what makes an image eligible, and the effect of `og.mode` are in `docs/reference.md`, "Which image a page gets" (and `fields-and-mcp.md` for the mode). Set `seoImage: { path: 'meta.image' }` when the site has an SEO plugin; without it the generated card is always used (the zero-config presets honour `meta.image` by themselves).
 
 ## Format
 
@@ -50,7 +47,7 @@ ogImagePlugin({
 })
 ```
 
-- Photo-first card: `jpeg` and a `.jpg` path. With the default palette a photo posterises; truecolour PNG of a photo is over a megabyte. While issue #71 is open, a JPEG card still cuts its hero to a 256-colour palette (`palette.hero` applies to every format, `palette.card` only to PNG); set `palette: { hero: false }` for photographic heroes.
+- Photo-first card: `jpeg` and a `.jpg` path. With the default palette a photo posterises; truecolour PNG of a photo is over a megabyte. A JPEG or WebP card draws its hero in truecolour by default; `palette.hero` (a number) cuts it anyway, `palette.card` applies to PNG only.
 - Flat text card: keep PNG; it is the smallest and the default.
 - JPEG and WebP have no alpha: transparency is flattened onto `heroBackground` (white by default). Paint the template's own background.
 - Changing format, quality or palette gives new URLs for the affected cards by design.
@@ -68,32 +65,9 @@ Page side: `ogMetadata({ config, static: 'home' })`: the argument is the key in 
 
 ## Size variants (0.7.0 and later)
 
-For the schema.org `image` of a page, not for `og:image`. Google asks for Article images in three ratios (16:9, 4:3, 1:1); the page's `og:image` stays one wide image. Source: `docs/reference.md` "Size variants".
+For the schema.org `image` of a page (Google asks for 16:9, 4:3 and 1:1), never for `og:image`, which stays one wide image. Declare `variants: { square: { path, template } }` on a target and read every size with `ogImages({ config, target, doc })` into JSON-LD. Full rules, naming, the example and why `og:image` stays single: `docs/reference.md`, "Size variants".
 
-```ts
-posts: defineTarget({
-  path: '/og/:kind/:slug/card.png',
-  template: 'post', // 1200x630
-  props: ({ doc }) => ({ title: doc.title }),
-  variants: {
-    square: { path: '/og/:kind/:slug/square.png', template: 'post-square' }, // a template with size 1080x1080
-    '4x3': { path: '/og/:kind/:slug/4x3.png', template: 'post-4x3' },
-  },
-})
-```
-
-- A variant has its own `path` and `template` (the template sets the size). It shares the target's collection, `props()`, hero, format and slug field, and is served as a hidden target `posts~square` of kind `posts-square`, with its own URL, version and etag. Names are `[a-z0-9-]+`; a taken kind or target name, a bad path or an unknown template is refused at start-up.
-- **Add a route file for each variant path**, like the target's own. Or pin a route to the hidden target: `createOgRoute({ config, target: 'posts~square' })` takes no `:kind` in its params, so give that variant a `path` without `:kind` (for example `/og/posts/:slug/square.png`, route folder `app/og/posts/[slug]/square.png/route.ts`), or `kit.routesMatchPaths` flags the route. `kit.routesMatchPaths` wants a route file for each variant path.
-- A variant always draws its template: an editor's own share image (`seoImage`, `share`, mode `custom`) is never used for it. `og.mode: off` hides every size.
-- `ogImages({ config, target, doc, variants? })` from `payload-og-image/next` returns `{ url, width, height, variant }[]`: the wide image first (`variant: null`), then the variants in declaration order (or in the order of `variants: ['square']`). A blank size is left out; an undeclared name throws (production: an event and `[]`).
-
-```tsx
-const images = await ogImages({ config, target: 'posts', doc })
-const jsonLd = { '@context': 'https://schema.org', '@type': 'Article', headline: doc.title, image: images.map((i) => i.url) }
-// <script type="application/ld+json">{JSON.stringify(jsonLd).replace(/</g, '\\u003c')}</script>
-```
-
-Keep `ogMetadata` as it is. **`og:image` stays a single tag**: almost every crawler takes the first `og:image` and ignores the rest, and Discord turns two or more into a gallery, which breaks the single preview. Variants live in JSON-LD only.
+- **Add a route file for each variant path**, like the target's own. Or pin a route to the hidden target: `createOgRoute({ config, target: 'posts~square' })` takes no `:kind` in its params, so give that variant a `path` without `:kind` (for example `/og/posts/:slug/square.png`, route folder `app/og/posts/[slug]/square.png/route.ts`), or `kit.routesMatchPaths` flags the route.
 
 ## Store, gate, cache
 
@@ -104,13 +78,6 @@ Keep `ogMetadata` as it is. **`og:image` stays a single tag**: almost every craw
 - `editors: ['users']`: auth collections whose users count as editors (draft text in draft mode). Default is the admin user collection; customers never are.
 - `disabled: true`: every card route answers 404 and no metadata is produced.
 
-## Cache headers (what the route answers)
+## Cache headers
 
-| Answer                                          | `Cache-Control`                                     |
-| ----------------------------------------------- | --------------------------------------------------- |
-| `?v=` equals the current version                | `public, max-age=31536000, immutable, no-transform` |
-| any other or missing `v` (current bytes served) | `public, max-age=3600, no-transform`                |
-| hero unreadable, or fallback card               | `public, max-age=300, no-transform`                 |
-| unknown document, shed 503, draft mode          | `no-store`                                          |
-
-`x-og-cache` says `render`, `memo`, `store`, `draft`, `downgraded` or `fallback`. A CDN in front must keep the query string in its cache key.
+The table of what the route answers (`Cache-Control` per case, `etag`, `x-og-cache`) lives in `docs/reference.md`, "Cache headers". A CDN in front must keep the query string in its cache key.

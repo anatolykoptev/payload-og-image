@@ -6,8 +6,8 @@ Sources are the package docs (`docs/reference.md`, `docs/crawlers.md`, `docs/ope
 
 - **Missing or misplaced route file.** The page advertises a card URL that the app does not serve. The route folder must follow the target `path` (`/og/:kind/:slug/card.png` becomes `app/(frontend)/og/[kind]/[slug]/card.png/route.ts`; a `.jpg` path becomes `card.jpg/`). It must export `GET` from `createOgRoute()` and `HEAD = GET`. Fix by adding the file; prove with `kit.routesMatchPaths`.
 - **Plugin not registered**: the route answers 503 with a `console.warn` line. Outside production `ogMetadata` throws; in production it returns `{}` after one `console.error` line (`[payload-og] event=render_error ... add ogImagePlugin`) per process, since no event emitter exists before the runtime does. The page ships without `og:image`; `kit.everyRouteHasOwnCard` catches it too. With `disabled: true` every card route answers 404 and no metadata is produced.
-- **No `serverURL`**: start-up error; card URLs are absolute.
-- **A collection with drafts and no public read of published documents.** Reads use `overrideAccess: false`, so the card 404s. Use `read: ({ req: { user } }) => (user ? true : { _status: { equals: 'published' } })`.
+- **No `serverURL`**: start-up error for your own targets (card URLs are absolute); a zero-config install boots with `http://localhost:3000` and one start-up line, so set it before deploying.
+- **A collection with drafts and no public read of published documents.** Reads use `overrideAccess: false`, so the card 404s (a collection the public cannot read at all is a 404 too, never a 500). Use `read: ({ req: { user } }) => (user ? true : { _status: { equals: 'published' } })`.
 - **Page passes `doc: null`**: `ogMetadata` returns `{}`; fine for a not-found page.
 
 ## HEAD
@@ -35,7 +35,7 @@ Probe first: `curl -s -A 'TelegramBot' <page>` (and any other preview bot the si
 
 - JPEG is read by every crawler checked; WebP is documented for X and Discord only, LinkedIn and Facebook publish no list, Telegram is reported to drop WebP (`docs/crawlers.md`). Photo card: JPEG. Do not pick WebP for byte savings (16 to 20 percent).
 - A `.png` path with a JPEG or WebP format (or `.jpg` with PNG) is refused at start-up. No alpha in JPEG/WebP: paint the template ground.
-- A JPEG card still palette-cuts its hero unless `palette: { hero: false }`, while issue #71 is open.
+- A JPEG or WebP card draws its hero in truecolour by default (a 256-colour cut would only add banding); set `palette.hero` to a number to cut it anyway.
 
 ## Stale previews
 
@@ -45,7 +45,11 @@ Probe first: `curl -s -A 'TelegramBot' <page>` (and any other preview bot the si
 - A CDN in front of the route must keep the query string in its cache key.
 - `robots.txt` must `Allow: /og/`; never `Disallow` the card path.
 
-## Store and runtime
+## Uploads, logos, store and runtime
+
+- **A remote hero is not drawn** unless it has a readable upload record in the site's upload collections (0.10.0, breaking): give it a backing upload record or return the id. A hero object a resolver built by hand is never drawn as given; only its id counts, and an upload the public cannot read is no hero.
+- **An SVG logo gives no logo** when the sanitiser refuses it (a link, `url()`, `<image>`, entity, a bound exceeded), when it times out (remembered 10 minutes), or when `@resvg/resvg-wasm` cannot be found by the server bundle: add it to the project's dependencies. The `svg_rejected` event says why.
+- **Zero config without `store`** keeps cards in memory: they are drawn again after every restart.
 
 - A store `dir` that is not a mounted volume gives no event; cards vanish on container recreate. Confirm the mount (`df` on the path) and the user's write access. `store_disabled` means the store switched itself off (unwritable, symlink, low space); cards keep working from memory.
 - Keep `fontkit` out of the Next bundle: `serverExternalPackages: ['fontkit']` (it reads data files relative to its own location, which fails when bundled).
@@ -67,5 +71,5 @@ A page component's `params` arrive percent-encoded; `generateMetadata` and route
 
 ## Tests
 
-- Specs that boot Payload need a Node environment (jsdom realm issue, #70). Vitest's 5 s default is too short for kit calls: `{ timeout: 60_000 }`.
+- The plugin boots under jsdom (start-up draws nothing), but a spec that draws a card needs a Node environment (`// @vitest-environment node`): `next/og` and `sharp` refuse bytes from the jsdom realm. Vitest's 5 s default is too short for kit calls: `{ timeout: 60_000 }`.
 - `routesMatchPaths` needs `typescript` installed; without it, it throws and says what to add.

@@ -13,22 +13,35 @@ A Payload 3/4 plugin plus a Next 16 route that draws Open Graph cards (1200x630 
 pnpm add payload-og-image
 ```
 
-Floor (README): Payload `^3.93.0` or `^4.0.0-beta.12`, Next.js `^16.4.5`, React `^19.3.1`, sharp `^0.35.4`, Node `^22.23.5 || ^24.22.3 || >=26.13.1`. ESM only; Node runtime only (no edge). Pre-1.0: the API can change in a minor release, so read the installed version's `docs/`.
+Version floors and the Payload 3 and 4 notes: the README's Compatibility section (the one owner of those numbers). ESM only; Node runtime only (no edge). Pre-1.0: the API can change in a minor release, so read the installed version's `docs/`.
 
 ## Steps
 
-1. Install, then walk the decision checklist below with the user.
+Start from the zero-config setup below: it is the right answer unless the user wants a card design of their own. Customise only what they ask for.
+
+1. Install.
 2. Add `serverExternalPackages: ['fontkit']` to `next.config`.
-3. Write the templates (`references/templates.md`) and register the plugin with fonts, stacks, templates, targets and the store.
-4. Add the card route file for every target path (and variant path).
+3. Register the plugin: `ogImagePlugin({ siteName })` for zero config, or fonts, stacks, templates and targets for your own design (walk the decision checklist with the user first).
+4. Add the card route file (zero config: the one `[file]` route; your own targets: one file per target path and variant path).
 5. Call `ogMetadata` in each page's `generateMetadata`.
 6. If `fields` is on: `payload migrate:create`, commit the migration; run `payload generate:importmap`.
 7. Verify (section below) and fix until every check passes.
 
+## Zero config: the setup to start from
+
+```ts
+// payload.config.ts: set serverURL, and a store for production
+ogImagePlugin({ siteName: 'Example', store: { dir: '/var/lib/app/og-cards' } })
+```
+
+plus the route file `app/(frontend)/og/[kind]/[slug]/[file]/route.ts` (`createOgRoute({ config })`, `GET`, `HEAD = GET`) and `ogMetadata({ config, target: '<collection slug>', doc })` in each page's `generateMetadata`. With neither `collections` nor `targets` the plugin serves every public collection (not upload or auth, readable anonymously, with a public title field) from two built-in presets: photo (JPEG, for a document whose hero is at least 800 x 420) and text (PNG, dark, with the site's logo). Bundled Inter fonts (latin, latin-ext, cyrillic) are used when you give none. Skipped collections are named once in a start-up line: read it before concluding a card is missing.
+
+What is customisable, all of it optional and never overwritten by a default (a value you give is used as it is): `exclude`, `collections` (a list is exactly those; an object customises per collection: `preset`, `title`, `hero`, `label`, `subtitle`, `byline`, `path`), `siteName` or your own `site()` (it may return `logo`, `partnerLogo`, SVG or raster, and `brandArt`), `artOpacity`, `logoCollection`, your own `fonts` and `stacks`, `templates` and `targets` (an explicit target of the same name wins over discovery; `targets` without `collections` turns discovery off), `store`, `format`, `palette`, `fields`. Defaults that need a decision before production: no `store` means cards live in memory and are drawn again after a restart, and no `serverURL` means card URLs use `http://localhost:3000`. Details: `references/zero-config.md`. Write a template (`references/templates.md`) only for a brand design of their own.
+
 ## Mental model
 
 - **Template** (`defineTemplate`): a pure function from props to a JSX card. It fetches nothing and reads no site data except through its props, because the props are what the URL version hashes. `id` and `revision` are part of every version: bump `revision` with the design.
-- **Target** (`defineTarget`): maps one collection to one template. It holds the card `path` (must contain `:slug` or `:id`, may contain `:kind`), `props({ doc, site, related, overrides })`, optional `hero` (an upload) plus `heroCollection`, `images` (named upload lists, with `imageBoxes` on the template), `format`, `alt`, `share`.
+- **Target** (`defineTarget`): maps one collection to one template. It holds the card `path` (must contain `:slug` or `:id`, may contain `:kind`), `props({ doc, site, related, overrides })`, optional `hero` (an upload) plus `heroCollection`, `images` (named upload lists, with `imageBoxes` on the template), `uploadFields`, `format`, `alt`, `share`. Zero config builds these for you.
 - **`site()`**: plugin option returning data shared by every card (the brand name). It is cached 60 s per process.
 - **Fonts and stacks**: `fonts` are TTF, OTF or WOFF files (never WOFF2) you ship; `stacks` order the families per text field; `stacks.default` is required. No request leaves the host while a card is drawn.
 - **Store**: finished cards live on disk (`store: { dir }`) or in memory (`store: { memory: true }`), behind a bounded render queue.
@@ -42,20 +55,16 @@ Floor (README): Payload `^3.93.0` or `^4.0.0-beta.12`, Next.js `^16.4.5`, React 
 
 1. **Which collections** get a card? One target per collection; the page must have a public URL and a slug (or be keyed by id). List them back to the user.
 2. **Which fields reach the card?** Only what the public may read. The plugin reads with `overrideAccess: false`, at depth 0, published documents only; drafts reach editors in draft mode and are never cached. A collection with drafts needs a public read rule for published documents (see `references/pitfalls.md`). Anything else a card draws comes through `related(collection, id)`. Never read private fields in `props` or `site()`.
-3. **Photo card or text card?** A photo-first card (full-bleed image, scrim, title): `format: 'jpeg'`, a `.jpg` path, and `palette: { hero: false }` while issue #71 is open (otherwise a JPEG card still cuts its hero to a 256-colour palette). A flat text card: PNG (default; a palette PNG is smallest for flat art). WebP is opt-in and not read by every crawler. A path whose extension contradicts the format is refused at start-up.
+3. **Photo card or text card?** A photo-first card (full-bleed image, scrim, title): `format: 'jpeg'` and a `.jpg` path; a JPEG or WebP card draws its hero in truecolour by default. A flat text card: PNG (default; a palette PNG is smallest for flat art). WebP is opt-in and not read by every crawler. A path whose extension contradicts the format is refused at start-up. The zero-config presets already pick the right one per document.
 4. **Fonts**: self-host an OFL-licensed face that covers the site's scripts, as files in the repo or an assets folder, read them with a path built from `process.cwd()`, and cover every script the site writes (a Russian site needs a face with Cyrillic, and `requiredSample` extended with `«»„№₽`). Every character a stack cannot draw is stripped and reported as `glyph_missing`.
 5. **Store dir on a persistent volume**: an absolute path only the app writes, mounted as a volume in Docker. A missing mount gives no warning and cards vanish on recreate.
 6. **`serverExternalPackages: ['fontkit']`** in `next.config`. Required.
-7. **`serverURL`**: the Payload config (or the plugin's `serverURL` option) needs an absolute origin; card URLs are absolute (`http` or `https`; crawlers need https, and the kit requires it unless `allowHttpImages: true`).
+7. **`serverURL`**: the Payload config (or the plugin's `serverURL` option) needs an absolute origin; card URLs are absolute (`http` or `https`; crawlers need https, and the kit requires it unless `allowHttpImages: true`). Your own targets without one are a start-up error; a zero-config install boots with `http://localhost:3000` and one start-up line, so set it before deploying.
 8. **Payload 3 versus 4**: on Payload 4 the Local API default is `overrideAccess: false`, so state it inside `site()` and `props`/`related` reads: `overrideAccess: true` for trusted site globals. Run `payload generate:importmap` after install. Details in `references/pitfalls.md`.
 9. **Per-document overrides wanted?** If editors should set the card headline or switch the card off per page, enable `fields` (section below) and plan the migration.
 10. **Crawler pre-flight**: `robots.txt` must not `Disallow` the card path; pages that Next caches must be revalidated on save or be `force-dynamic`.
 
-## Zero config (no templates to write)
-
-`ogImagePlugin({ siteName: 'Example' })` (nothing else: it serves every public collection; `exclude`, or `collections: { posts: { preset: 'text' } }`, customise) plus the route file `app/(frontend)/og/[kind]/[slug]/[file]/route.ts` (`createOgRoute({ config })`, `GET`, `HEAD = GET`) gives a finished card from two built-in presets: photo (JPEG, hero at least 800 x 420) and text (PNG). Details and every override in `references/zero-config.md`. Prefer it when the user wants a good card with no design work; write a template (below) only for a brand of their own.
-
-## Minimal wiring
+## Minimal wiring (your own templates)
 
 Plugin (`payload.config.ts`):
 
@@ -138,10 +147,13 @@ In the plugin repository, [`scripts/probe-dev-server.mjs`](https://github.com/an
 - Payload REST answers 404 to HEAD: add `export const HEAD = withHead(GET)` in `app/(payload)/api/[...slug]/route.ts`. Not on the card route.
 - Next 16 streams `generateMetadata` output into `<body>` for crawlers not on its HTML-limited list (Telegram is not); streaming applies to pages rendered at request time. Check with `curl -A 'TelegramBot'`; if `og:image` is not in `<head>`, set `htmlLimitedBots` (see `references/pitfalls.md`).
 - A zero-config site needs the `[file]` route, not `card.png/route.ts`: the preset path ends `card.:ext`, and a photo card requested as `card.png` is a 404.
+- Zero config with no `store` keeps cards in memory (redrawn after every restart); no `serverURL` means `http://localhost:3000` card URLs.
+- A remote hero (a URL on an `allowedImageHosts` host) is drawn only when it has a readable upload record (0.10.0, breaking); a hero object a resolver built by hand is never drawn as given, only its id counts.
+- An SVG logo is drawn only through the plugin's sanitising parser and resvg worker; a refused or timed-out one gives the no-logo card (`svg_rejected` event). `@resvg/resvg-wasm` must be reachable from the server bundle (README, Install).
 - `og:image` must remain a single image. Do not add a second image in a layout or page; a page's `openGraph` replaces the layout's whole `openGraph` (shallow merge).
 - Cached pages keep an old `?v`: `force-dynamic` or revalidate with `ogTag` on save.
 - JPEG for photo cards; WebP is not safe on every platform.
-- Specs that boot Payload under jsdom fail at the start-up self-test: use a Node environment for them.
+- The plugin boots under jsdom (start-up draws nothing), but drawing a card does not: a spec that draws (templates, `templatesRender`, `sizeBudget`, the kit's real renderer) needs `// @vitest-environment node`.
 - Google structured data wants square and 4:3 images too: use target `variants` and `ogImages()` for JSON-LD (`references/targets.md`, 0.7.0 and later), never extra `og:image` tags.
 
 ## References (load on demand)
