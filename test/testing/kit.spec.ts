@@ -393,9 +393,10 @@ describe('the test runtime related documents', () => {
         targets: {
           posts: defineTarget<any, any>({
             ...opts.targets?.posts,
-            props: async ({ doc, related }: any) => (
-              (seen = await related('authors', doc.author)), { title: doc.title, label: 'Blog', site: 'S' }
-            ),
+            props: async ({ doc, related }: any) => {
+              seen = await related('authors', doc.author)
+              return { title: doc.title, label: 'Blog', site: 'S' }
+            },
           }),
         },
       },
