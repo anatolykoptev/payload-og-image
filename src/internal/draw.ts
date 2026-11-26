@@ -1,11 +1,18 @@
-import type { TemplateContext } from '../template.js'
+import type { ImageLists, TemplateContext } from '../template.js'
 import { coveringFamily, fitText, fontFamilyFor, type LoadedFont, type Stacks } from './fonts.js'
 import type { Renderer } from './handler.js'
 import { stripUndrawable } from './sanitize.js'
 import type { CardEncoding } from './types.js'
 
-/** What a template's `render` gets: the site host, the prepared hero (or null), and font helpers over the stacks. */
-export function templateContext(a: { host: string; fonts: LoadedFont[]; stacks: Stacks; hero: string | null }): TemplateContext {
+/** What a template's `render` gets: the site host, the prepared hero (or null), the prepared named images, and font helpers over the stacks. */
+export function templateContext(a: {
+  host: string
+  fonts: LoadedFont[]
+  stacks: Stacks
+  hero: string | null
+  /** The prepared named images; none when absent. */
+  images?: ImageLists
+}): TemplateContext {
   /** The same rule `resolveCard` uses to strip: the named stack, else the explicit `default`. */
   const stackOf = (name: string): string[] => {
     const s = a.stacks[name] ?? a.stacks.default
@@ -15,6 +22,8 @@ export function templateContext(a: { host: string; fonts: LoadedFont[]; stacks: 
   return {
     host: a.host,
     hero: a.hero,
+    // A null-prototype dictionary: a list named `constructor` or `toString` is a list, never an inherited function.
+    images: a.images ?? Object.create(null),
     // A run no single family draws is measured and drawn glyph by glyph across the stack, never with its first family alone.
     fit: (text, box, stack) => {
       const s = stackOf(stack)

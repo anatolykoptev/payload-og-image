@@ -80,9 +80,22 @@ export function normalizeProps(value: unknown, path = 'props', seen: object[] = 
 /** `id:updatedAt`. The id makes a replaced or deleted upload change the version, which `updatedAt` alone misses. */
 export const heroTag = (h: Upload) => `${String(h.id)}:${h.updatedAt ?? ''}`
 
+/**
+ * `img:` and the canonical JSON of `[name, collection, [upload tags]]` entries sorted by name, plus the hero palette (named images are cut with it,
+ * and are never flattened, so the plugin's `heroBackground` is no part of them). Undefined when no image resolved.
+ */
+function imageTail(i: VersionInput): string | undefined {
+  const named = (i.images ?? []).filter((e) => e.uploads.length > 0)
+  if (named.length === 0) return undefined
+  const sorted = [...named].sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
+  // The collection is in it: ids are only unique within one collection.
+  return `img:${canonicalJson(sorted.map((e) => [e.name, e.collection, e.uploads.map(heroTag)]))}${i.heroPalette ? `|hp:${i.heroPalette}` : ''}`
+}
+
 // Slots 8-9 (locale, variant) are constants in 0.1 (`''`, `og`); the variant slot carries a JPEG card's encoding (0.6), and the default hashes identically. Slot 10 is the nonce: 0 or absent is the 0.1 value.
-export const cardVersion = (i: VersionInput) =>
-  sha(
+export const cardVersion = (i: VersionInput) => {
+  const images = imageTail(i)
+  return sha(
     canonicalJson([
       VERSION_FORMAT,
       i.templateId,
@@ -103,7 +116,10 @@ export const cardVersion = (i: VersionInput) =>
       i.nonce ?? 0,
       // Appended only when set: the default encoding hashes exactly as before, so no existing card URL moves.
       ...(i.cardPalette ? [`pal:${i.cardPalette}`] : []),
+      // Likewise only when the card has named images, as one last element. The names are sorted; a name with no upload left is not in it.
+      ...(images ? [images] : []),
     ]),
   ).slice(0, 12)
+}
 
 export const pageId = (k: CardKey) => sha(`${k.kind}\u0000${k.slug}`).slice(0, 16)

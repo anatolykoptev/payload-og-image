@@ -79,6 +79,14 @@ beforeAll(async () => {
         upload: { staticDir: path.join(dir, 'private') },
         fields: [],
       },
+      // An upload collection with drafts: a draft-only file is no image for the public.
+      {
+        slug: 'draftMedia',
+        versions: { drafts: true },
+        access: { read: () => true },
+        upload: { staticDir: path.join(dir, 'draft') },
+        fields: [],
+      },
       // Public read of everything: only the published-status filter keeps a draft-only note out.
       {
         slug: 'notes',
@@ -121,6 +129,10 @@ beforeAll(async () => {
           { name: 'heroImage', type: 'upload', relationTo: 'media' },
           { name: 'meta', type: 'group', fields: [{ name: 'image', type: 'upload', relationTo: 'media' }] },
           { name: 'secretImage', type: 'upload', relationTo: 'privateMedia' },
+          // hasMany uploads are never populated (depth 0 leaves bare ids): a hero or a named image taken from them is read by id.
+          { name: 'photos', type: 'upload', relationTo: 'media', hasMany: true },
+          { name: 'secretPhotos', type: 'upload', relationTo: 'privateMedia', hasMany: true },
+          { name: 'draftPhotos', type: 'upload', relationTo: 'draftMedia', hasMany: true },
         ],
       },
     ],
@@ -196,6 +208,31 @@ beforeAll(async () => {
       heroImage: hero.id,
       meta: { image: hero.id },
       secretImage: secret.id,
+      _status: 'published',
+    },
+    overrideAccess: true,
+  })
+  const draftOnly = await payload.create({
+    collection: 'draftMedia',
+    data: { _status: 'draft' },
+    file: file('d.png'),
+    draft: true,
+    overrideAccess: true,
+  })
+  const pubDraftMedia = await payload.create({
+    collection: 'draftMedia',
+    data: { _status: 'published' },
+    file: file('p.png'),
+    overrideAccess: true,
+  })
+  await payload.create({
+    collection: 'posts',
+    data: {
+      title: 'Gallery',
+      slug: 'gallery',
+      photos: [hero.id],
+      secretPhotos: [secret.id],
+      draftPhotos: [draftOnly.id, pubDraftMedia.id],
       _status: 'published',
     },
     overrideAccess: true,
@@ -483,6 +520,60 @@ describe('payloadSource against a real Payload', () => {
     )
     expect((await draftSite.site(anon)).name).toBe('Published') // a draft-mode cookie alone draws no draft text
     expect((await draftSite.site(editor())).name).toBe('DRAFT NAME')
+  })
+  describe('uploads that depth 0 leaves as bare ids (hasMany upload fields)', () => {
+    const gallery = defineTemplate<{ title: string }>({
+      id: 'post',
+      revision: '1',
+      textFields: ['title'],
+      imageBoxes: { secret: { width: 20, height: 20 }, drafts: { width: 20, height: 20 }, shots: { width: 20, height: 20 } },
+      render: (p) => ({ type: 'div', props: { children: p.title } }) as never,
+    })
+    const targets = {
+      posts: defineTarget<any, any>({
+        path: '/og/:kind/:slug/card.png',
+        template: 'post',
+        props: ({ doc }: any) => ({ title: doc.title }),
+        heroCollection: 'media',
+        hero: ({ doc }: any) => doc.photos?.[0],
+        images: ({ doc }: any) => ({ shots: doc.photos, secret: doc.secretPhotos, drafts: doc.draftPhotos }),
+        imageCollections: { shots: 'media', secret: 'privateMedia', drafts: 'draftMedia' },
+      }),
+    }
+    const runtime = () =>
+      buildRuntime({ ...state, options: { ...state.options, targets, templates: [gallery] } } as OgState, payload, {
+        renderer: { render: tinyPng },
+        isDraftRequest: async (r) => r.headers.has('x-draft'),
+      })
+    const cardOf = async (request?: Request) => {
+      const id = ((await src().published('posts', 'gallery')) as { id: number }).id
+      const card = await runtime().resolveForMetadata({ target: 'posts', id }, request)
+      if (card.kind !== 'generated') throw new Error(`expected a generated card, got ${card.kind}`)
+      return card
+    }
+    const summary = (c: Awaited<ReturnType<typeof cardOf>>) => c.images.map((i) => [i.name, i.uploads.map((u) => u.filename)])
+    it('a hero taken from a hasMany field carries its photo', async () => {
+      const card = await cardOf()
+      expect(card.hero).toMatchObject({ filename: 'h.png' })
+      // ...and the photo is part of the version: the same document with no photos is another card.
+      const bare = await runtime().resolveForMetadata({
+        target: 'posts',
+        id: ((await src().published('posts', 'rel-pub')) as { id: number }).id,
+      })
+      expect(bare.kind === 'generated' && bare.v).not.toBe(card.v)
+    })
+    it('named images are read with the visitor access: the public gets what it may read, an editor also a private or draft upload', async () => {
+      expect(summary(await cardOf())).toEqual([
+        ['drafts', ['p.png']], // the draft-only file is no image for the public (names in canonical order)
+        ['shots', ['h.png']],
+      ])
+      const asEditor = new Request('https://x.test/x', { headers: { ...Object.fromEntries(editorHeaders), 'x-draft': '1' } })
+      expect(summary(await cardOf(asEditor))).toEqual([
+        ['drafts', ['d.png', 'p.png']],
+        ['secret', ['s.png']],
+        ['shots', ['h.png']],
+      ])
+    })
   })
   it('end to end through the real runtime: published words, draft words only for the editor, never stored', async () => {
     const rt = buildRuntime(state, payload, {

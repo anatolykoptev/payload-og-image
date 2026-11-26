@@ -231,6 +231,62 @@ collection's folder. A transparent hero keeps its transparency, so the card show
 agent (never an environment proxy), from a vetted public address only (IANA special-purpose ranges are refused), with no
 redirect.
 
+### A hero that is a bare id
+
+A single upload field is read for you, so `hero: ({ doc }) => doc.heroImage` receives the upload. A `hasMany` upload field is
+not populated (the document is read at depth 0), so `doc.photos` is a list of bare ids. A hero that is a bare id, or an
+object with no file, is read by id with the visitor's access from `heroCollection`, or from the site's only upload
+collection; `hero: ({ doc }) => doc.photos?.[0]` therefore draws the first photo. With more than one upload collection and
+no `heroCollection`, a bare id cannot be placed, and the card has no hero: name the collection.
+
+Upgrade effect: a resolver that returned a bare id from a `hasMany` field used to draw no hero, and now draws it when the
+id resolves, so those cards get a new `v` once (the hero is part of the version). `Target.hero` may return an `ImageRef`
+(an id, or `{ id }`) as well as an upload. `heroCollection` and every `imageCollections` value must be an upload collection
+of the config, or the plugin refuses to start, naming it.
+
+## Several images per card
+
+`Target.images` names lists of uploads besides the hero, for a template that draws a stack of photos, a logo or a row of
+thumbnails:
+
+```ts
+const target = defineTarget({
+  path: '/og/:kind/:slug/card.png',
+  template: 'gallery',
+  props: ({ doc }) => ({ title: doc.title }),
+  images: ({ doc }) => ({ stack: doc.photos, logo: doc.brandLogo }), // a list, one upload, or nothing, per name
+  imageCollections: { logo: 'logos' }, // optional: the upload collection of a name; default heroCollection, else the only upload collection
+})
+const gallery = defineTemplate({
+  id: 'gallery',
+  revision: '1',
+  imageBoxes: { stack: { width: 220, height: 140 }, logo: { width: 120, height: 48 } }, // every name the target gives
+  render: (p, ctx) => /* ctx.images.stack: a readonly string[] of data URLs, in the order given, or undefined; ctx.images.logo likewise */,
+})
+```
+
+- Each entry is reduced to an id (`7`, `'7'` or `{ id: 7 }`) and read again with the visitor's access, so an object the
+  document carries is never trusted and an upload the public may not read is left out of a public card. An editor
+  previewing a draft reads with their own access. A file is read only from its collection's own folder.
+- Each image is cut to its box in `imageBoxes` around its focal point and handed over as a data URL in `ctx.images[name]`,
+  in the order given. A name the template does not declare, a name that is not a plain word (`[A-Za-z][A-Za-z0-9_-]*`, at
+  most 32 characters), or a name with no collection to read from (several upload collections, none named) is a site bug and
+  throws when the card is resolved. A missing or forbidden upload is not: it is left out.
+- A size variant shares its target's `images`, so the variant's template declares the same names in `imageBoxes`.
+- `ctx.images` is typed `ImageLists`: every key is a `readonly string[]` or `undefined`, including names such as `constructor`.
+  Code that builds a `TemplateContext` itself (a test, a custom renderer) must supply `images` (`{}` when there are none).
+- At most 8 images in all, across every name, in the order given; the rest are left out.
+- They are never flattened: a transparent logo stays transparent whatever `heroBackground` is. `palette.hero` applies to
+  them as it does to the hero.
+- Version: the uploads that resolved (collection, id and `updatedAt`, by name) are part of the card's version, so replacing
+  a file through Payload or an editor's choice gives a new URL. Overwriting a file's bytes in place without changing
+  `updatedAt` (outside Payload) is not seen by the version, as for the hero.
+- `ctx.images` has its names in one canonical order (sorted), the order the version uses, whatever order the target listed
+  them in; a list with nothing left is absent (`ctx.images.stack ?? []`). The budget of 8 is spent in the order the target
+  listed them. A name is read from the collection you configure; an object whose origin is another collection contributes only its id. A card with no named image hashes exactly as before this option existed.
+- An upload that resolved but whose file cannot be prepared is left out of its list, and the card is served for five minutes
+  and never stored, like a card whose hero failed.
+
 ## Card and hero encoding
 
 By default the renderer keeps the smaller of the truecolour PNG and a palette re-encoding of it (`palette.card`), and a hero is

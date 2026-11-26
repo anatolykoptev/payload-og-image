@@ -1,5 +1,6 @@
 /** Mutation table (production line -> the test that goes RED). Silent-failure surface: a stale card URL gives no error in prod.
  * - version.ts `cardPalette` or `heroPalette` dropped from the hash -> "a card palette or a hero palette moves the version only when set" RED
+ * - version.ts `imageTail` appended for an empty or absent `images`, or left out when set -> "named images move the version only when present" RED
  * - version.ts:75  drop `i.props` from the hashed array                  -> "changes with title" / "site datum" RED
  * - version.ts:75  drop `i.host`                                         -> "changes with host (domain move)" RED
  * - version.ts:75  drop `i.fontsDigest`                                  -> "changes with fonts (a face file swapped)" RED
@@ -76,6 +77,31 @@ describe('cardVersion', () => {
     expect(cardVersion({ ...base, nonce: 0 })).toMatchInlineSnapshot(`"db1903285d83"`) // the 0.1 golden value, unchanged
     expect(cardVersion({ ...base, nonce: 1 })).not.toBe(cardVersion(base))
     expect(cardVersion({ ...base, nonce: 1 })).not.toBe(cardVersion({ ...base, nonce: 2 }))
+  })
+  it('named images move the version only when present: absent or empty hashes exactly as before, the order of names does not matter, the upload tag and its collection do', () => {
+    const img = (id: number, updatedAt = 'u1') => ({ id, updatedAt })
+    const im = (name: string, uploads: Array<{ id: number; updatedAt: string }>, collection = 'media') => ({ name, collection, uploads })
+    expect(cardVersion({ ...base, images: [] })).toBe(cardVersion(base))
+    expect(cardVersion({ ...base, images: [im('stack', [])] })).toBe(cardVersion(base))
+    const one = cardVersion({ ...base, images: [im('stack', [img(1)])] })
+    expect(one).not.toBe(cardVersion(base))
+    expect(cardVersion({ ...base, images: [im('stack', [img(1, 'u2')])] })).not.toBe(one)
+    expect(cardVersion({ ...base, images: [im('logo', [img(1)])] })).not.toBe(one)
+    const ab = cardVersion({
+      ...base,
+      images: [im('a', [img(1)]), im('b', [img(2)])],
+    })
+    expect(
+      cardVersion({
+        ...base,
+        images: [im('b', [img(2)]), im('a', [img(1)])],
+      }),
+    ).toBe(ab)
+    // ids are unique within a collection only: the same id and updatedAt in another collection is another image
+    expect(cardVersion({ ...base, images: [im('stack', [img(1)], 'logos')] })).not.toBe(one)
+    // The hero palette cuts them; the plugin's heroBackground does not touch them.
+    expect(cardVersion({ ...base, images: [im('stack', [img(1)])], heroPalette: '64' })).not.toBe(one)
+    expect(cardVersion({ ...base, images: [im('stack', [img(1)])], heroBackground: '#336699' })).toBe(one)
   })
   it('a card palette or a hero palette moves the version only when set; unset hashes exactly as before the option', () => {
     const hero = { id: 9, updatedAt: 'u1' }

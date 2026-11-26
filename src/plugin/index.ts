@@ -227,8 +227,27 @@ export function ogImagePlugin(options: OgImagePluginOptions): (config: Config) =
       onInit: async (payload) => {
         await previousOnInit?.(payload)
         if (o.disabled) return
+        assertUploadCollections(payload, o)
         await selfTest(state)
       },
+    }
+  }
+}
+
+/**
+ * `heroCollection` and every `imageCollections` value must be an upload collection. Checked against the final registry (at init), not
+ * while plugins are still being applied: a later plugin may add the collection or turn its uploads on.
+ */
+function assertUploadCollections(payload: Payload, o: OgImagePluginOptions): void {
+  const known = (payload.collections ?? {}) as unknown as Record<string, { config?: { upload?: unknown } } | undefined>
+  for (const [name, t] of Object.entries(o.targets ?? {})) {
+    const named = [
+      ...(t.heroCollection === undefined ? [] : [['heroCollection', t.heroCollection] as const]),
+      ...Object.entries(t.imageCollections ?? {}).map(([n, c]) => [`imageCollections.${n}`, c] as const),
+    ]
+    for (const [option, slug] of named) {
+      if (!Object.hasOwn(known, slug) || !known[slug]?.config?.upload)
+        throw new Error(`payload-og-image: target "${name}" ${option} "${slug}" is not an upload collection of this config`)
     }
   }
 }
