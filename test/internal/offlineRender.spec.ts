@@ -14,7 +14,7 @@ import { createMemo } from '../../src/internal/memo.js'
 import { memoryStore } from '../../src/internal/store/memory.js'
 import { nextOgRenderer } from '../../src/render/nextOg.js'
 import { defineTarget, defineTemplate } from '../../src/template.js'
-import { loadTestFonts } from '../helpers.js'
+import { loadTestFonts, uploadsFrom } from '../helpers.js'
 
 const span = (children: string) => ({ type: 'span', props: { style: { display: 'flex' }, children } })
 const card = defineTemplate<{ title: string; subtitle: string }>({
@@ -56,6 +56,7 @@ function setup() {
       draft: async () => null,
       site: async () => ({ name: 'Site' }),
       related: async () => null,
+      uploads: uploadsFrom(async () => null),
     },
     store: memoryStore(),
     renderer: nextOgRenderer(),

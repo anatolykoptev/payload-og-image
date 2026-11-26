@@ -16,7 +16,8 @@
  * - payloadSource.ts:149  related() treats any previewing request as an editor -> same test RED
  * - resolve.ts:197  leave og.nonce out of the card version, or fields.ts:46 drop the nonce field -> "og.nonce round trip" RED
  * - payloadSource.ts:102  leave the upload fields as bare ids -> "uploads are read by id with the caller's access" RED
- * - payloadSource.ts:103  read an upload with overrideAccess: true -> same test RED (a private upload would be populated) */
+ * - payloadSource.ts:103  read an upload with overrideAccess: true -> same test RED (a private upload would be populated)
+ * - payloadSource.ts `uploads()` giving the editor's draft view to a request that is not previewing (`request ? await editor(request) : null`) -> "an editor's request that is not previewing reads uploads as the public" RED */
 import { mkdtemp, readFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
@@ -24,10 +25,11 @@ import { sqliteAdapter } from '@payloadcms/db-sqlite'
 import { lexicalEditor } from '@payloadcms/richtext-lexical'
 import { buildConfig, getPayload, type Payload } from 'payload'
 import sharp from 'sharp'
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { resolveCard } from '../../src/internal/resolve.js'
 import { buildRuntime } from '../../src/internal/runtime.js'
 import { CUSTOM_KEY, type OgState } from '../../src/internal/state.js'
+import { createUploadReader, fillUploads, uploadFieldsOf } from '../../src/internal/uploads.js'
 import { ogImagePlugin } from '../../src/plugin/index.js'
 import { payloadSource } from '../../src/plugin/payloadSource.js'
 import { defineTarget, defineTemplate } from '../../src/template.js'
@@ -284,6 +286,7 @@ describe('payloadSource against a real Payload', () => {
         fonts,
         fontsDigest: digest,
         stacks: { default: ['Inter'] },
+        uploads: createUploadReader(async () => new Map()),
       })
     }
     expect(payload.collections.posts?.config.fields.some((f: any) => f.name === 'og')).toBe(true)
@@ -448,11 +451,18 @@ describe('payloadSource against a real Payload', () => {
     expect(await labelOf('rel-draft')).not.toContain('Draft-only note')
   })
   it("uploads are read by id with the caller's access: the hero and a grouped share image are populated; an upload the public may not read is null", async () => {
-    const doc = await src().published('posts', 'with-uploads')
+    const fields = uploadFieldsOf(payload.collections.posts?.config.fields as never)
+    const filled = async (doc: Record<string, any> | null, request?: Request) =>
+      fillUploads(
+        createUploadReader((collection, ids) => src().uploads(collection, ids, { previewing: request !== undefined, request })),
+        doc as Record<string, any>,
+        fields,
+      )
+    const doc = await filled(await src().published('posts', 'with-uploads'))
     expect(doc?.heroImage).toMatchObject({ filename: 'h.png' })
     expect(doc?.meta?.image).toMatchObject({ filename: 'h.png' })
     expect(doc?.secretImage).toBeNull()
-    const asEditor = await src().draft('posts', { slug: 'with-uploads' }, editor())
+    const asEditor = await filled(await src().draft('posts', { slug: 'with-uploads' }, editor()), editor())
     expect(asEditor?.secretImage).toMatchObject({ filename: 's.png' }) // an editor may read it
   })
   it('editors are users of the admin collection only: a customer from another auth collection never gets a draft or draft site data', async () => {
@@ -573,6 +583,62 @@ describe('payloadSource against a real Payload', () => {
         ['secret', ['s.png']],
         ['shots', ['h.png']],
       ])
+    })
+  })
+  describe('an editor who is not previewing', () => {
+    const gallery = defineTemplate<{ title: string }>({
+      id: 'post',
+      revision: '1',
+      textFields: ['title'],
+      imageBoxes: { drafts: { width: 20, height: 20 } },
+      render: (p) => ({ type: 'div', props: { children: p.title } }) as never,
+    })
+    // The hero and one named image are in the drafts-enabled upload collection; the first of them has only a draft.
+    const targets = {
+      posts: defineTarget<any, any>({
+        path: '/og/:kind/:slug/card.png',
+        template: 'post',
+        props: ({ doc }: any) => ({ title: doc.title }),
+        heroCollection: 'draftMedia',
+        hero: ({ doc }: any) => doc.draftPhotos?.[0],
+        images: ({ doc }: any) => ({ drafts: doc.draftPhotos }),
+        imageCollections: { drafts: 'draftMedia' },
+      }),
+    }
+    it("an editor's request that is not previewing reads uploads as the public: the published file, the public version, and no editor on the read", async () => {
+      const rt = buildRuntime({ ...state, options: { ...state.options, targets, templates: [gallery] } } as OgState, payload, {
+        renderer: { render: tinyPng },
+        isDraftRequest: async (r) => r.headers.has('x-draft'),
+      })
+      const id = ((await src().published('posts', 'gallery')) as { id: number }).id
+      const cardFor = async (request?: Request) => {
+        const card = await rt.resolveForMetadata({ target: 'posts', id }, request)
+        if (card.kind !== 'generated') throw new Error(`expected a generated card, got ${card.kind}`)
+        return card
+      }
+      const publicCard = await cardFor()
+      expect(publicCard.hero).toBeNull() // its only file is a draft
+      expect(publicCard.images.map((i) => [i.name, i.uploads.map((u) => u.filename)])).toEqual([['drafts', ['p.png']]])
+      const finds = vi.spyOn(payload, 'find')
+      try {
+        const asEditor = await cardFor(new Request('https://x.test/x', { headers: editorHeaders }))
+        expect(asEditor.hero).toBeNull()
+        expect(asEditor.images.map((i) => [i.name, i.uploads.map((u) => u.filename)])).toEqual([['drafts', ['p.png']]])
+        expect(asEditor.v).toBe(publicCard.v)
+        // The route serves the stored card too, and its reads are the public's as well.
+        const served = await rt.handler().GET(new Request(`https://x.test/og/posts/gallery/card.png`, { headers: editorHeaders }), {
+          params: Promise.resolve({ kind: 'posts', slug: 'gallery' }),
+        })
+        const reads = finds.mock.calls.map(([a]) => a as unknown as Record<string, unknown>).filter((a) => a.collection === 'draftMedia')
+        expect(reads.length).toBeGreaterThan(0)
+        for (const a of reads) {
+          expect(a).toMatchObject({ draft: false, overrideAccess: false })
+          expect(a).not.toHaveProperty('user')
+        }
+        expect(served.headers.get('etag')).toBe(`"${publicCard.v}"`)
+      } finally {
+        finds.mockRestore()
+      }
     })
   })
   it('end to end through the real runtime: published words, draft words only for the editor, never stored', async () => {

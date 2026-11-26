@@ -4,6 +4,7 @@ import type { CardHandler, DocSource, HeroLoader } from './handler.js'
 import { pooled } from './pool.js'
 import { type GeneratedCard, getPath, type ResolvedCard } from './resolve.js'
 import type { CardMime, CardStore, Upload } from './types.js'
+import { collectionOf } from './uploads.js'
 
 /** What a card is asked for: a document of a target (by id or by the slug field), or a static card by its key (`kind/slug`). */
 export type CardRef = { target: string; id?: string | number; slug?: string } | { static: string }
@@ -121,11 +122,11 @@ export function createInspector(d: InspectorDeps): Inspector {
   const staticList = Object.values(d.statics)
   const hasTarget = (name: string) => Object.hasOwn(d.targets, name)
 
-  const heroReport = async (card: GeneratedCard, collection: string | undefined, check: boolean): Promise<HeroReport | null> => {
+  const heroReport = async (card: GeneratedCard, check: boolean): Promise<HeroReport | null> => {
     const hero = card.hero
     if (!hero) return null
     let readable: boolean | null = null
-    if (check && d.heroLoader.readable) readable = await d.heroLoader.readable(hero, { collection })
+    if (check && d.heroLoader.readable) readable = await d.heroLoader.readable(hero, { collection: collectionOf(hero) })
     return {
       id: uploadId(hero),
       filename: typeof hero.filename === 'string' ? hero.filename : null,
@@ -151,7 +152,7 @@ export function createInspector(d: InspectorDeps): Inspector {
   async function describe(card: ResolvedCard, check: boolean): Promise<Omit<AuditRow, 'id' | 'slug' | 'hasDescription'>> {
     if (card.kind === 'generated') {
       const stat = await d.store.stat(card.pageId, card.v, card.encoding.format)
-      const hero = await heroReport(card, card.heroCollection, check) // the collection the route reads the hero from, as resolved
+      const hero = await heroReport(card, check)
       return {
         kind: 'generated',
         url: card.url,

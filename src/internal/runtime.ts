@@ -13,6 +13,7 @@ import type { ResolvedCard } from './resolve.js'
 import { cachedSite } from './site.js'
 import { CUSTOM_KEY, type OgState } from './state.js'
 import type { CardStore, OnEvent } from './types.js'
+import { type UploadField, uploadFieldsOf } from './uploads.js'
 import { variantsOf } from './variants.js'
 
 export type OgRuntime = {
@@ -133,6 +134,20 @@ export function buildRuntime(state: OgState, payload: Payload, over: RuntimeOver
   const renderer = over.renderer ?? nextOgRenderer({ palette: cardPaletteOf(o.palette) })
   const heroLoader = over.heroLoader ?? heroLoaderFor(payload, o, state.events.emit)
   const only = uploadCollections(payload)
+  // The schema's upload fields per collection, read once: the config does not change under a running process.
+  const fieldCache = new Map<string, readonly UploadField[]>()
+  const uploadFields = (collection: string) => {
+    let fields = fieldCache.get(collection)
+    if (!fields) {
+      const known = payload.collections as unknown as Record<
+        string,
+        { config?: { fields?: Parameters<typeof uploadFieldsOf>[0] } } | undefined
+      >
+      fields = uploadFieldsOf(known?.[collection]?.config?.fields)
+      fieldCache.set(collection, fields)
+    }
+    return fields
+  }
   const soleUpload = only.length === 1 ? only[0]?.slug : undefined
   const isDraftRequest =
     over.isDraftRequest ??
@@ -165,6 +180,7 @@ export function buildRuntime(state: OgState, payload: Payload, over: RuntimeOver
       renderer,
       heroLoader,
       uploadCollection: soleUpload,
+      uploadFields,
       gate: state.gate,
       admission: state.admission,
       memo: state.memo,
@@ -251,10 +267,11 @@ export function buildRuntime(state: OgState, payload: Payload, over: RuntimeOver
       const { previewing, req } = await previewOf(request)
       // The first target names the collection; its variants share it, so one read serves every size.
       const doc = await docOf(a.targets[0] as string, a.id, previewing, req)
+      const uploads = handlerFor().uploads({ previewing, request: req })
       return Promise.allSettled(
         a.targets.map(async (target): Promise<ResolvedCard> => {
           if (!doc) return { kind: 'none' }
-          return handlerFor().resolve({ target, doc }, { previewing, request: req })
+          return handlerFor().resolve({ target, doc }, { previewing, request: req, uploads })
         }),
       )
     },

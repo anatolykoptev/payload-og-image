@@ -34,11 +34,10 @@ import { describe, expect, it, vi } from 'vitest'
 import { createGate } from '../../src/internal/gate.js'
 import { CACHE, createCardHandler } from '../../src/internal/handler.js'
 import { createMemo } from '../../src/internal/memo.js'
-import { uploadSource } from '../../src/internal/needs.js'
 import { memoryStore } from '../../src/internal/store/memory.js'
 import { payloadHeroLoader } from '../../src/render/hero.js'
 import { defineTarget, defineTemplate } from '../../src/template.js'
-import { loadTestFonts, realPng, relatedUploads } from '../helpers.js'
+import { loadTestFonts, realPng, relatedUploads, uploadsFrom, verifiedUpload } from '../helpers.js'
 
 const post = defineTemplate<{ title: string; label: string }>({
   id: 'post',
@@ -92,6 +91,7 @@ function setup(over: Record<string, unknown> = {}, opts: { renderFails?: boolean
       draft,
       site,
       related: relatedUploads(published.get('h')),
+      uploads: uploadsFrom(relatedUploads(published.get('h'))),
     },
     store,
     renderer,
@@ -121,14 +121,14 @@ describe('card handler: a populated hero on a site with several upload collectio
         .jpeg()
         .toBuffer(),
     )
-    const populated = { id: 9, url: '/media/h.jpg', updatedAt: 'u1', filename: 'h.jpg' }
-    uploadSource.set(populated, 'photos')
+    const populated = verifiedUpload({ id: 9, url: '/media/h.jpg', updatedAt: 'u1', filename: 'h.jpg' }, 'photos')
     const source = {
       published: async () => ({ id: 2, slug: 'h', title: 'Hero', heroImage: populated }),
       publishedById: async () => null,
       draft: async () => null,
       site: async () => ({ name: 'Site' }),
       related: async (collection: string) => (collection === 'photos' ? populated : null),
+      uploads: uploadsFrom(async (collection: string) => (collection === 'photos' ? populated : null)),
     }
     // Two upload collections: only `photos` has the file, and the loader finds a folder only for a collection it is told.
     const heroLoader = payloadHeroLoader({ staticDirs: async (collection) => (collection === 'photos' ? [dir] : []) })
@@ -225,7 +225,7 @@ describe('card handler', () => {
     }
     const set = setup(withGround)
     await set.h.GET(req('/og/posts/h/card.png'), ctx('h'))
-    expect((set.heroLoader.mock.calls[0] as unknown[])[2]).toEqual({ collection: undefined, background: '#336699' })
+    expect((set.heroLoader.mock.calls[0] as unknown[])[2]).toEqual({ collection: 'media', background: '#336699' })
     const plain = setup()
     await plain.h.GET(req('/og/posts/h/card.png'), ctx('h'))
     expect(((plain.heroLoader.mock.calls[0] as unknown[])[2] as { background?: string }).background).toBeUndefined()

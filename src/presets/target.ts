@@ -1,4 +1,3 @@
-import { uploadNeeds } from '../internal/needs.js'
 import type { SiteInfo } from '../internal/types.js'
 import type { ImageRef, ResolverArgs, Target } from '../template.js'
 import type { PresetProps } from './layout.js'
@@ -82,6 +81,9 @@ export function presetTarget(p: ResolvedPreset): Target {
     // Only a photo card has a hero: a text card must not hash or load one it never draws.
     hero: ({ doc }: ResolverArgs<unknown>) => (p.hero && choose(doc) === 'photo' ? (read(doc, p.hero.path) as ImageRef) : undefined),
     ...(p.hero ? { heroCollection: p.hero.collection } : {}),
+    // A preset knows which upload fields it draws: the editor's share image, and the hero unless the collection forces text (the hero decides
+    // the preset, so it is read for 'auto' and 'photo' only). Nothing else is read from the document.
+    uploadFields: [...(p.seo ? [p.seo.path] : []), ...(p.preset !== 'text' && p.hero ? [p.hero.path] : [])],
     props: ({ doc, site, overrides }: ResolverArgs<unknown>): PresetProps => ({
       title: (p.ogHeadline ? overrides?.headline : undefined) ?? str(read(doc, p.title)) ?? '',
       subtitle: (p.ogSubtitle ? overrides?.subtitle : undefined) ?? (p.subtitle ? str(read(doc, p.subtitle)) : undefined),
@@ -120,9 +122,5 @@ export function presetTarget(p: ResolvedPreset): Target {
       ? { imageCollections: { logo: p.logoCollection, partner: p.logoCollection, mark: p.logoCollection, art: p.logoCollection } }
       : {}),
   }
-  // A preset knows which upload fields it draws: the editor's share image, and the hero unless the collection forces text (the hero decides
-  // the preset, so it is read for 'auto' and 'photo' only). The source reads nothing else from the document.
-  const needed = new Set([...(p.seo ? [p.seo.path] : []), ...(p.preset !== 'text' && p.hero ? [p.hero.path] : [])])
-  uploadNeeds.set(target, () => needed)
   return target
 }

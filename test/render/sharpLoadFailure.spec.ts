@@ -6,6 +6,7 @@ import { mkdtemp, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
+import { VERIFIED } from '../../src/internal/uploads.js'
 
 vi.mock('sharp', () => {
   throw new Error('the native binary is missing')
@@ -18,7 +19,7 @@ const setup = async () => {
   await writeFile(path.join(dir, 'a.png'), PNG)
   return {
     loader: payloadHeroLoader({ staticDirs: async () => [dir] }),
-    hero: { id: 'a', filename: 'a.png', url: '/m/a.png', updatedAt: 'u' },
+    hero: Object.defineProperty({ id: 'a', filename: 'a.png', url: '/m/a.png', updatedAt: 'u' }, VERIFIED, { value: 'media' }) as never,
   }
 }
 const box = { width: 100, height: 50 }

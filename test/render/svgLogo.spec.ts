@@ -32,6 +32,7 @@ import type { OgEvent } from '../../src/internal/types.js'
 import { payloadHeroLoader } from '../../src/render/hero.js'
 import { looksLikeSvg, looksRaster } from '../../src/render/sniff.js'
 import { capMemory, rasteriseSvg, renderSize, renderSvg, sanitiseSvg } from '../../src/render/svg.js'
+import { verifiedUpload } from '../helpers.js'
 
 const NS = 'xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"'
 const svg = (body: string, attrs = 'width="120" height="40" viewBox="0 0 120 40"') => `<svg ${NS} ${attrs}>${body}</svg>`
@@ -42,7 +43,7 @@ async function loader(files: Record<string, string | Buffer>) {
   for (const [name, body] of Object.entries(files)) await writeFile(path.join(dir, name), body)
   const payload = { collections: { media: { config: { upload: { staticDir: dir } } } } } as unknown as Payload
   const load = heroLoaderFor(payload, {})
-  const hero = (name: string) => ({ id: name, filename: name, url: `/m/${name}`, updatedAt: 'u' })
+  const hero = (name: string) => verifiedUpload({ id: name, filename: name, url: `/m/${name}`, updatedAt: 'u' })
   return {
     load: (name: string, box = { width: 120, height: 40 }, where: Record<string, unknown> = {}) =>
       load(hero(name), box, { collection: 'media', ...where }),
@@ -317,13 +318,13 @@ describe('hostile SVGs', () => {
     await writeFile(path.join(dir, 'logo.svg'), LOGO)
     const payload = { collections: { media: { config: { upload: { staticDir: dir } } } } } as unknown as Payload
     const load = heroLoaderFor(payload, {})
-    const hero = { id: 'once', filename: 'logo.svg', url: '/m/logo.svg', updatedAt: 'v1' }
+    const hero = verifiedUpload({ id: 'once', filename: 'logo.svg', url: '/m/logo.svg', updatedAt: 'v1' })
     const first = await load(hero, { width: 120, height: 40 }, { collection: 'media' })
     expect(first).toMatch(/^data:image\/png/)
     await writeFile(path.join(dir, 'logo.svg'), svg('<rect width="120" height="40" fill="#00f"/>')) // the file changes, the version does not
     expect(await load(hero, { width: 120, height: 40 }, { collection: 'media' })).toBe(first)
     // A new updatedAt is a new version: read and drawn again.
-    const next = await load({ ...hero, updatedAt: 'v2' }, { width: 120, height: 40 }, { collection: 'media' })
+    const next = await load(verifiedUpload({ ...hero, updatedAt: 'v2' }), { width: 120, height: 40 }, { collection: 'media' })
     expect(next).not.toBe(first)
   })
 
@@ -446,7 +447,7 @@ describe('hostile SVGs', () => {
         return [dir]
       },
     })
-    const hero = { id: 'flight', filename: 'logo.svg', url: '/m/logo.svg', updatedAt: 'v1' }
+    const hero = verifiedUpload({ id: 'flight', filename: 'logo.svg', url: '/m/logo.svg', updatedAt: 'v1' })
     const outs = await Promise.all([
       ...Array.from({ length: 6 }, () => load(hero, { width: 120, height: 40 }, { collection: 'media' })),
       load.hasAlpha?.(hero, { collection: 'media' }),
@@ -462,7 +463,7 @@ describe('hostile SVGs', () => {
     const load = payloadHeroLoader({ staticDirs: async () => [dir], onEvent: (e) => events.push(e) })
     const where = { collection: 'media' }
     const box = { width: 120, height: 40 }
-    const memory = { id: 'memory', filename: 'logo.svg', url: '/m/logo.svg', updatedAt: 'v1' }
+    const memory = verifiedUpload({ id: 'memory', filename: 'logo.svg', url: '/m/logo.svg', updatedAt: 'v1' })
     await writeFile(path.join(dir, 'logo.svg'), bombs['sixteen nested <svg> around a huge rect'] as string)
     expect(await load(memory, box, where)).toBeNull()
     await writeFile(path.join(dir, 'logo.svg'), LOGO) // the file is fine now, the version has not changed: the limit is the file's, and remembered
@@ -480,7 +481,7 @@ describe('hostile SVGs', () => {
     ])
     expect(events.every((e) => e.detail?.collection === 'media')).toBe(true)
     // A new version is a new file.
-    expect(await load({ ...memory, updatedAt: 'v2' }, box, where)).toMatch(/^data:image\/png/)
+    expect(await load(verifiedUpload({ ...memory, updatedAt: 'v2' }), box, where)).toMatch(/^data:image\/png/)
   })
 
   it('a logo too heavy to draw in time costs one render per retry window, never keeps the slot from the others, and is tried again after it', async () => {
@@ -496,8 +497,8 @@ describe('hostile SVGs', () => {
     const load = payloadHeroLoader({ staticDirs: async () => [dir], onEvent: (e) => events.push(e), svg: { timeoutMs: 100, retryMs: 600 } })
     const where = { collection: 'media' }
     const box = { width: 120, height: 40 }
-    const slowOne = { id: 'heavy', filename: 'heavy.svg', url: '/m/heavy.svg', updatedAt: 'v1' }
-    const good = { id: 'good', filename: 'good.svg', url: '/m/good.svg', updatedAt: 'v1' }
+    const slowOne = verifiedUpload({ id: 'heavy', filename: 'heavy.svg', url: '/m/heavy.svg', updatedAt: 'v1' })
+    const good = verifiedUpload({ id: 'good', filename: 'good.svg', url: '/m/good.svg', updatedAt: 'v1' })
     const timeouts = () => events.filter((e) => e.detail?.reason === 'timeout').length
     expect(await load(slowOne, box, where)).toBeNull()
     expect(timeouts()).toBe(1)

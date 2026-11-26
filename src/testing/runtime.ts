@@ -204,9 +204,15 @@ export function installTestRuntime(given: OgImagePluginOptions, docs: KitDocs, o
     }),
     find: async (args: { collection: string; where?: unknown; draft?: boolean; page?: number; limit?: number; sort?: string }) => {
       if (!isTargetCollection(args.collection) && uploadCollections.has(args.collection)) {
-        const id = (args.where as { and?: unknown[] } | undefined)?.and?.[0] ?? args.where
-        const upload = uploadOf(args.collection, (id as { id?: { equals?: unknown } } | undefined)?.id?.equals, args.draft === true)
-        return { docs: upload ? [structuredClone(upload)] : [], totalDocs: upload ? 1 : 0 }
+        const match = ((args.where as { and?: unknown[] } | undefined)?.and?.[0] ?? args.where) as
+          | { id?: { equals?: unknown; in?: unknown[] } }
+          | undefined
+        const wanted = match?.id?.in ?? [match?.id?.equals]
+        const found = wanted.flatMap((id) => {
+          const upload = uploadOf(args.collection, id, args.draft === true)
+          return upload ? [structuredClone(upload)] : []
+        })
+        return { docs: found, totalDocs: found.length }
       }
       const name = targetOfCollection(args.collection)
       const found = table(name, args.draft === true).filter((d) => args.where === undefined || matches(args.where, d))

@@ -222,6 +222,12 @@ export type Target<D = any, P = any> = {
    * upload at depth 0). The template draws them from `ctx.images` and must declare each name in `imageBoxes`.
    */
   images?: (a: ResolverArgs<D>) => Record<string, ImageRef | readonly ImageRef[] | null | undefined>
+  /**
+   * The document's upload fields (dotted paths) this target draws, for `hero`, `images`, `share` and the editor's share image. Only these are read (one batched read
+   * per upload collection) and arrive in `doc` as the upload; every other upload field arrives as its bare id and is never read. The upload collection of each
+   * comes from the field's `relationTo`. Omit it to read every single-valued upload field; presets set it.
+   */
+  uploadFields?: readonly string[]
   /** The upload collection each named image is read from; a name not listed uses `heroCollection`, else the only upload collection (several, with neither: the card is refused). */
   imageCollections?: Record<string, string>
   /**
