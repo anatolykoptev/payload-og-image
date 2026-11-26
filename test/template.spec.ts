@@ -3,6 +3,7 @@
  * - template.ts:92  drop the :slug/:id check -> "a target path without :slug or :id throws" RED
  * - template.ts:95  drop the kind check -> same test (its kind assertions) RED
  * - template.ts:61  skip the size validation -> "an invalid size or a blank id throws" RED
+ * - limits.ts MAX_SIDE 4000 -> 4001+ (template.ts validSize) -> "an invalid size or a blank id throws" RED
  * - template.ts:57  drop the `extends PropsModel` constraint (or make Normalized<Date> a Date) -> `pnpm typecheck` goes RED (unused @ts-expect-error / type error), "props typing" */
 import { describe, expect, it } from 'vitest'
 import { defineTarget, defineTemplate, type Normalized } from '../src/template.js'
@@ -17,6 +18,13 @@ describe('defineTemplate', () => {
   })
   it('an invalid size or a blank id throws', () => {
     expect(() => defineTemplate({ id: 'a', revision: '1', size: { width: 0, height: 630 }, render })).toThrow(/invalid size/)
+    // The 4000 px cap (limits.ts MAX_SIDE) is exact: 4000 is accepted, 4001 is refused, on either side.
+    expect(defineTemplate({ id: 'a', revision: '1', size: { width: 4000, height: 4000 }, render }).size).toEqual({
+      width: 4000,
+      height: 4000,
+    })
+    expect(() => defineTemplate({ id: 'a', revision: '1', size: { width: 4001, height: 630 }, render })).toThrow(/invalid size/)
+    expect(() => defineTemplate({ id: 'a', revision: '1', size: { width: 1200, height: 4001 }, render })).toThrow(/invalid size/)
     expect(() => defineTemplate({ id: ' ', revision: '1', render })).toThrow(/non-empty id/)
   })
 })
