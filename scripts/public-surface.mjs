@@ -7,3 +7,10 @@ export const PUBLIC_SURFACE = {
   'payload-og-image/mcp': ['ogImageMcpToolMap'],
   'payload-og-image/mcp/v3': ['ogImageMcpTools'],
 }
+
+// Entries that need an optional peer to load. verify-pack imports every other entry in a clean project with no optional
+// peers installed, then installs these peers (at the range package.json declares) and imports the entries listed here.
+// v0.7.1's publish failed because the mcp/v3 entry, which imports zod, was checked in the peerless project.
+export const ENTRY_PEERS = {
+  'payload-og-image/mcp/v3': ['zod'],
+}
