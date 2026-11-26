@@ -5,7 +5,7 @@ import { PHOTO_SET, type PhotoName } from './photo.js'
 import { pooled } from './pool.js'
 import { type GeneratedCard, getPath, photosEnabled, type ResolvedCard } from './resolve.js'
 import type { CardMime, CardStore, Upload } from './types.js'
-import { collectionOf } from './uploads.js'
+import { collectionOf, type UploadReader } from './uploads.js'
 
 /** What a card is asked for: a document of a target (by id or by the slug field), or a static card by its key (`kind/slug`). */
 export type CardRef = { target: string; id?: string | number; slug?: string } | { static: string }
@@ -178,8 +178,8 @@ export function createInspector(d: InspectorDeps): Inspector {
     return { scope: a.target, card: await d.handler.resolve({ target: a.target, doc }, { previewing: false }), doc }
   }
 
-  async function discoverOf(scope: string, doc: Record<string, any>): Promise<DiscoverReport> {
-    const set = await d.handler.photos({ target: scope, doc }, { previewing: false })
+  async function discoverOf(scope: string, doc: Record<string, any>, uploads: UploadReader): Promise<DiscoverReport> {
+    const set = await d.handler.photos({ target: scope, doc }, { previewing: false, uploads })
     if (!set) {
       const enabled = photosEnabled(d.targets[scope] as never, false)
       return {
@@ -337,17 +337,19 @@ export function createInspector(d: InspectorDeps): Inspector {
         total = found.totalDocs
       }
       const rows = await pooled(docs, POOL, async (doc): Promise<AuditRow> => {
+        // One reader per row: the card and the photo set read the hero once between them.
+        const uploads = d.handler.uploads({ previewing: false })
         const card =
           typeof doc._static === 'string'
             ? await d.handler.resolve({ staticKey: doc._static }, { previewing: false })
-            : await d.handler.resolve({ target: scope, doc }, { previewing: false })
+            : await d.handler.resolve({ target: scope, doc }, { previewing: false, uploads })
         const base = await describe(card, checkHeroes)
         const slug = scope === STATIC ? doc.slug : getPath(doc, (d.targets[scope] as { slugField?: string }).slugField ?? 'slug')
         const row: AuditRow = {
           id: doc.id ?? null,
           slug: typeof slug === 'string' || typeof slug === 'number' ? String(slug) : null,
           ...base,
-          discover: scope === STATIC ? null : await discoverOf(scope, doc),
+          discover: scope === STATIC ? null : await discoverOf(scope, doc, uploads),
         }
         if (describedBy && scope !== STATIC) {
           const text = getPath(doc, describedBy)

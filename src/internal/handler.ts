@@ -79,6 +79,8 @@ export type HeroLoader = {
    * a page then advertises none.
    */
   photo?: (hero: VerifiedUpload, a: { name: PhotoName; quality: number; ground: string }) => Promise<PhotoCut>
+  /** A synchronous question for a test seam that can cut some uploads and not others (the kit's stand-in heroes have no file): false advertises no set for that upload. Default: every upload. */
+  canPhoto?: (hero: VerifiedUpload) => boolean
 }
 /** `encoding` absent is PNG. */
 export type Renderer = {
@@ -460,7 +462,7 @@ export function createCardHandler(d: HandlerDeps): CardHandler {
       uploads: o.uploads ?? readerFor(o),
       uploadFields: d.uploadFields?.(target.collection ?? a.target),
       uploadCollection: d.uploadCollection,
-      canCut: d.heroLoader.photo !== undefined,
+      canCut: (upload) => d.heroLoader.photo !== undefined && (d.heroLoader.canPhoto?.(upload) ?? true),
     })
   }
 

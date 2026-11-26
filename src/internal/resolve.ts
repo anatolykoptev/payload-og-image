@@ -420,8 +420,8 @@ export type PhotoInput = Pick<
   | 'uploadFields'
   | 'uploadCollection'
 > & {
-  /** The hero loader can cut a photo (`HeroLoader.photo`); without it nothing is advertised, because nothing could be served. */
-  canCut: boolean
+  /** Whether the hero loader can cut a photo from this upload (`HeroLoader.photo`); where it cannot nothing is advertised, because nothing could be served. */
+  canCut: (upload: VerifiedUpload) => boolean
 }
 
 /**
@@ -449,12 +449,18 @@ const positive = (n: unknown): n is number => typeof n === 'number' && Number.is
  * record. Independent of the document's `og.mode` and of the card: the set is not a card. Null when there is none; nothing is read for a target without one.
  */
 export async function resolvePhotos(i: PhotoInput): Promise<ResolvedPhotos | null> {
-  if (!i.canCut || !photosEnabled(i.target, i.variant)) return null
+  if (!photosEnabled(i.target, i.variant)) return null
   const doc = await fillUploads(i.uploads, i.doc, i.uploadFields ?? [], i.target.uploadFields)
   const args = { doc, site: i.site, related: i.related ?? (async () => null), overrides: {} as OgOverrides }
   const pick = typeof i.target.photo === 'function' ? i.target.photo : i.target.hero
   const upload = await heroOf(i, pick?.(args))
-  if (!upload || !PHOTO_MIME.includes(String(upload.mimeType).toLowerCase()) || !positive(upload.width) || !positive(upload.height))
+  if (
+    !upload ||
+    !i.canCut(upload) ||
+    !PHOTO_MIME.includes(String(upload.mimeType).toLowerCase()) ||
+    !positive(upload.width) ||
+    !positive(upload.height)
+  )
     return null
   const slug = routable(nonEmpty(getPath(doc, i.target.slugField ?? 'slug')))
   if (slug === undefined) return null

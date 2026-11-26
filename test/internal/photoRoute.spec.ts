@@ -2,6 +2,7 @@
  * enlarges a small photo, or keeps serving old pixels under an old URL after the focal point moved.
  * - internal/version.ts `photoVersion` without `focalOf(i.upload)` -> "moving only the focal point changes every URL and the pixels" RED
  * - internal/resolve.ts `resolvePhotos` without `fillUploads` + `heroOf` (taking the document's own upload object) -> "a draft-only hero gives no set to the public ..." RED (and 12 more)
+ * - handler.ts `photos()` reading uploads with `readerFor({ previewing: true })` (the editor's draft view for everyone) -> "a draft-only hero gives no set to the public ..." RED, alone
  * - internal/photo.ts `Math.min(PHOTO_SET.capWidth, crop.width)` -> `PHOTO_SET.capWidth` (enlarging) -> "a 900 px photograph gives crops of at most 900 px ..." RED
  * - render/encode.ts `toJpeg` adding `.withMetadata()` -> "no EXIF, GPS or profile ships ..." RED
  * - render/photo.ts the `.rotate()` dropped -> "no EXIF, GPS or profile ships ..." (upright size) RED
@@ -62,12 +63,12 @@ beforeAll(async () => {
   files['big.jpg'] = await pixels(2400, 1600).jpeg({ quality: 92 }).toBuffer()
   files['small.jpg'] = await pixels(900, 600).jpeg().toBuffer()
   files['tiny.jpg'] = await pixels(500, 400).jpeg().toBuffer()
-  // A phone photograph: stored landscape with a quarter-turn EXIF orientation, a Display P3 profile and a GPS fix.
+  // A phone photograph: stored landscape with a quarter-turn EXIF orientation, a Display P3 profile and a (made-up) GPS fix.
   files['phone.jpg'] = await pixels(1800, 1200)
     .withMetadata({
       orientation: 6,
       icc: 'p3',
-      exif: { IFD3: { GPSLatitudeRef: 'N', GPSLatitude: '37/1 46/1 29/1', GPSLongitudeRef: 'W', GPSLongitude: '122/1 25/1 9/1' } },
+      exif: { IFD3: { GPSLatitudeRef: 'N', GPSLatitude: '10/1 20/1 30/1', GPSLongitudeRef: 'E', GPSLongitude: '40/1 50/1 5/1' } },
     })
     .jpeg()
     .toBuffer()
@@ -409,6 +410,16 @@ describe('the photo set on the card route', () => {
       },
     })
     expect(await h.photos()).toBeNull()
+    // a seam that can cut some uploads and not others (the kit's stand-in heroes): no set for the ones it cannot
+    const some = await harness({
+      loader: (real) => {
+        const loader: HeroLoader = (...a) => real(...a)
+        loader.photo = (...a) => (real.photo as NonNullable<HeroLoader['photo']>)(...a)
+        loader.canPhoto = () => false
+        return loader
+      },
+    })
+    expect(await some.photos()).toBeNull()
   })
 
   it("a page with an editor's own share image still has its photo set, and og.mode off does not hide it", async () => {

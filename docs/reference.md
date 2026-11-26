@@ -739,11 +739,11 @@ set to the public, and an editor previewing sees the draft (never cached, never 
 
 **Zero config, same route.** Every preset collection with a hero has the set; a hand-written target has it when it names a `hero` (or `photo`). The images are served by the card route beside the card (`/og/posts/a/photo-16x9.jpg?v=...`): the zero-config `[file]` route
 answers them with no new route file, through the same memo, store, gate, etag and cache headers as a card (`immutable` for the current version, `no-store` in a preview), and no satori. **A target whose card path is a fixed file (`card.png`) has no set**, because its route would answer 404:
-end its path in `card.:ext` and use the `[file]` route. A page never lists a URL the route cannot serve (one rule, `photosEnabled`, decides both). An unreadable file answers 503, never a card in its place.
+end its path in `card.:ext` and use the `[file]` route. A page never lists a URL the route cannot serve (one rule, `photosEnabled`, decides both), on the assumption that a `.:ext` path is answered by a route that takes any file name in its folder: a site that serves such a path from fixed route files must add the three `photo-*.jpg` routes or use `[file]`. An unreadable file answers 503, never a card in its place.
 
 **Versions.** The URL's `v` is made from the crop spec (ratios, cap, floor, revision), the size, the upload's collection, id and `updatedAt`, its recorded size, its **focal point**, the JPEG quality and the ground. Moving the focal point, replacing the file or changing the quality gives new URLs;
-retitling the page changes nothing. If the upload's record disagrees with its file (a stale record, or an EXIF quarter-turn upload whose recorded size is the stored one: Payload records the unrotated size), the pixels produced differ from the size the page advertised: that image is served
-briefly (`max-age=300`, no etag, never stored, a `downgraded` event) rather than immutable. The three sizes are stored under a page id each, so they do not evict one another; they count against the store's file and byte caps with the cards (about 100 to 300 KB for a full-size file).
+retitling the page changes nothing. If the upload's record disagrees with its file (a stale record, or an EXIF quarter-turn upload whose recorded size is the stored, unrotated one: Payload's `getImageSize` reads the stored size, and whether a rotated copy is written depends on its upload options), the pixels produced differ from the size the page advertised: that image is served
+briefly (`max-age=300`, no etag, never stored, a `downgraded` event) rather than immutable. The three sizes are stored under a page id each, so they do not evict one another; they count against the store's file and byte caps with the cards (three JPEGs of at most 1200 px per page, sized by the photograph: check your store's headroom).
 
 ### JSON-LD and robots
 
@@ -774,7 +774,7 @@ a failure is an event and `[]` in production and a throw in development and test
 override it and pass it through the helper; an `X-Robots-Tag: max-image-preview:large` header does the same for every page at once. A `noindex` page is out of Discover whatever the image says.
 
 **`og_audit`** (MCP) adds a `discover` object to each row, with the photo set (ratios and sizes, or why there is none), whether its 16:9 image is at least 1200 px wide (`large`), a summary count, and a `discoverNote`: `max-image-preview` is a tag of the page, which the plugin cannot see, so check it on the page.
-The test kit serves a photo set only for a hero with a real file (`installTestRuntime(..., { heroDir })`): the stand-in heroes have none.
+The test kit has a photo set only for a hero with a real file (`installTestRuntime(..., { heroDir })`): the stand-in heroes have none, so a page with one lists none.
 
 The card `variants` above stay for a surface that wants the card at another size. They are not for structured data: Google advises against a logo or text there.
 
