@@ -49,7 +49,7 @@ const MAX_FONT_SIZE = 2048
 const sha = (b: Uint8Array | string) => createHash('sha256').update(b).digest('hex')
 const asBytes = (d: ArrayBuffer | Uint8Array) => (d instanceof Uint8Array ? d : new Uint8Array(d))
 
-async function loadOne(spec: FontSpec): Promise<LoadedFont & { hash: string }> {
+async function loadOne(spec: FontSpec): Promise<LoadedFont & { hash: string; cover: string }> {
   // A family is named in a CSS `font-family` list (`ctx.font` joins a stack with commas), so it cannot hold a list separator or a quote.
   if (/[,"']/.test(spec.family))
     throw new Error(`payload-og-image: font family ${JSON.stringify(spec.family)} must not contain a comma or a quote`)
@@ -78,6 +78,8 @@ async function loadOne(spec: FontSpec): Promise<LoadedFont & { hash: string }> {
     has: (ch) => font.hasGlyphForCodePoint(ch.codePointAt(0) ?? 0),
     advance: (ch) => (glyphOf(ch).advanceWidth / font.unitsPerEm) * 1000,
     hash: sha(bytes),
+    // Which characters the face draws (the version digest asks whether the faces of one family differ in it).
+    cover: sha(font.characterSet.join(',')),
   }
 }
 
@@ -93,11 +95,26 @@ export async function loadFonts(specs: FontSpec[]): Promise<{ fonts: LoadedFont[
     if (seen.has(id)) throw new Error(`payload-og-image: font face "${f.family}" ${f.weight} ${f.style} is registered twice`)
     seen.add(id)
   }
+  // The matching rule decides what is drawn only in a family whose faces are not interchangeable: they draw different characters, or the
+  // face chosen for some weight differs from the nearest weight (the rule before `FONT_MATCH_RULE`). Only such a site's URLs depend on it.
+  const byFamily = new Map<string, typeof loaded>()
+  for (const f of loaded) byFamily.set(f.family, [...(byFamily.get(f.family) ?? []), f])
+  const ruleMatters = [...byFamily.values()].some(
+    (faces) =>
+      faces.length > 1 &&
+      (new Set(faces.map((f) => f.cover)).size > 1 ||
+        [100, 200, 300, 400, 500, 600, 700, 800, 900].some((w) => {
+          const nearest = [...faces].sort(
+            (a, b) => Number(a.style !== 'normal') - Number(b.style !== 'normal') || Math.abs(a.weight - w) - Math.abs(b.weight - w),
+          )[0]
+          return matchFace(faces, faces[0]?.family as string, w) !== nearest
+        })),
+  )
   const digest = sha(
-    loaded
-      .map((f) => `${f.family}|${f.weight}|${f.style}|${f.hash}`)
-      .sort()
-      .join('\n'),
+    [
+      ...loaded.map((f) => `${f.family}|${f.weight}|${f.style}|${f.hash}`).sort(),
+      ...(ruleMatters ? [`match:${FONT_MATCH_RULE}`] : []),
+    ].join('\n'),
   )
   return { fonts: loaded.map(({ hash: _hash, ...f }) => f), digest }
 }
@@ -105,17 +122,49 @@ export async function loadFonts(specs: FontSpec[]): Promise<{ fonts: LoadedFont[
 const facesOf = (fonts: LoadedFont[], family: string) => fonts.filter((f) => f.family === family)
 
 /**
- * The face of a family that draws and measures at `weight`: upright before italic, then the nearest weight (the LOWER one when two are as
- * near), or with no weight the heaviest. Independent of registration order. `only`: the faces to choose among (default all of them).
+ * Which of two faces the renderer prefers for text drawn at `want` (negative: `a`), copied from satori's own comparator (`ec2` in
+ * `next/dist/compiled/@vercel/og`), which is CSS Fonts 4 weight matching: the requested weight itself; for 400 and 500 each other next; below
+ * 400 the lighter faces nearest first, then the heavier; above 500 the heavier faces nearest first, then the lighter. At the same weight the
+ * upright face, else the first registered. `FONT_MATCH_RULE` below is the version of this rule; the face-matching spec renders probes through
+ * satori and checks every choice against what it really drew.
  */
-const measuringFace = (fonts: LoadedFont[], family: string, weight?: number, only?: (f: LoadedFont) => boolean): LoadedFont | undefined =>
-  facesOf(fonts, family)
-    .filter((f) => only?.(f) ?? true)
-    .sort(
-      (a, b) =>
-        Number(a.style !== 'normal') - Number(b.style !== 'normal') ||
-        (weight === undefined ? b.weight - a.weight : Math.abs(a.weight - weight) - Math.abs(b.weight - weight) || a.weight - b.weight),
-    )[0]
+function preferred(want: number, a: LoadedFont, b: LoadedFont): number {
+  const t = a.weight
+  const n = b.weight
+  if (t !== n) {
+    if (t === want) return -1
+    if (n === want) return 1
+    if ((want === 400 && t === 500) || (want === 500 && t === 400)) return -1
+    if ((want === 400 && n === 500) || (want === 500 && n === 400)) return 1
+    if (want < 400) return t < want && n < want ? n - t : t < want ? -1 : n < want ? 1 : t - n
+    return want < t && want < n ? t - n : want < t ? -1 : want < n ? 1 : n - t
+  }
+  if (a.style !== b.style) {
+    if (a.style === 'normal') return -1
+    if (b.style === 'normal') return 1
+  }
+  return -1
+}
+
+/** Bumped when `preferred` (or what is measured with it) changes what a card draws: it is part of the fonts digest of a site with a family of several faces. */
+export const FONT_MATCH_RULE = 'css4-satori-1'
+
+/**
+ * The face of a family that draws and measures at `weight`: the one satori picks (`preferred`, applied in registration order as satori does).
+ * With no weight (the legacy rule): upright before italic, then the heaviest. `only`: the faces to choose among (default all of them).
+ */
+export const matchFace = (
+  fonts: LoadedFont[],
+  family: string,
+  weight?: number,
+  only?: (f: LoadedFont) => boolean,
+): LoadedFont | undefined => {
+  const faces = facesOf(fonts, family).filter((f) => only?.(f) ?? true)
+  if (weight !== undefined)
+    return faces.reduce<LoadedFont | undefined>((best, f) => (best === undefined || preferred(weight, best, f) > 0 ? f : best), undefined)
+  return faces.sort((a, b) => Number(a.style !== 'normal') - Number(b.style !== 'normal') || b.weight - a.weight)[0]
+}
+const measuringFace = matchFace
 const covers = (faces: LoadedFont[], ch: string) => faces.some((f) => f.has(ch))
 
 /**
