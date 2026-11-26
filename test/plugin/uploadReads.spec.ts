@@ -6,6 +6,7 @@
  * - uploads.ts `fillUploads` ignoring `drawn` (every field read) -> "a collection that forces the text preset reads no hero record" RED
  * - presets/target.ts `uploadFields` leaving the hero path out for 'auto' -> "an auto collection still reads its hero" RED
  * - uploads.ts `fillUploads` trusting an object that carries an id -> "a hand-built upload object in a document is read afresh" RED
+ * - uploads.ts `fillUploads` skipping an object value (`typeof raw === 'object'` -> continue) -> "a hand-built object at the share-image path is read afresh" RED
  * - uploads.ts `fillUploads` keeping an object with no usable id -> "an object with no usable id at an upload path is no upload" RED */
 import { describe, expect, it } from 'vitest'
 import { collectionOf, createUploadReader, fillUploads, isVerified } from '../../src/internal/uploads.js'
@@ -35,6 +36,16 @@ describe('uploads read behind a card', () => {
     const handBuilt = { ...real, heroImage: { id: 2, url: '/media/draft.jpg', width: 1200, height: 800, mimeType: 'image/jpeg' } }
     const card = await resolveDoc(handBuilt)
     expect(card.kind === 'generated' && card.hero).toBeNull()
+  })
+  it('a hand-built object at the share-image path is read afresh: a draft-only one is no share image, a published one is the stored record', async () => {
+    const meta = { name: 'meta', type: 'group', fields: [{ name: 'image', type: 'upload', relationTo: 'media' }] }
+    const { source, resolveDoc } = setup({ collections: ['posts'] }, undefined, { fields: [meta] })
+    const real = await source.published('posts', 'a')
+    const file = (id: number, url: string) => ({ id, url, width: 1200, height: 800, mimeType: 'image/jpeg' })
+    const draftOnly = await resolveDoc({ ...real, meta: { image: file(2, '/media/forged-draft.jpg') } })
+    expect(draftOnly.kind).toBe('generated')
+    const published = await resolveDoc({ ...real, meta: { image: file(3, '/media/forged.jpg') } })
+    expect(published.kind === 'own' && published.image.url).toBe('https://www.example.test/media/a.jpg')
   })
   it('a verified upload carries its collection, a copy of it does not', async () => {
     const { resolve } = setup({ collections: ['posts'] })

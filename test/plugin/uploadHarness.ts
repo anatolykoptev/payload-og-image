@@ -26,7 +26,7 @@ const MEDIA: Record<number, Record<string, unknown>> = {
 export function setup(
   input: OgImagePluginInput,
   posts: Record<string, unknown>[] = [{ id: 10, slug: 'a', title: 'A', heroImage: 1 }],
-  extra: { targets?: Record<string, Target>; templates?: Template<any>[] } = {},
+  extra: { targets?: Record<string, Target>; templates?: Template<any>[]; fields?: unknown[] } = {},
 ) {
   const finds: Array<Record<string, any>> = []
   const config = configOf()
@@ -36,6 +36,7 @@ export function setup(
     relationTo: 'media',
     hasMany: true,
   })
+  ;((config.collections?.find((c) => c.slug === 'posts')?.fields ?? []) as unknown[]).push(...(extra.fields ?? []))
   const targetName = Object.keys(extra.targets ?? {})[0] ?? 'posts'
   const collections = Object.fromEntries(
     (config.collections ?? []).map((c) => [c.slug, { config: { ...c, versions: c.slug === 'users' ? undefined : { drafts: true } } }]),
