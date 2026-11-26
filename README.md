@@ -130,7 +130,7 @@ export const HEAD = GET
 With neither `collections` nor `targets`, the plugin discovers every collection that is not an upload or auth collection, that an anonymous request may read
 (its `access.read` is called when the config is built and answers `true` or a `Where`; none, a throw, a Promise or `false` skips it), and that has a title field the
 public may read. A collection that is unclear is skipped with one start-up line naming it and the reason; a fresh install always boots. Each collection becomes an ordinary target
-built from two named, versioned presets: `payload-og-image:photo@1` (a JPEG: the hero full-bleed with a scrim under the title) and `payload-og-image:text@1`
+built from two named, versioned presets: `payload-og-image:photo@2` (a JPEG: the hero full-bleed with a scrim under the title) and `payload-og-image:text@2`
 (a PNG: a dark ground, the site's logo, name and label on the left, the title, and the logo again, whole and faint, on the right). A document whose hero is at least 800 x 420 draws the photo preset, any other the
 text preset; the page's `ogMetadata` advertises `card.jpg` or `card.png` accordingly, and the route answers 404 for any other file name, for classic cards too.
 

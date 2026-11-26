@@ -1,4 +1,4 @@
-// The values of the two built-in presets, `payload-og-image:text@1` and `payload-og-image:photo@1`. Nothing here is a plugin default: a site
+// The values of the two built-in presets, `payload-og-image:text@2` and `payload-og-image:photo@2`. Nothing here is a plugin default: a site
 // that opts in gets this named spec, and every number enters the card version through the template's id and revision, so changing one is a
 // revision bump that moves only preset cards.
 import type { ImageShape } from '../template.js'

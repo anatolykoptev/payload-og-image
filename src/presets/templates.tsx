@@ -275,7 +275,7 @@ const common = {
   required: (p: PresetProps) => typeof p.title === 'string' && p.title.trim() !== '',
 }
 
-/** `payload-og-image:text@1`: the brand format on a dark ground (PNG). */
+/** `payload-og-image:text@2`: the brand format on a dark ground (PNG). */
 export const textPreset: Template<PresetProps> = defineTemplate<PresetProps>({
   ...common,
   id: TEXT_ID,
@@ -285,7 +285,7 @@ export const textPreset: Template<PresetProps> = defineTemplate<PresetProps>({
   render: drawText,
 })
 
-/** `payload-og-image:photo@1`: a full-bleed hero with a scrim under the words (JPEG). A transparent hero is flattened onto the ground. */
+/** `payload-og-image:photo@2`: a full-bleed hero with a scrim under the words (JPEG). A transparent hero is flattened onto the ground. */
 export const photoPreset: Template<PresetProps> = defineTemplate<PresetProps>({
   ...common,
   id: PHOTO_ID,
