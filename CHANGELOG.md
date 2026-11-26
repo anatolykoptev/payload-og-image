@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.13.0](https://github.com/anatolykoptev/payload-og-image/compare/v0.12.0...v0.13.0) (2026-11-26)
+
+
+### Features
+
+* jpeg.chromaSubsampling option (4:4:4) for cards ([#118](https://github.com/anatolykoptev/payload-og-image/issues/118)) ([0d9b3ea](https://github.com/anatolykoptev/payload-og-image/commit/0d9b3ea9950e8f9a3638cdfc34d6a09ea434fd99))
+
 ## [0.12.0](https://github.com/anatolykoptev/payload-og-image/compare/v0.11.0...v0.12.0) (2026-11-26)
 
 
