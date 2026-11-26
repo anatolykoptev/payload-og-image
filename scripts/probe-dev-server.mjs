@@ -194,7 +194,7 @@ try {
 
   // 8. The admin editor, in a browser: the preview field redraws the card when the form changes. Unsaved: the post stays as it was.
   const plain = (await (await fetch(`${origin}/api/posts?where[slug][equals]=plain`, { headers: auth })).json()).docs[0]
-  await adminEditorSmoke({ origin, ...editor, post: { id: plain.id, title: plain.title }, ok, check, eq })
+  await adminEditorSmoke({ origin, ...editor, post: { id: plain.id, title: plain.title }, ok, check, eq, fail })
 
   console.log('probe-dev-server: all checks passed')
 } catch (error) {
