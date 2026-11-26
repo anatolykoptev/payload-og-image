@@ -9,6 +9,7 @@ import { DEFAULT_HERO_COLOURS } from '../internal/palette.js'
 import type { Upload } from '../internal/types.js'
 import { heroTag } from '../internal/version.js'
 import { guardedFetch, isPublicAddress, type ResolveHost, systemResolve } from './guardedFetch.js'
+import { prepareShape } from './shape.js'
 
 export type HeroLoaderOptions = {
   /**
@@ -249,13 +250,14 @@ export function payloadHeroLoader(o: HeroLoaderOptions): HeroLoader {
     try {
       if (![box.width, box.height].every((n) => Number.isInteger(n) && n >= 1 && n <= MAX_SIDE)) return null
       const bytes = await read(hero, where)
-      return bytes
-        ? await prepare(bytes, hero, box, {
-            maxPixels,
-            background: where?.keepAlpha ? undefined : (where?.background ?? background),
-            colours,
-          })
-        : null
+      if (!bytes) return null
+      // A shaped image (contained, tinted, screened) is its own preparation; `''` is an image its shape declines, not a failure.
+      if (where?.shape) return await prepareShape(bytes, box, where.shape, maxPixels)
+      return await prepare(bytes, hero, box, {
+        maxPixels,
+        background: where?.keepAlpha ? undefined : (where?.background ?? background),
+        colours: where?.colours !== undefined ? where.colours : colours,
+      })
     } catch {
       return null
     }

@@ -88,3 +88,21 @@ export function pathProblem(pathname: string, format: CardFormat): string | unde
   if (ext === undefined || !ALL_EXTENSIONS.includes(ext) || EXTENSIONS[format].includes(ext)) return undefined
   return `path "${pathname}" ends in .${ext} but the card is ${NAME[format]}: use a .${extensionOf(format)} path`
 }
+
+/**
+ * The problem with a card path given every encoding its card can leave in, or undefined: ONE rule for a hand-written target, a preset's and a static card.
+ * `:ext` stands for the extension of the card's format, so it must be the end of the file name (`card.:ext`) and nowhere else (a request for `/og/jpg/x/card`
+ * could never be checked). A fixed path with no `:ext` serves one file, so every encoding its template can choose must be the one the path names.
+ */
+export function cardPathProblem(pathname: string, formats: CardFormat[]): string | undefined {
+  if (/:ext\b/.test(pathname)) {
+    const tail = pathname.slice(-5)
+    if (tail !== '.:ext' || /:ext\b/.test(pathname.slice(0, -5)))
+      return `path "${pathname}" must hold :ext only as the end of its file name (card.:ext)`
+    return undefined
+  }
+  const distinct = [...new Set(formats)]
+  if (distinct.length > 1)
+    return `path "${pathname}" serves one file but its card can be ${distinct.join(' or ')}: end it in .:ext (card.:ext) or set a fixed \`format\``
+  return distinct[0] === undefined ? undefined : pathProblem(pathname, distinct[0])
+}

@@ -3,7 +3,17 @@ import type { OgOverrides, RelatedFn, ResolverArgs, Target, Template } from '../
 import { DEFAULT_HERO_BACKGROUND, normaliseHeroBackground } from './colour.js'
 import { firstShareImage, type ShareImage, shareImageOf } from './eligible.js'
 import { type LoadedFont, type Stacks, stripMissing } from './fonts.js'
-import { type CardFormat, encodingOf, formatOf, groundOf, type JpegOptions, mimeOf, variantOf, type WebpOptions } from './format.js'
+import {
+  type CardFormat,
+  encodingOf,
+  extensionOf,
+  formatOf,
+  groundOf,
+  type JpegOptions,
+  mimeOf,
+  variantOf,
+  type WebpOptions,
+} from './format.js'
 import { IMAGE_NAME, MAX_CARD_IMAGES } from './limits.js'
 import { pooled } from './pool.js'
 import type { CardEncoding, CardKey, CardMime, SiteInfo, Size, Upload } from './types.js'
@@ -155,15 +165,6 @@ async function namedImages(i: ResolveInput, args: ResolverArgs<any>, template: T
         `payload-og-image: target "${i.targetName}" gives image "${name}" that template "${template.id}" does not declare in imageBoxes`,
       )
     }
-    const collection =
-      (i.target.imageCollections && Object.hasOwn(i.target.imageCollections, name) ? i.target.imageCollections[name] : undefined) ??
-      i.target.heroCollection ??
-      i.uploadCollection
-    if (collection === undefined) {
-      throw new Error(
-        `payload-og-image: target "${i.targetName}" image "${name}" needs an upload collection: set imageCollections.${name} (the site has more than one upload collection)`,
-      )
-    }
     // Ids are collected up to the remaining budget only: a huge hasMany list costs no more than the first few entries.
     const ids: string[] = []
     if (value !== null && value !== undefined) {
@@ -172,6 +173,17 @@ async function namedImages(i: ResolveInput, args: ResolverArgs<any>, template: T
         const id = uploadId(ref)
         if (id !== undefined) ids.push(id)
       }
+    }
+    // A name with no usable id needs no collection: only an image that is really wanted can fail for lack of one.
+    if (ids.length === 0) continue
+    const collection =
+      (i.target.imageCollections && Object.hasOwn(i.target.imageCollections, name) ? i.target.imageCollections[name] : undefined) ??
+      i.target.heroCollection ??
+      i.uploadCollection
+    if (collection === undefined) {
+      throw new Error(
+        `payload-og-image: target "${i.targetName}" image "${name}" needs an upload collection: set imageCollections.${name} (the site has more than one upload collection)`,
+      )
     }
     wanted.push({ name, collection, ids })
     left -= ids.length
@@ -222,10 +234,28 @@ const fontsKey = (digest: string, stacks: Stacks) =>
     .update(`${digest}\n${canonicalJson(stacks)}`)
     .digest('hex')
 
-/** `/og/:kind/:slug/card.png` filled in. A single pass, so a value that contains `:slug` is never expanded again. */
-export function cardPath(target: Target, targetName: string, slug: string): string {
+/**
+ * `/og/:kind/:slug/card.png` filled in; `:ext` is the extension of the card's `format` (`png`, `jpg`, `webp`). A single pass, so a value that
+ * contains `:slug` is never expanded again. A path with `:ext` and no format to take it from is the caller's bug and throws.
+ */
+export function cardPath(target: Target, targetName: string, slug: string, format?: CardFormat): string {
   const values: Record<string, string> = { kind: target.kind ?? targetName, slug, id: slug }
-  return target.path.replace(/:(kind|slug|id)\b/g, (_, name: string) => encodeURIComponent(values[name] as string))
+  return target.path.replace(/:(kind|slug|id|ext)\b/g, (_, name: string) => {
+    if (name === 'ext') {
+      if (format === undefined) throw new Error(`payload-og-image: card path "${target.path}" has :ext and no format to name it`)
+      return extensionOf(format)
+    }
+    return encodeURIComponent(values[name] as string)
+  })
+}
+
+/** The file name a card is served under (the last segment of its path, percent-decoded), or undefined when the path is malformed. */
+export function cardFile(target: Target, targetName: string, slug: string, format: CardFormat): string | undefined {
+  try {
+    return decodeURIComponent(cardPath(target, targetName, slug, format).split('/').pop() as string)
+  } catch {
+    return undefined
+  }
 }
 
 /** kind -> target name. Two targets sharing a kind would share card URLs and store keys, so it throws. */
@@ -259,9 +289,14 @@ export async function resolveCard(i: ResolveInput): Promise<ResolvedCard> {
     overrides: Object.fromEntries(Object.entries(overrides).filter(([, v]) => v !== undefined)) as OgOverrides,
   }
   const rawHero = i.target.hero?.(args)
-  const seo = i.seoImage ? getPath(i.doc, i.seoImage.path) : undefined
+  // The target's own `seoImage` wins over the plugin's: it is scoped to the target. `except` is an upload that is not a deliberate share image (the hero).
+  const seoOption = i.target.seoImage ?? i.seoImage
+  const seo = seoOption ? getPath(i.doc, seoOption.path) : undefined
+  const except = i.target.seoImage?.except ? i.target.seoImage.except(args) : undefined
   const editor =
-    mode !== 'generated' && seo != null && (i.seoImage?.isDeliberate?.(seo) ?? true) && !sameUpload(seo, rawHero) ? seo : undefined
+    mode !== 'generated' && seo != null && (seoOption?.isDeliberate?.(seo) ?? true) && !sameUpload(seo, rawHero) && !sameUpload(seo, except)
+      ? seo
+      : undefined
   const title = typeof i.doc.title === 'string' ? i.doc.title.trim() : ''
   // The editor's image wins without asking the target for alternatives (and without running its code).
   // Mode `custom` is the editor's image alone (target.share() is not asked); `generated` skips the image step.
@@ -299,6 +334,12 @@ export async function resolveCard(i: ResolveInput): Promise<ResolvedCard> {
     props[field] = s.missing.length > 0 ? s.text.replace(/\s+/g, ' ').trim() : s.text
     missing.push(...s.missing)
   }
+  if (template.normalize) {
+    // The template's own say on what it never draws, before the version is taken (a member left undefined is no part of it).
+    const next = normalizeProps(template.normalize(props as never), `${templateId}.normalize`) as Record<string, any>
+    for (const k of Object.keys(props)) delete props[k]
+    Object.assign(props, next)
+  }
   if (template.required && !template.required(props as never)) return { kind: 'none' }
 
   const slug = routable(nonEmpty(getPath(i.doc, i.target.slugField ?? 'slug')))
@@ -312,7 +353,11 @@ export async function resolveCard(i: ResolveInput): Promise<ResolvedCard> {
   const flattened = background !== undefined || i.heroFlattened
   const heroTransparent =
     hero !== null && !flattened && i.heroHasAlpha ? await i.heroHasAlpha(hero, { collection: i.target.heroCollection }) : false
-  const { format, quality } = formatOf({ format: i.format, jpeg: i.jpeg, webp: i.webp }, i.target)
+  // The target's own format wins, then the template's, then the plugin's.
+  const { format, quality } = formatOf(
+    { format: i.format, jpeg: i.jpeg, webp: i.webp },
+    { ...i.target, format: i.target.format ?? template.format },
+  )
   const encoding: CardEncoding = encodingOf(format, quality, groundOf(background, i.heroBackground))
   const v = cardVersion({
     templateId,
@@ -345,7 +390,7 @@ export async function resolveCard(i: ResolveInput): Promise<ResolvedCard> {
     heroTransparent,
     heroGround: background ?? (i.heroFlattened ? (i.heroBackground ?? DEFAULT_HERO_BACKGROUND) : undefined),
     alt: altOf(i.target, args, props, cardTitle),
-    url: `${i.serverUrl.replace(/\/+$/, '')}${cardPath(i.target, i.targetName, slug)}?v=${v}`,
+    url: `${i.serverUrl.replace(/\/+$/, '')}${cardPath(i.target, i.targetName, slug, format)}?v=${v}`,
     size: template.size,
     type: mimeOf(format),
     encoding,

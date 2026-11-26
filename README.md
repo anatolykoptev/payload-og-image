@@ -106,9 +106,46 @@ target a `.jpg` path: the same card is about a quarter of the size of the palett
 but opt-in, because not every link-preview crawler reads WebP. See [JPEG and WebP cards](docs/reference.md#jpeg-and-webp-cards) and
 [crawlers](docs/crawlers.md#image-formats).
 
+## Zero config: the built-in presets
+
+Install the plugin and it serves every public page. No templates, fonts, store or list of collections: one option and one route file.
+
+```ts
+ogImagePlugin({ siteName: 'Example' }) // or ogImagePlugin({}): the site name is then the serverURL host
+```
+
+```ts
+// app/(frontend)/og/[kind]/[slug]/[file]/route.ts
+import config from '@payload-config'
+import { createOgRoute } from 'payload-og-image/next'
+
+const route = createOgRoute({ config })
+export const GET = route.GET
+export const HEAD = GET
+```
+
+With neither `collections` nor `targets`, the plugin discovers every collection that is not an upload or auth collection, that an anonymous request may read
+(its `access.read` is called when the config is built and answers `true` or a `Where`; none, a throw, a Promise or `false` skips it), and that has a title field the
+public may read. A collection that is unclear is skipped with one start-up line naming it and the reason; a fresh install always boots. Each collection becomes an ordinary target
+built from two named, versioned presets: `payload-og-image:photo@1` (a JPEG: the hero full-bleed with a scrim under the title) and `payload-og-image:text@1`
+(a PNG: a dark ground, the site's logo, name and label on the left, the title, and the logo again, whole and faint, on the right). A document whose hero is at least 800 x 420 draws the photo preset, any other the
+text preset; the page's `ogMetadata` advertises `card.jpg` or `card.png` accordingly, and the route answers 404 for any other file name, for classic cards too.
+
+With no `serverURL` in the Payload config (a default install) the plugin still boots: card URLs then use `http://localhost:3000` and one start-up line says so; the origin is never taken from a request (a spoofed `Host` would end in a cached page), so set `serverURL` before you deploy.
+
+Everything is optional customisation on top: `exclude: ['internal']` opts a collection out; `collections: { posts: { preset: 'text', label: 'News' } }` customises one
+(and adds a collection discovery skipped); a list, `collections: ['posts']`, is exactly those; explicit `targets` win and are untouched (precedence on overlaps: an explicit target of the same name, then `exclude`, then `collections`). Per collection, what is detected and how to override it:
+the title (`admin.useAsTitle`, then `title`, then `name`; `title`), the hero (a single upload field named `hero`, `heroImage`, `image`, `cover`, `coverImage` or `featuredImage`, else `meta.image`;
+`hero`, or `false` for never a photo), the label (`labels.plural`; `label`), the sub line (none; `subtitle`), the path (`:slug`, or `:id` when
+the collection has no `slug` field; `path`, ending in `.:ext`), and `preset: 'text' | 'photo'` to force one. Only fields the public may read are ever detected: not `hidden`,
+`admin.hidden`, under such a group, named `_...`, with an `access.read` that does not say `true` to an anonymous request, or `hasMany`.
+The site name is `siteName`, else the `serverURL` host. `site()` may return `logo`, `partnerLogo` and `brandArt` (an upload id); `artOpacity` (0 to 1, default 0.35) sets how faint the logo on the right is.
+The bundled fonts (Inter 400 and 700, latin, latin-ext and cyrillic; SIL OFL 1.1) are registered only when you give no `fonts` and `stacks`, so a site with
+fonts of its own keeps every card URL it has. See [reference](docs/reference.md#zero-config-presets).
+
 ## What you get
 
-- `payload-og-image`: `ogImagePlugin`, `defineTemplate`, `defineTarget`, and `ogFields()` for the optional per-document
+- `payload-og-image`: `ogImagePlugin`, `defineTemplate`, `defineTarget`, `presets` (the two built-in templates), and `ogFields()` for the optional per-document
   `og` group (mode, headline, subtitle; see [reference](docs/reference.md#per-document-share-card-fields)).
 - `payload-og-image/client`: the admin's live card preview (`OgPreviewField`), referenced by the `og` group; run
   `payload generate:importmap` after adding the plugin.

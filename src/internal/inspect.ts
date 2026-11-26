@@ -75,6 +75,8 @@ export type ServeResult =
   | { status: 'not_found' | 'no_card'; reason: string }
   | { status: 'error'; httpStatus: number }
 
+const CARD_EXTENSIONS = ['png', 'jpg', 'jpeg', 'webp']
+
 export type Inspector = {
   scopes(): Promise<Array<{ scope: string; kind: 'target' | 'static'; total: number }>>
   card(a: CardRef): Promise<CardReport>
@@ -187,6 +189,11 @@ export function createInspector(d: InspectorDeps): Inspector {
         } catch {
           return null
         }
+      } else if (/:ext\b/.test(w)) {
+        // A file name with `:ext` (`card.:ext`): the literal around it, then any card extension. Which one a card really has is the route's check.
+        const [head = '', tail = ''] = w.split(/:ext\b/)
+        const m = g.startsWith(head) && g.endsWith(tail) ? g.slice(head.length, g.length - tail.length) : ''
+        if (!CARD_EXTENSIONS.includes(m)) return null
       } else if (w !== g) return null
     }
     return out

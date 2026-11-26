@@ -1,5 +1,5 @@
 import type { ReactElement } from 'react'
-import type { ImageLists, StaticCard, Target, Template, TemplateContext } from '../template.js'
+import type { ImageLists, ImageShape, StaticCard, Target, Template, TemplateContext } from '../template.js'
 import { drawElement, templateContext } from './draw.js'
 import { type LoadedFont, type Stacks, stripMissing } from './fonts.js'
 import { encodingKey, type JpegOptions, type WebpOptions } from './format.js'
@@ -8,6 +8,7 @@ import type { Memo } from './memo.js'
 import { pooled } from './pool.js'
 import {
   buildKindIndex,
+  cardFile,
   type GeneratedCard,
   getPath,
   MAX_SLUG,
@@ -48,8 +49,8 @@ export type HeroLoader = {
   (
     hero: Upload,
     box: Size,
-    /** `keepAlpha`: flatten onto no ground at all, not even the plugin's `heroBackground` (a named image: a logo stays transparent). */
-    o?: { collection?: string; background?: string; keepAlpha?: boolean },
+    /** `keepAlpha`: flatten onto no ground at all, not even the plugin's `heroBackground` (a named image: a logo stays transparent). `shape`: prepare a named image by its `ImageShape` (the answer `''` is an image the shape declines, which is not a failure). `colours`: the template's own hero palette. */
+    o?: { collection?: string; background?: string; keepAlpha?: boolean; shape?: ImageShape; colours?: false | number },
   ): Promise<string | null>
   /**
    * Whether the hero has a see-through pixel. Asked only while the site has set no `heroBackground`, to give such a card a
@@ -113,6 +114,15 @@ export const CACHE = {
 class Downgraded extends Error {
   constructor(readonly bytes: Uint8Array) {
     super('downgraded')
+  }
+}
+
+/** The last path segment, percent-decoded; undefined when it is malformed. */
+const lastSegment = (pathname: string): string | undefined => {
+  try {
+    return decodeURIComponent(pathname.split('/').pop() as string)
+  } catch {
+    return undefined
   }
 }
 
@@ -209,12 +219,16 @@ export function createCardHandler(d: HandlerDeps): CardHandler {
     const jobs = card.images.flatMap(({ name, collection, uploads }) =>
       uploads.map((upload) => ({ name, collection, upload, box: (card.template.imageBoxes as Record<string, Size>)[name] as Size })),
     )
-    const loaded = await pooled(jobs, 4, (j) => d.heroLoader(j.upload, j.box, { collection: j.collection, keepAlpha: true }))
+    const loaded = await pooled(jobs, 4, (j) =>
+      d.heroLoader(j.upload, j.box, { collection: j.collection, keepAlpha: true, shape: card.template.imageShapes?.[j.name] }),
+    )
     const images: Record<string, string[]> = Object.create(null)
     let failed = 0
     jobs.forEach((j, n) => {
       const url = loaded[n]
       if (url === null || url === undefined) failed += 1
+      else if (url === '')
+        return // the image's shape declined it (a logo that makes no halftone): nothing to draw, and not a failure
       else images[j.name] = [...(Object.hasOwn(images, j.name) ? (images[j.name] as string[]) : []), url]
     })
     return { images: images as unknown as ImageLists, failed }
@@ -246,6 +260,7 @@ export function createCardHandler(d: HandlerDeps): CardHandler {
       ? await d.heroLoader(card.hero, card.template.heroBox ?? card.size, {
           collection: card.heroCollection,
           background: card.heroBackground,
+          colours: card.template.heroColours,
         })
       : null
     const { images, failed } = await loadImages(card)
@@ -455,6 +470,14 @@ export function createCardHandler(d: HandlerDeps): CardHandler {
     if (!prepared) return notFound()
     const { card, fonts, digest, site } = prepared
     if (card.kind !== 'generated') return notFound()
+    // A card is served under its own file name only (`card.jpg` for a JPEG card) where the route cannot say so itself: a path with `:ext`, or a route with a
+    // parameter besides `kind`, `slug` and `id` (a `[file]` catch-all, which would otherwise answer `card.jpg` for a classic PNG). The name is read from the
+    // request's pathname, never from a param: a static `card.png` route has none. A fixed route keeps its behaviour (its pathname is its own).
+    if (/:ext\b/.test(target.path) || Object.keys(p).some((k) => k !== 'kind' && k !== 'slug' && k !== 'id')) {
+      const asked = lastSegment(new URL(request.url).pathname)
+      if (asked === undefined || asked !== cardFile(target, targetName ?? (staticCard as StaticCard).kind, slug, card.encoding.format))
+        return notFound()
+    }
     if (card.missing.length)
       d.events.emit({ name: 'glyph_missing', kind: card.key.kind, slug: card.key.slug, detail: { chars: card.missing } })
     const type = { 'content-type': card.type, etag: `"${card.v}"` }

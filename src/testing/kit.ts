@@ -26,12 +26,12 @@ const ctx = (params: Params): RouteContext => ({ params: Promise.resolve(params)
 const same = (a: Uint8Array, b: Uint8Array) => a.length === b.length && a.every((x, i) => x === b[i])
 const bytesOf = async (r: Response) => new Uint8Array(await r.arrayBuffer())
 
-/** One regex per configured card path (`:kind`, `:slug`, `:id` become captures), to turn an advertised URL back into route params. */
+/** One regex per configured card path (`:kind`, `:slug`, `:id`, `:ext` become captures), to turn an advertised URL back into route params. */
 function patterns(rt: TestRuntime) {
   const list: Array<{ regex: RegExp; names: string[]; target?: string; fixed?: Params }> = []
   const add = (p: string, target?: string, fixed?: Params) => {
     const names: string[] = []
-    const source = p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/:(kind|slug|id)\b/g, (_, n: string) => {
+    const source = p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/:(kind|slug|id|ext)\b/g, (_, n: string) => {
       names.push(n)
       return '([^/]+)'
     })
@@ -102,7 +102,9 @@ async function sameHeadAndGet(check: string, get: Response, head: Response): Pro
 }
 
 export function ogKit(rt: TestRuntime) {
-  const urlOf = (p: Params) => `${rt.serverUrl}/og/${encodeURIComponent(p.kind ?? '')}/${encodeURIComponent(p.slug ?? '')}/card.png`
+  // A `[file]` route's param names the file asked for (`card.jpg`); a route without one is asked for `card.png`, as before.
+  const urlOf = (p: Params) =>
+    `${rt.serverUrl}/og/${encodeURIComponent(p.kind ?? '')}/${encodeURIComponent(p.slug ?? '')}/${encodeURIComponent(p.file ?? 'card.png')}`
   const call = (
     m: RouteModule,
     p: Params,
@@ -239,8 +241,23 @@ export function ogKit(rt: TestRuntime) {
       // A route file path may be a template that serves several LITERAL configured paths (any value in a `:param` segment); a
       // configured path that is itself a template must be served by a route with the very same parameter names.
       const asRegex = (route: string) => new RegExp(`^${route.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/:[A-Za-z]+/g, '[^/]+')}$`)
+      // A route whose LAST segment is a parameter (`[file]`) serves a configured path that agrees on every other segment and ends in a file name: a literal
+      // one (`card.png`; the handler answers 404 to any other name) or one with `:ext` (`card.:ext`). Configured parameters still need the same names.
+      const servesFile = (route: string, configuredPath: string) => {
+        const r = route.split('/')
+        const c = configuredPath.split('/')
+        const last = r.length - 1
+        return (
+          r.length === c.length &&
+          /^:[A-Za-z]+$/.test(r[last] as string) &&
+          !/^:[A-Za-z]+$/.test(c[last] as string) &&
+          r.slice(0, last).every((seg, i) => seg === c[i])
+        )
+      }
       const matches = (route: string, configuredPath: string) =>
-        route === configuredPath || (!configuredPath.includes(':') && asRegex(route).test(configuredPath))
+        route === configuredPath ||
+        servesFile(route, configuredPath) ||
+        (!configuredPath.includes(':') && asRegex(route).test(configuredPath))
       const problems: string[] = []
       for (const [p, who] of configured) {
         if (![...routes.keys()].some((r) => matches(r, p)))

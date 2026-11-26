@@ -19,6 +19,7 @@ export type Box = {
     tracking?: number;
     descent?: number;
     fewerLines?: boolean;
+    weight?: number;
     balance?: boolean;
 } & ({
     maxSize: number;
@@ -75,6 +76,18 @@ export type ImageRef = string | number | {
 };
 
 // @public
+export type ImageShape = {
+    trim?: boolean;
+    key?: boolean;
+    contrast?: {
+        ground: string;
+        fill: string;
+        min?: number;
+    };
+    aspect?: readonly [min: number, max: number];
+};
+
+// @public
 export type JpegOptions = {
     quality?: number;
 };
@@ -115,10 +128,23 @@ export type OgFieldsOption = {
 };
 
 // @public
-export function ogImagePlugin(options: OgImagePluginOptions): (config: Config) => Config;
+export function ogImagePlugin(options: OgImagePluginInput): (config: Config) => Config;
+
+// @public
+export type OgImagePluginInput = OgImagePluginOptions | (OgImagePluginPresetOptions & {
+    collections: PresetCollections;
+}) | (OgImagePluginPresetOptions & {
+    collections?: undefined;
+    targets?: undefined;
+});
 
 // @public (undocumented)
 export type OgImagePluginOptions = {
+    collections?: PresetCollections;
+    exclude?: string[];
+    artOpacity?: number;
+    siteName?: string;
+    logoCollection?: string;
     site(a: {
         payload: Payload;
         draft?: boolean;
@@ -178,6 +204,9 @@ export type OgImagePluginOptions = {
 };
 
 // @public
+export type OgImagePluginPresetOptions = Omit<OgImagePluginOptions, 'site' | 'fonts' | 'stacks' | 'templates' | 'targets' | 'store'> & Partial<Pick<OgImagePluginOptions, 'site' | 'fonts' | 'stacks' | 'templates' | 'targets' | 'store'>>;
+
+// @public
 export type OgOverrides = {
     headline?: string;
     subtitle?: string;
@@ -185,6 +214,49 @@ export type OgOverrides = {
 
 // @public (undocumented)
 export type OnEvent = (e: OgEvent) => void;
+
+// @public
+export type PresetCollection = string | ({
+    slug: string;
+} & PresetCollectionOptions);
+
+// @public
+export type PresetCollectionOptions = {
+    preset?: PresetName;
+    title?: string;
+    hero?: string | false;
+    label?: string;
+    subtitle?: string;
+    byline?: string;
+    path?: string;
+};
+
+// @public
+export type PresetCollections = PresetCollection[] | Record<string, PresetCollectionOptions>;
+
+// @public (undocumented)
+export type PresetName = 'auto' | 'photo' | 'text';
+
+// @public (undocumented)
+export type PresetProps = {
+    title: string;
+    subtitle?: string;
+    label?: string;
+    site: string;
+    byline?: string;
+    artOpacity?: number;
+    pill?: string;
+    pill2?: string;
+    badge?: string;
+    caption?: string;
+    meta?: string;
+};
+
+// @public
+export const presets: {
+    readonly text: Template<PresetProps>;
+    readonly photo: Template<PresetProps>;
+};
 
 // @public
 export type PropsModel = {
@@ -205,6 +277,23 @@ export type ResolverArgs<D> = {
     site: SiteInfo;
     related: RelatedFn; /** Always given by the resolver; optional so that a test calling `target.props({ doc, site, related })` by hand still compiles. */
     overrides?: OgOverrides;
+};
+
+// @public
+export type RowFit = RowItem & {
+    width: number;
+};
+
+// @public
+export type RowItem = {
+    key: string;
+    text: string;
+    stack: string;
+    size: number;
+    weight?: number;
+    tracking?: number;
+    padX?: number;
+    priority: number;
 };
 
 // @public (undocumented)
@@ -255,6 +344,11 @@ export type Target<D = any, P = any> = {
     heroCollection?: string;
     images?: (a: ResolverArgs<D>) => Record<string, ImageRef | readonly ImageRef[] | null | undefined>;
     imageCollections?: Record<string, string>;
+    seoImage?: {
+        path: string;
+        isDeliberate?: (image: unknown) => boolean;
+        except?: (a: ResolverArgs<D>) => unknown;
+    };
     heroBackground?: string;
     alt?: (a: ResolverArgs<D> & {
         props: Normalized<P>;
@@ -276,10 +370,14 @@ export type Template<P extends PropsModel> = {
     revision: string;
     size: Size;
     required?: (p: P) => boolean;
+    normalize?: (p: P) => P;
     textFields?: (keyof P & string)[];
     stacks?: Record<string, string>;
     heroBox?: Size;
+    format?: CardFormat;
     imageBoxes?: Record<string, Size>;
+    imageShapes?: Record<string, ImageShape>;
+    heroColours?: false | number;
     heroBackground?: string;
     render(p: P, ctx: TemplateContext): ReactElement;
 };
@@ -296,6 +394,7 @@ export type TemplateContext = {
         width?: number;
     };
     font(stack: string, text: string): string;
+    fitRow?(items: RowItem[], width: number, gap?: number): RowFit[];
 };
 
 // @public (undocumented)

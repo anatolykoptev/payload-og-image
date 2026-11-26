@@ -244,6 +244,63 @@ id resolves, so those cards get a new `v` once (the hero is part of the version)
 (an id, or `{ id }`) as well as an upload. `heroCollection` and every `imageCollections` value must be an upload collection
 of the config, or the plugin refuses to start, naming it.
 
+## Zero-config presets
+
+The plugin serves every public page on its own. It expands the preset side of its options into ordinary targets before anything validates (as `variants` do), so resolve, the
+handler and the store know nothing about presets. With presets, `site`, `fonts`, `stacks`, `templates`, `targets` and `store` are optional.
+
+**Discovery.** With neither `collections` nor `targets`, every collection is covered that is not an upload or an auth collection, whose `access.read` answers an anonymous
+request (called with `{ req: { user: null } }` when the config is built) with `true` or a `Where`, and that has a title field the public may read. A collection with no `access.read`
+(Payload's default needs a login), one whose function throws, returns a Promise or `false`, or has no usable title, is skipped; one start-up line names every skipped collection and the reason.
+The per-request reads (published only, the visitor's access) stay the exposure guard. `exclude` opts collections out (an unknown name is a start-up error); `collections` as an object of options by slug
+customises (and adds) entries on top of discovery; `collections` as a list is exactly those collections; a target of the same name wins (precedence on overlaps: an explicit target, then `exclude`, then `collections`; none of them is an error). A skip line tells apart a function that cannot be evaluated when the config is built (it threw with a stub request, or is async) from one that denies an anonymous request.
+
+| Option of a collection | Default                                                                                                                                             |
+| ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `preset`               | `auto`: photo for a document with a hero of at least 800 x 420 (a raster upload with a file), text otherwise; or `text`/`photo`                     |
+| `title`                | `admin.useAsTitle`, then `title`, then `name`: a scalar text field the public may read                                                              |
+| `hero`                 | the first single upload field named `hero`, `heroImage`, `image`, `cover`, `coverImage`, `featuredImage`; else `meta.image`; `false`: never a photo |
+| `label`                | `labels.plural`, else the capitalised slug                                                                                                          |
+| `subtitle`             | none; a text or textarea field path. Drawn whole or not at all                                                                                      |
+| `byline`               | none; a text field path drawn before the domain in the foot of the text card (`author · domain`)                                                    |
+| `path`                 | `/og/:kind/:slug/card.:ext` (`:id` when there is no readable `slug` field); must end in `.:ext`                                                     |
+
+**What may be drawn.** A detected field must be a scalar the public may read: not `hidden`, `admin.hidden` or `admin.disabled`, not under such a group, not named `_...`, no `hasMany`, and an
+`access.read` on it (checked with an anonymous request when the config is built) must answer `true`. An explicit path that fails the rule is a start-up error naming why.
+
+With no `serverURL` anywhere, a preset install boots with `http://localhost:3000` as the card origin and one start-up line (the origin is never read from a request). A classic install still needs it. The preset templates' revision is `2`: a design change is a revision bump.
+
+Plugin options on this path: `siteName` (default the `serverURL` host without `www.`), `logoCollection` (the upload collection `site().logo`, `site().partnerLogo` and `site().brandArt` are read from; default the only upload collection),
+`artOpacity` (0 to 1; the logo on the right of the text card, default 0.35). A collection with `meta.image` (plugin-seo) makes that target honour it as the editor's share image (unless the plugin's own `seoImage` is set, which it then follows); the editor's
+image is never inferred for any other target, and is never the hero itself. `og.mode` works as before: `off` gives no card, `custom` and `inherit` prefer the editor's image, `generated` always draws a preset.
+
+**One route, two formats.** `:ext` is the extension of the card's format: the target's `format`, else the template's (`Template.format`: the photo preset is `jpeg`, the text preset `png`), else the plugin's. The route
+serves a card only under its own file name, read from the request **pathname** (never a route param, which a static `card.png` route does not have). On a route with a parameter other than `kind`,
+`slug` and `id` (the `[file]` catch-all), that holds for every card, a classic PNG included: `card.jpg` for it is a 404. A fixed route keeps its behaviour. A `path` is validated once for every target (a preset's, a
+hand-written one, a static card): `:ext` only as the end of the file name, and a fixed path only when every encoding its template can choose is the one it names.
+
+**Versions.** Both presets are templates (`payload-og-image:photo`, `payload-og-image:text`, revision `1`): their spec lives in `src/presets/spec.ts` and enters the version through the template id and revision, so a design change is a revision bump
+that moves only preset cards. Prepared images (the contained logo, its tint) are derived from the upload's bytes and the template's shape, so the upload's identity and the revision cover them. A site that does not opt in hashes exactly as before
+(`test/compat/golden.spec.ts`). A slot over its limit is normalised away (`Template.normalize`) before the version is taken.
+
+**Fonts.** Inter 400 and 700, each in latin, latin-ext and cyrillic (families `Inter`, `Inter Ext`, `Inter Cyrillic`, stack `default`), are registered only when
+the site gives neither `fonts` nor `stacks`. The licence is `fonts/OFL.txt`. The faces are read from an embedded copy of `fonts/*.woff`
+(`scripts/fetch-fonts.mjs` writes both from a pinned `@fontsource/inter`), never from a file path, because a bundled `import.meta.url` is not a file URL inside Next.
+A site with fonts of its own draws the presets with its own `default` stack. Text is measured with the weight and the family selection it is drawn with.
+
+**Safe zone.** Text, a logo and a pill stay inside x 64 to 1136 and y 96 to 534: about 15% of a wide card is cropped top and bottom by some feeds.
+Only the photo, the scrims, the logo on the right, the brand art and the accent strip bleed. `textLayout` and `photoLayout` are pure functions of the props and `ctx`, so the zone is tested without pixels.
+
+**Logos.** `site().logo` is trimmed of its transparent (or uniform) margin and contained, never cropped: at most 220 x 44 in the head of the text card, 150 x 36 at the end of the photo card's fact row. A logo wider than 1.5:1 stands alone (no site name beside it, no logo on the right).
+`partnerLogo` follows after a 16 px gap (at most 160 x 44, or 120 x 36). A logo whose opaque pixels mostly contrast under 3:1 with the dark ground (a black wordmark) is drawn in the ink (white on the photo card). `ImageShape` (`Template.imageShapes`) is the generic
+form of this: `fit`, `trim`, `contrast`, `aspect`. SVG logos are not read (see `hero.ts`): such a site draws the no-logo card.
+
+**The text card** (dark ground `#121416`, ink `#EEF0F2`, muted `#A3A9B0`, accent `#8FB4FF`): the left column holds the head lockup (logo, partner, site name, a hairline, the label), the title, the sub line and the foot (`author · domain`, where the author is the `byline` prop, and the domain has no `www.`);
+the right holds the uploaded `brandArt`, else the site's logo, whole, trimmed and contained in 400 x 400 at (736, 115), at `artOpacity`; it is faint and sits behind the title, so the title column stays 900 px and a short title keeps its large rungs (84 px on two lines for a 42-character title). Uploaded `brandArt` is opaque: it takes the right of the card (464 px) and the column narrows to 640. With neither, or when the logo is no mark (a trimmed aspect outside 0.67 to 1.5), the right side is empty.
+The title ladder beside art (96 px down to 48 px, four lines) has no ellipsis: a title that does not fit whole drops the art and is fitted on the plain ladder (down to 44 px, six lines), where the ellipsis is the last resort. An 8 px accent strip at 0.55 opacity runs along the bottom.
+**The photo card** covers the hero (truecolour: a palette PNG shows as a cross-hatch on a smooth sky) at its focal point, with a bottom scrim over the title (0 at 140 px above the title's top, 0.55 at the title, 0.82 at the bottom edge), a white bottom-anchored title and a fact row ending in one brand lockup (logo, partner logo, name; the name drops first, the logo never).
+A photograph that cannot be prepared draws the text layout in the same template, as any downgrade.
+
 ## Several images per card
 
 `Target.images` names lists of uploads besides the hero, for a template that draws a stack of photos, a logo or a row of

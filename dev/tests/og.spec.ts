@@ -48,6 +48,7 @@ describe('dev app share cards', () => {
         params: { kind: u.pathname.split('/')[2] as string, slug: decodeURIComponent(u.pathname.split('/')[3] as string) },
       }),
     }))
+  // The `[file]` route (OG_DEV_MODE=preset's) sits beside the legacy `card.png` route: both are route files of these classic options.
   it('configured paths match route files', () => kit.routesMatchPaths({ appDir: new URL('../app', import.meta.url).pathname }))
   it('draft never cached', () =>
     kit.draftNeverCached({ module: cardRoute, params: p('a'), target: 'posts', slug: 'a', draftOnly: 'unpublished' }))

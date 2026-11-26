@@ -13,7 +13,8 @@
       "!**/.next",
       "!dev/media",
       "!CHANGELOG.md",
-      "!skills/**/SKILL.md"
+      "!skills/**/SKILL.md",
+      "!src/presets/fontData.ts"
     ]
   },
   "formatter": {

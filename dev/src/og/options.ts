@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises'
 import path from 'node:path'
-import type { OgImagePluginOptions } from 'payload-og-image'
+import type { OgImagePluginInput, OgImagePluginOptions } from 'payload-og-image'
 import { postCard } from './exampleTemplate.js'
 
 // Run from the repository root (`pnpm dev`, `payload run`, vitest): `import.meta.url` is not a plain file URL inside Next's RSC layer.
@@ -29,4 +29,10 @@ export const ogOptions: OgImagePluginOptions = {
   fields: { enabled: true },
   // Production: an absolute path on a volume only the app writes. Without one, cards stay in memory.
   store: process.env.OG_STORE_DIR ? { dir: process.env.OG_STORE_DIR } : { memory: true },
+}
+
+/** `OG_DEV_MODE=preset`: zero config. No collections listed: every public collection is served with the bundled fonts, a memory store and the built-in presets. */
+export const presetOptions: OgImagePluginInput = {
+  siteName: 'Dev Site',
+  fields: { enabled: true },
 }
