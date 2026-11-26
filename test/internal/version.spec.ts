@@ -1,6 +1,7 @@
 /** Mutation table (production line -> the test that goes RED). Silent-failure surface: a stale card URL gives no error in prod.
  * - version.ts `cardPalette` or `heroPalette` dropped from the hash -> "a card palette or a hero palette moves the version only when set" RED
  * - version.ts `imageTail` appended for an empty or absent `images`, or left out when set -> "named images move the version only when present" RED
+ * - version.ts `imageTail` hashing only the first upload's collection of a name -> "named images move the version ..." RED (two uploads that differ only in a later one's collection)
  * - version.ts:75  drop `i.props` from the hashed array                  -> "changes with title" / "site datum" RED
  * - version.ts:75  drop `i.host`                                         -> "changes with host (domain move)" RED
  * - version.ts:75  drop `i.fontsDigest`                                  -> "changes with fonts (a face file swapped)" RED
@@ -103,6 +104,12 @@ describe('cardVersion', () => {
     ).toBe(ab)
     // ids are unique within a collection only: the same id and updatedAt in another collection is another image
     expect(cardVersion({ ...base, images: [im('stack', [img(1)], 'logos')] })).not.toBe(one)
+    // one name can mix collections: two images that differ only in a later upload's collection are two cards
+    const mixed = (second: string) => ({
+      name: 'stack',
+      uploads: [verifiedUpload(img(1), 'media'), verifiedUpload(img(2), second)],
+    })
+    expect(cardVersion({ ...base, images: [mixed('logos')] })).not.toBe(cardVersion({ ...base, images: [mixed('media')] }))
     // The hero palette cuts them; the plugin's heroBackground does not touch them.
     expect(cardVersion({ ...base, images: [im('stack', [img(1)])], heroPalette: '64' })).not.toBe(one)
     expect(cardVersion({ ...base, images: [im('stack', [img(1)])], heroBackground: '#336699' })).toBe(one)
